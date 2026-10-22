@@ -56,22 +56,62 @@ def models_root(project) -> str:
     return d
 
 
+SHARED_DIR: str | None = None     # 共有のモデル置き場（data/models/local。サーバーが起動時に入れる）。どのプロジェクトからも使える
+
+
+def shared_root() -> str:
+    global SHARED_DIR
+    if not SHARED_DIR:
+        from .config import DATA_DIR
+        SHARED_DIR = os.path.join(str(DATA_DIR), "models", "local")
+    os.makedirs(SHARED_DIR, exist_ok=True)
+    return SHARED_DIR
+
+
+def model_folder(project, name: str) -> str | None:
+    """モデルのフォルダ: プロジェクトの models/<name> → 共有の models/local/<name> の順に探す"""
+    name = safe_model_name(name)
+    for root in (models_root(project), shared_root()):
+        d = os.path.join(root, name)
+        if os.path.isfile(os.path.join(d, "model.json")):
+            return d
+    return None
+
+
+def share_model(project, name: str) -> str:
+    """プロジェクトのモデルを共有の置き場にコピーする（ほかのプロジェクトでも使えるように）"""
+    src = os.path.join(models_root(project), safe_model_name(name))
+    if not os.path.isfile(os.path.join(src, "model.json")):
+        raise FileNotFoundError(f"追加学習のモデルがありません: {name}")
+    dst = os.path.join(shared_root(), safe_model_name(name))
+    if os.path.isdir(dst):
+        shutil.rmtree(dst, ignore_errors=True)
+    shutil.copytree(src, dst)
+    return dst
+
+
 def safe_model_name(name: str) -> str:
     name = "".join(ch for ch in (name or "").strip() if ch not in '\\/:*?"<>|').strip(". ")
     return name[:60] or "model"
 
 
 def list_models(project) -> list[dict]:
+    """このプロジェクトのモデルと、共有の置き場のモデル（shared = True。同じ名前がプロジェクトにあればそちら）"""
     out = []
-    root = models_root(project)
-    for n in sorted(os.listdir(root)):
-        jp = os.path.join(root, n, "model.json")
-        if os.path.isfile(jp):
+    seen = set()
+    for root, shared in ((models_root(project), False), (shared_root(), True)):
+        for n in sorted(os.listdir(root)):
+            jp = os.path.join(root, n, "model.json")
+            if not os.path.isfile(jp) or n in seen:
+                continue
             try:
                 with open(jp, encoding="utf-8") as fh:
                     d = json.load(fh)
                 d["name"] = n
+                d["shared"] = shared
+                d["also_shared"] = (not shared) and os.path.isfile(os.path.join(shared_root(), n, "model.json"))
                 out.append(d)
+                seen.add(n)
             except Exception as e:
                 log.warning("models/%s を読めません: %s", n, e)
     out.sort(key=lambda d: d.get("trained_at") or "", reverse=True)
@@ -79,18 +119,20 @@ def list_models(project) -> list[dict]:
 
 
 def model_info(project, name: str) -> dict:
-    jp = os.path.join(models_root(project), safe_model_name(name), "model.json")
-    if not os.path.isfile(jp):
+    d = model_folder(project, name)
+    if d is None:
         raise FileNotFoundError(f"追加学習のモデルがありません: {name}")
-    with open(jp, encoding="utf-8") as fh:
+    with open(os.path.join(d, "model.json"), encoding="utf-8") as fh:
         return json.load(fh)
 
 
 def delete_model(project, name: str) -> bool:
-    d = os.path.join(models_root(project), safe_model_name(name))
-    if os.path.isdir(d):
-        shutil.rmtree(d, ignore_errors=True)
-        return True
+    """プロジェクトのモデルを消す。プロジェクトになければ共有のを消す"""
+    for root in (models_root(project), shared_root()):
+        d = os.path.join(root, safe_model_name(name))
+        if os.path.isdir(d):
+            shutil.rmtree(d, ignore_errors=True)
+            return True
     return False
 
 
@@ -857,7 +899,9 @@ def run_train_b(project, hub, opts: dict, name: str, progress=None, stop=None) -
 # ---------- 学習したモデルを判定に使う ----------
 def load_local(project, hub, name: str) -> dict:
     """models/<name> を hub に付ける。方式 A は hub.head、方式 B は本体の重みを差し替える（hub.local に記録）"""
-    folder = os.path.join(models_root(project), safe_model_name(name))
+    folder = model_folder(project, name)
+    if folder is None:
+        raise FileNotFoundError(f"追加学習のモデルがありません: {name}")
     info = model_info(project, name)
     if info.get("kind") == "A":
         hub.head = Head.load(folder, info)

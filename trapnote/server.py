@@ -239,6 +239,7 @@ class Session:
     def models_dir(self) -> str:
         d = self.settings.get("models_dir") or str(DATA_DIR / "models")
         os.makedirs(d, exist_ok=True)
+        train.SHARED_DIR = os.path.join(d, "local")      # 追加学習のモデルの共有の置き場
         return d
 
     def model_hub(self):
@@ -849,7 +850,7 @@ def make_app(session: Session) -> web.Application:
         p = S.need()
         b = await _body(request)
         want = str(b.get("classifier") or "speciesnet")
-        if want.startswith("local:") and not os.path.isfile(os.path.join(train.models_root(p), train.safe_model_name(want[6:]), "model.json")):
+        if want.startswith("local:") and train.model_folder(p, want[6:]) is None:
             raise ApiError(f"モデルがありません: {want}")
         p.update_settings(dict(classifier=want))
         if b.get("reclassify"):
@@ -865,11 +866,16 @@ def make_app(session: Session) -> web.Application:
     async def train_result(request):
         p = S.need()
         name = train.safe_model_name(request.query.get("name") or "")
-        jp = os.path.join(train.models_root(p), name, "model.json")
-        if not os.path.isfile(jp):
+        d = train.model_folder(p, name)
+        if d is None:
             raise ApiError("モデルがありません", 404)
-        with open(jp, encoding="utf-8") as fh:
+        with open(os.path.join(d, "model.json"), encoding="utf-8") as fh:
             return jr(json.load(fh))
+
+    async def train_models_share(request):
+        p = S.need()
+        b = await _body(request)
+        return jr(dict(path=await io(train.share_model, p, str(b.get("name") or ""))))
 
     async def bulk_verify(request):
         p = S.need()
@@ -1107,6 +1113,7 @@ def make_app(session: Session) -> web.Application:
     r.add_post("/api/train/stop", train_stop)
     r.add_get("/api/train/models", train_models)
     r.add_post("/api/train/models/delete", train_models_delete)
+    r.add_post("/api/train/models/share", train_models_share)
     r.add_post("/api/train/use", train_use)
     r.add_get("/api/train/result", train_result)
     r.add_get("/api/items/{id}/detections", item_detections)
