@@ -22,7 +22,7 @@ from .paths import abs_of
 
 log = logging.getLogger(__name__)
 ITEM_RE = re.compile(r"^(?P<folder>[^/]+)/images/(?P<name>[^/]+)$")
-NAME_RE = re.compile(r"^(?P<season>[A-Za-z]\d{6})_(?P<station>[A-Za-z]+\d+)_(?P<video>.+?)_img(?P<frame>\d+)$")
+NAME_RE = re.compile(r"^(?P<season>[A-Za-z]\d{6})_(?P<station>[A-Za-z]+\d+)_(?P<video>.+?)(?:_img(?P<frame>\d+)|_FPS_(?P<frame2>\d+)|_(?P<frame3>\d+))?$")   # N180712_BSN0870_IMG0047_img450 / N210415_BSN0553_IMG0472_FPS_0008 など
 BACK_NAMES = {"back", "background", "empty", "blank", "none", "negative"}
 BIRD_HINTS = ("kiji", "hato", "tsugumi", "shirohara", "phasianidae", "bird", "aves", "tori", "mokin", "sagi", "kirei")
 
@@ -84,8 +84,8 @@ def parse_label_file(path: str) -> list[tuple[float, float, float, float, float,
 
 
 def import_yolo(project, mapping: dict[str, str | None], by: str | None, as_verified: bool = True, set_station: bool = True,
-                overwrite_verified: bool = False, progress=None) -> dict:
-    """mapping = {フォルダ名: 種コード or None（読まない）}。返り値は件数"""
+                overwrite_verified: bool = False, progress=None, station_only: bool = False) -> dict:
+    """mapping = {フォルダ名: 種コード or None（読まない）}。返り値は件数。station_only なら枠も判定も触らず、画像名から季節・地点だけ付け直す"""
     from .judge import update_agree
     db = project.db
     if set_station and project.setting("pattern") in ("{station}/{file}", "{season}/{station}/{file}", ""):
@@ -107,10 +107,17 @@ def import_yolo(project, mapping: dict[str, str | None], by: str | None, as_veri
             if folder not in mapping or mapping[folder] is None:
                 continue
             code = mapping[folder]
+            stem = os.path.splitext(name)[0]
+            if station_only:
+                nm = NAME_RE.match(stem)
+                if nm:
+                    cur.execute("UPDATE items SET season=?, station=? WHERE id=?", (nm.group("season"), nm.group("station"), r["id"]))
+                    n_station += 1
+                n_items += 1
+                continue
             if r["status"] == "verified" and not overwrite_verified:
                 n_skipped += 1
                 continue
-            stem = os.path.splitext(name)[0]
             boxes = parse_label_file(os.path.join(project.root, folder, "labels", stem + ".txt"))
             # 検出枠（MegaDetector の枠と同じ表）
             cur.execute("DELETE FROM detections WHERE item_id=?", (r["id"],))
@@ -140,7 +147,7 @@ def import_yolo(project, mapping: dict[str, str | None], by: str | None, as_veri
                 nm = NAME_RE.match(stem)
                 if nm:
                     cur.execute("UPDATE items SET season=?, station=?, pattern_json=? WHERE id=?",
-                                (nm.group("season"), nm.group("station"), json.dumps(dict(video=nm.group("video"), frame=nm.group("frame"), species_folder=folder), ensure_ascii=False), r["id"]))
+                                (nm.group("season"), nm.group("station"), json.dumps(dict(video=nm.group("video"), frame=nm.group("frame") or nm.group("frame2") or nm.group("frame3") or "", species_folder=folder), ensure_ascii=False), r["id"]))
                     n_station += 1
                 else:                                 # 名前から取れない画像は、フォルダのパターンで付いた "images" などの地点を消す
                     cur.execute("UPDATE items SET season=NULL, station=NULL, pattern_json=? WHERE id=?", (json.dumps(dict(species_folder=folder), ensure_ascii=False), r["id"]))

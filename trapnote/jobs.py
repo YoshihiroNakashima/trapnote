@@ -553,7 +553,7 @@ class YoloImportJob(Job):
                 raise RuntimeError("止めました")
         self.message = "読み込み中"
         r = yolo.import_yolo(project, self.mapping, self.by, bool(self.options.get("as_verified", True)), bool(self.options.get("set_station", True)),
-                             bool(self.options.get("overwrite_verified")), prog)
+                             bool(self.options.get("overwrite_verified")), prog, bool(self.options.get("station_only")))
         self.result = r
         self.done = self.total = r["items"]
         self.message = f"{r['items']} 枚（枠 {r['boxes']}、枠なし {r['no_boxes']}、確認済みで飛ばした {r['skipped_verified']}、季節・地点を付けた {r['station_set']}）"

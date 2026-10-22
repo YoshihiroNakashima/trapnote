@@ -961,7 +961,7 @@ def make_app(session: Session) -> web.Application:
         p = S.need()
         b = await _body(request)
         mapping = {str(k): (str(v) if v else None) for k, v in (b.get("mapping") or {}).items()}
-        S.bg.submit(YoloImportJob(mapping, dict(as_verified=b.get("as_verified", True), set_station=b.get("set_station", True), overwrite_verified=b.get("overwrite_verified")), user()), front=True)
+        S.bg.submit(YoloImportJob(mapping, dict(as_verified=b.get("as_verified", True), set_station=b.get("set_station", True), overwrite_verified=b.get("overwrite_verified"), station_only=b.get("station_only")), user()), front=True)
         return jr(S.jobs_status())
 
     async def yolo_export(request):

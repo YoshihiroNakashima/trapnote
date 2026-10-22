@@ -911,19 +911,21 @@ async function yoloDialog() {
     ${pv.folders.length ? `<div style="max-height:45vh;overflow:auto"><table class="tbl"><tr><th>${esc(t('yl_folder'))}</th><th>${esc(t('yl_images'))}</th><th>${esc(t('yl_labels'))}</th><th>${esc(t('species'))}</th></tr>${rows}</table></div>` : `<div class="note">${esc(t('yl_none'))}</div>`}
     <div class="form-row"><label></label><span style="display:flex;flex-direction:column;gap:2px"><label class="chk"><input type="checkbox" id="ylVerified" checked> ${esc(t('yl_verified'))}</label><label class="chk"><input type="checkbox" id="ylStation" checked> ${esc(t('yl_station'))}</label><label class="chk"><input type="checkbox" id="ylOverwrite"> ${esc(t('yl_overwrite'))}</label></span></div>
     <div id="ylResult" class="note"></div>
-    <div class="modal-actions"><button id="mCancel">${esc(t('close'))}</button><button id="mOk" class="primary" ${pv.folders.length ? '' : 'disabled'}>${esc(t('run'))}</button></div>`);
+    <div class="modal-actions"><button id="mCancel">${esc(t('close'))}</button><button id="ylStationOnly" ${pv.folders.length ? '' : 'disabled'} data-title="yl_station_only_tip">${esc(t('yl_station_only'))}</button><button id="mOk" class="primary" ${pv.folders.length ? '' : 'disabled'}>${esc(t('run'))}</button></div>`);
   m.querySelector('#mCancel').onclick = closeModal;
   yoloModalEl = m;
-  m.querySelector('#mOk').onclick = async () => {
+  const run = async (stationOnly) => {
     const mapping = {};
     m.querySelectorAll('select[data-folder]').forEach(sel => { mapping[sel.dataset.folder] = sel.value || null; });
     m.querySelector('#mOk').disabled = true;
     try {
-      const j = await api('/api/yolo/import', { mapping, as_verified: m.querySelector('#ylVerified').checked, set_station: m.querySelector('#ylStation').checked, overwrite_verified: m.querySelector('#ylOverwrite').checked });
+      const j = await api('/api/yolo/import', { mapping, as_verified: m.querySelector('#ylVerified').checked, set_station: m.querySelector('#ylStation').checked, overwrite_verified: m.querySelector('#ylOverwrite').checked, station_only: !!stationOnly });
       S._bgWasRunning = true; m._wasRunning = true;
       yoloOnJobs(j);
     } catch (e) { toast(e.message, 'error'); m.querySelector('#mOk').disabled = false; }
   };
+  m.querySelector('#mOk').onclick = () => run(false);
+  m.querySelector('#ylStationOnly').onclick = () => run(true);
   yoloOnJobs(S.snap && S.snap.jobs);
 }
 let yoloModalEl = null;
