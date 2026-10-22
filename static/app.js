@@ -32,6 +32,13 @@ function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;
 function fmtSec(s) { if (s == null || isNaN(s)) return '–'; return s.toFixed(2); }
 function fmtDur(s) { if (s == null) return ''; const m = Math.floor(s / 60), r = s - m * 60; return m ? `${m}:${r.toFixed(1).padStart(4, '0')}` : `${r.toFixed(1)} s`; }
 function spByCode(code) { return S.spMap ? S.spMap[code] : null; }
+function spOrderKey(code) {   // 種リストの順（固定項目は後、要確認 (low) は最後）。表の行と列をそろえるため
+  if (code === '(low)') return 1e9;
+  const all = (S.species.species || []).concat(S.species.fixed || []);
+  const i = all.findIndex(s => s.code === code);
+  return i < 0 ? 1e8 : i;
+}
+function sortCodes(codes) { return [...codes].sort((a, b) => spOrderKey(a) - spOrderKey(b) || String(a).localeCompare(String(b))); }
 function rebuildSpMap() { S.spMap = {}; (S.species.species || []).forEach(s => { S.spMap[s.code] = s; }); (S.species.fixed || []).forEach(s => { S.spMap[s.code] = s; }); }
 function spLabel(code) { const s = spByCode(code); return s ? spName(s) : code; }
 

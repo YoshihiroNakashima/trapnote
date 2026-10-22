@@ -1018,12 +1018,26 @@ def evaluate(project, f: dict | None = None) -> dict:
         if top in hs:
             correct += 1
             d["correct"] += 1
-    matrix: dict[str, dict[str, int]] = {h: dict(d["conf"]) for h, d in by.items()}     # 人の第 1 種 × AI の第 1 種（(low) 含む）
-    ai_cols = sorted({c for row in matrix.values() for c in row}, key=lambda c: (c == "(low)", -sum(row.get(c, 0) for row in matrix.values())))
+    # 行（人）と列（AI）は種リストの順にそろえる（対角線が斜めに並ぶように）。列には行にある種も入れる。要確認は最後
+    order = species_order(project)
+    key = lambda c: (c == "(low)", order.get(c, len(order)), c)
+    matrix: dict[str, dict[str, int]] = {h: dict(d["conf"]) for h, d in sorted(by.items(), key=lambda x: key(x[0]))}     # 人の第 1 種 × AI の第 1 種（(low) 含む）
+    ai_cols = sorted({c for row in matrix.values() for c in row} | set(matrix.keys()), key=key)
     for d in by.values():
         d["conf"] = dict(sorted(d["conf"].items(), key=lambda x: -x[1])[:6])
-    return dict(n=n, correct=correct, n_low=n_low, n_model=n_model, by_species=dict(sorted(by.items(), key=lambda x: -x[1]["n"])),
+    return dict(n=n, correct=correct, n_low=n_low, n_model=n_model, by_species=dict(sorted(by.items(), key=lambda x: key(x[0]))),
                 matrix=matrix, ai_cols=ai_cols)
+
+
+def species_order(project) -> dict[str, int]:
+    """種コード → 種リストでの順番（固定項目は最後）"""
+    from .species import FIXED
+    order = {}
+    for r in project.species.rows:
+        order.setdefault(r["code"], len(order))
+    for f in FIXED:
+        order.setdefault(f["code"], len(order))
+    return order
 
 
 def export_evaluation(project, path: str, f: dict | None = None, lang: str = "ja") -> dict:

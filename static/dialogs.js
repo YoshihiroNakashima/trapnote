@@ -550,10 +550,12 @@ async function evalDialog(filters, back) {
   try { r = await api('/api/detect/eval', { filters: filters || {} }); } catch (e) { toast(e.message, 'error'); return; }
   const pct = (a, b) => b ? (100 * a / b).toFixed(0) + '%' : '—';
   const nm = c => c === '(low)' ? t('det_low') : spLabel(c);
-  const rows = Object.entries(r.by_species).map(([c, d]) => `<tr><td><b>${esc(spLabel(c))}</b></td><td>${d.n}</td><td>${d.correct} <span class="info">(${pct(d.correct, d.n - d.low)})</span></td><td>${d.low}</td><td class="info">${esc(Object.entries(d.conf).map(([k, v]) => `${nm(k)} ${v}`).join(' · '))}</td></tr>`).join('');
-  const cols = r.ai_cols || [];
+  const spRows = sortCodes(Object.keys(r.by_species));
+  const rows = spRows.map(c => { const d = r.by_species[c]; return `<tr><td><b>${esc(spLabel(c))}</b></td><td>${d.n}</td><td>${d.correct} <span class="info">(${pct(d.correct, d.n - d.low)})</span></td><td>${d.low}</td><td class="info">${esc(Object.entries(d.conf).map(([k, v]) => `${nm(k)} ${v}`).join(' · '))}</td></tr>`; }).join('');
+  const cols = sortCodes(new Set([].concat(r.ai_cols || [], Object.keys(r.matrix || {}))));
+  const mRows = sortCodes(Object.keys(r.matrix || {}));
   const matrix = cols.length ? `<h4>${esc(t('ag_matrix'))}</h4><div style="max-height:40vh;overflow:auto"><table class="tbl matrix"><tr><th>${esc(t('cmp_human'))} \\ AI</th>${cols.map(c => `<th>${esc(nm(c))}</th>`).join('')}<th>n</th></tr>
-    ${Object.entries(r.matrix).map(([h, row]) => `<tr><td><b>${esc(spLabel(h))}</b></td>${cols.map(c => `<td class="${c === h ? 'diag' : (row[c] ? 'off' : '')}">${row[c] || ''}</td>`).join('')}<td>${Object.values(row).reduce((a, b) => a + b, 0)}</td></tr>`).join('')}</table></div>` : '';
+    ${mRows.map(h => { const row = r.matrix[h]; return `<tr><td><b>${esc(spLabel(h))}</b></td>${cols.map(c => `<td class="${c === h ? 'diag' : (row[c] ? 'off' : '')}">${row[c] || ''}</td>`).join('')}<td>${Object.values(row).reduce((a, b) => a + b, 0)}</td></tr>`; }).join('')}</table></div>` : '';
   const overall = r.n_model ? (100 * r.correct / r.n_model).toFixed(1) : '—';
   const m = showModal(`<h3>${esc(t('ag_title'))}</h3><div class="note">${esc(t('ag_help'))}</div>
     <div class="ag-big"><span class="ag-num">${overall}%</span><span class="info">${esc(t('ag_overall'))} · ${r.correct} / ${r.n_model}</span>
@@ -854,15 +856,15 @@ async function trainResultDialog(name) {
   const block = (title, e, n, stations) => {
     if (!e || !e.before || !e.before.n) return '';
     const b = e.before, a = e.after;
-    const sp = Object.keys(Object.assign({}, b.by_species, a.by_species)).sort((x, y) => ((a.by_species[y] || {}).n || 0) - ((a.by_species[x] || {}).n || 0));
-    const cols = [...new Set([].concat(...Object.values(a.matrix || {}).map(row => Object.keys(row))))].sort((x, y) => (x === '(low)') - (y === '(low)'));
+    const sp = sortCodes(Object.keys(Object.assign({}, b.by_species, a.by_species)));
+    const cols = sortCodes(new Set([].concat(...Object.values(a.matrix || {}).map(row => Object.keys(row)), Object.keys(a.matrix || {}))));
     return `<h4>${esc(title)}</h4>${stations ? `<div class="info">${esc(t('tr_stations'))}: ${esc(stations.join(', '))}</div>` : ''}
       <div class="ag-big"><span class="ag-num">${fmtPct(b.exact, b.n)} → ${fmtPct(a.exact, a.n)}</span><span class="info">${esc(t('ag_overall'))} · ${b.exact} → ${a.exact} / ${n}</span>
         <span class="info">${esc(t('tr_first_ok'))} ${fmtPct(b.first, b.n)} → ${fmtPct(a.first, a.n)} · ${esc(t('det_low'))} ${b.low} → ${a.low}</span></div>
       <div style="max-height:30vh;overflow:auto"><table class="tbl"><tr><th>${esc(t('dt_eval_human'))}</th><th>n</th><th>${esc(t('ag_rate'))} ${esc(t('tr_before'))} → ${esc(t('tr_after'))}</th><th>${esc(t('tr_first_ok'))}</th></tr>
       ${sp.map(c => { const x = b.by_species[c] || { n: 0, exact: 0, first: 0 }, y = a.by_species[c] || { n: 0, exact: 0, first: 0 }; return `<tr><td><b>${esc(spLabel(c))}</b></td><td>${y.n}</td><td>${fmtPct(x.exact, x.n)} → <b>${fmtPct(y.exact, y.n)}</b></td><td class="info">${fmtPct(x.first, x.n)} → ${fmtPct(y.first, y.n)}</td></tr>`; }).join('')}</table></div>
       ${cols.length ? `<details class="adv"><summary>${esc(t('ag_matrix'))} (${esc(t('tr_after'))})</summary><div style="max-height:30vh;overflow:auto"><table class="tbl matrix"><tr><th>${esc(t('cmp_human'))} \\ AI</th>${cols.map(c => `<th>${esc(nm(c))}</th>`).join('')}</tr>
-        ${Object.entries(a.matrix).map(([h, row]) => `<tr><td><b>${esc(spLabel(h))}</b></td>${cols.map(c => `<td class="${c === h ? 'diag' : (row[c] ? 'off' : '')}">${row[c] || ''}</td>`).join('')}</tr>`).join('')}</table></div></details>` : ''}`;
+        ${sortCodes(Object.keys(a.matrix)).map(h => { const row = a.matrix[h]; return `<tr><td><b>${esc(spLabel(h))}</b></td>${cols.map(c => `<td class="${c === h ? 'diag' : (row[c] ? 'off' : '')}">${row[c] || ''}</td>`).join('')}</tr>`; }).join('')}</table></div></details>` : ''}`;
   };
   const counts = Object.entries(r.counts || {}).map(([c, n]) => `${spLabel(c)} ${n}`).join(' · ');
   const dropped = Object.entries(r.dropped || {}).map(([c, n]) => `${spLabel(c)} ${n}`).join(' · ');

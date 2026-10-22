@@ -231,3 +231,4 @@ table.tbl tr.cur td { background: #eef2ff; }
 /* 右の欄の「＋ 項目」 */
 .box-head button.addf { font-size: 11px; padding: 0 6px; color: var(--muted); border-color: var(--border); }
 .box-head button.addf:hover { color: var(--accent); }
+table.matrix td:first-child, table.matrix th:first-child { white-space: nowrap; }
