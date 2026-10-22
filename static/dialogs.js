@@ -265,7 +265,8 @@ async function importDialog(kind) {
 // ---------- Timelapse の取り込み（手順つきの窓） ----------
 async function timelapseDialog() {
   const fixedOpts = (S.species.fixed || []);
-  const m = showModal(`<h3>${esc(t('timelapse'))}</h3><div class="note">${esc(t('tl_help'))} <span class="clickable" id="tlYolo">${esc(t('yl_link'))}</span></div>
+  const m = showModal(`<h3>${esc(t('timelapse'))}</h3><div class="note">${esc(t('tl_help'))}</div>
+    <div class="btn-row"><button type="button" class="small" id="tlYolo">${esc(t('yl_title'))}…</button><span class="info">${esc(t('yl_link'))}</span></div>
     <div class="step" id="tlS1"><div class="num">1</div><div class="head">${esc(t('tl_step1'))}</div>
       <div class="body"><div class="note">${esc(t('tl_step1_help'))}</div>
         <div class="pathbox"><input type="text" id="tlPath" placeholder=".tdb / .ddb" spellcheck="false"><button type="button" class="primary" id="tlPick">${esc(t('pick'))}</button></div></div></div>
