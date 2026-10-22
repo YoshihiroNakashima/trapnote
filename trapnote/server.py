@@ -13,7 +13,7 @@ from aiohttp import web
 
 from . import APP_ID, APP_NAME, BUILD, BUILD_TIME, VERSION, detect, dialogs, export as export_mod, judge, media, merge as merge_mod, scan as scan_mod, timelapse, train, yolo
 from .config import DATA_DIR, STATIC_DIR, Settings, State
-from .jobs import ArchiveJob, DetectJob, Lane, MetaJob, ReclassifyJob, ScanJob, TrainJob, TranscodeJob
+from .jobs import ArchiveJob, DetectJob, Lane, MetaJob, ReclassifyJob, ScanJob, TrainJob, TranscodeJob, YoloImportJob
 from .paths import abs_of, norm
 from .pattern import names_in, preview as pattern_preview
 from .project import PROJECT_DIRNAME, Project, find_project_for_root, is_project_dir
@@ -948,8 +948,8 @@ def make_app(session: Session) -> web.Application:
         p = S.need()
         b = await _body(request)
         mapping = {str(k): (str(v) if v else None) for k, v in (b.get("mapping") or {}).items()}
-        res = await io(yolo.import_yolo, p, mapping, user(), bool(b.get("as_verified", True)), bool(b.get("set_station", True)), bool(b.get("overwrite_verified")))
-        return jr(res)
+        S.bg.submit(YoloImportJob(mapping, dict(as_verified=b.get("as_verified", True), set_station=b.get("set_station", True), overwrite_verified=b.get("overwrite_verified")), user()), front=True)
+        return jr(S.jobs_status())
 
     async def timelapse_preview(request):
         p = S.need()

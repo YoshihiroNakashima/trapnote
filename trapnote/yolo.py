@@ -94,9 +94,11 @@ def import_yolo(project, mapping: dict[str, str | None], by: str | None, as_veri
     n_items = n_boxes = n_skipped = n_noboxes = n_station = 0
     by = by or "yolo"
     ids = []
-    with db.tx() as cur:
-        for k, r in enumerate(rows):
-            if progress and k % 200 == 0:
+    for start in range(0, len(rows), 300):             # 300 件ずつ確定（走査やサムネイル作成を長く待たせない）
+      with db.tx() as cur:
+        for k in range(start, min(start + 300, len(rows))):
+            r = rows[k]
+            if progress and k % 100 == 0:
                 progress(k, len(rows))
             m = ITEM_RE.match(r["rel_path"])
             if not m:
@@ -143,5 +145,6 @@ def import_yolo(project, mapping: dict[str, str | None], by: str | None, as_veri
                     cur.execute("UPDATE items SET season=NULL, station=NULL, pattern_json=? WHERE id=?", (json.dumps(dict(species_folder=folder), ensure_ascii=False), r["id"]))
             n_items += 1
             ids.append(r["id"])
-    update_agree(db, ids)
+    for start in range(0, len(ids), 900):
+        update_agree(db, ids[start:start + 900])
     return dict(items=n_items, boxes=n_boxes, no_boxes=n_noboxes, skipped_verified=n_skipped, station_set=n_station)

@@ -891,17 +891,36 @@ async function yoloDialog() {
     <div id="ylResult" class="note"></div>
     <div class="modal-actions"><button id="mCancel">${esc(t('close'))}</button><button id="mOk" class="primary" ${pv.folders.length ? '' : 'disabled'}>${esc(t('run'))}</button></div>`);
   m.querySelector('#mCancel').onclick = closeModal;
+  yoloModalEl = m;
   m.querySelector('#mOk').onclick = async () => {
     const mapping = {};
     m.querySelectorAll('select[data-folder]').forEach(sel => { mapping[sel.dataset.folder] = sel.value || null; });
     m.querySelector('#mOk').disabled = true;
-    showOverlayLater(t('loading'));
     try {
-      const r = await api('/api/yolo/import', { mapping, as_verified: m.querySelector('#ylVerified').checked, set_station: m.querySelector('#ylStation').checked, overwrite_verified: m.querySelector('#ylOverwrite').checked });
-      hideOverlay();
-      m.querySelector('#ylResult').textContent = `${t('yl_done')}: ${r.items} ${t('items')} · ${t('yl_boxes')} ${r.boxes} · ${t('yl_noboxes')} ${r.no_boxes}` + (r.skipped_verified ? ` · ${t('yl_skipped')} ${r.skipped_verified}` : '') + (r.station_set ? ` · ${t('yl_station_set')} ${r.station_set}` : '');
-      const snap = await api('/api/state'); setSnapshot(snap); await reloadList(); if (S.cur) refreshCurrent();
-    } catch (e) { hideOverlay(); toast(e.message, 'error'); }
-    m.querySelector('#mOk').disabled = false;
+      const j = await api('/api/yolo/import', { mapping, as_verified: m.querySelector('#ylVerified').checked, set_station: m.querySelector('#ylStation').checked, overwrite_verified: m.querySelector('#ylOverwrite').checked });
+      S._bgWasRunning = true; m._wasRunning = true;
+      yoloOnJobs(j);
+    } catch (e) { toast(e.message, 'error'); m.querySelector('#mOk').disabled = false; }
   };
+  yoloOnJobs(S.snap && S.snap.jobs);
+}
+let yoloModalEl = null;
+function yoloOnJobs(jobs) {   // 取り込みは裏の処理（bg レーン）で動くので、2 秒ごとの状況で進み具合と結果を出す
+  const m = yoloModalEl;
+  if (!m || !document.body.contains(m) || !jobs || !jobs.bg) return;
+  const cur = jobs.bg.current, rec = (jobs.bg.recent || []).find(x => x.kind === 'yolo');
+  const el = m.querySelector('#ylResult');
+  if (!el) return;
+  if (cur && cur.kind === 'yolo') {
+    const pct = cur.total ? Math.round(100 * cur.done / cur.total) : 0;
+    el.innerHTML = `<div><b>${esc(t('yl_running'))}</b>: ${cur.done} / ${cur.total} (${pct}%)</div><div class="prog"><div style="width:${pct}%"></div></div>`;
+    m.querySelector('#mOk').disabled = true; m._wasRunning = true;
+  } else if (jobs.bg.queued && jobs.bg.queued.some(x => x.kind === 'yolo')) {
+    el.innerHTML = `<div><b>${esc(t('jb_queued'))}</b></div>`;
+  } else if (m._wasRunning && rec) {
+    m._wasRunning = false;
+    el.textContent = `${t(rec.state === 'done' ? 'yl_done' : 'ar_result')}: ${rec.message || rec.error || ''}`;
+    m.querySelector('#mOk').disabled = false;
+    api('/api/state').then(snap => { setSnapshot(snap); reloadList(); if (S.cur) refreshCurrent(); }).catch(() => {});
+  }
 }

@@ -531,6 +531,39 @@ class ReclassifyJob(Job):
         return d
 
 
+class YoloImportJob(Job):
+    """YOLO 形式の学習データ（<種>/images + <種>/labels）の取り込み（bg レーン。枚数が多いので裏で）"""
+
+    def __init__(self, mapping: dict, options: dict, by: str | None):
+        super().__init__("yolo", dict(n_folders=len(mapping)), "YOLO ラベルの取り込み")
+        self.mapping = mapping
+        self.options = options
+        self.by = by
+        self.result: dict | None = None
+
+    def run(self, ctx) -> None:
+        from . import yolo
+        project = ctx.project
+        if project is None:
+            return
+
+        def prog(a, b):
+            self.done, self.total = a, b
+            if self.stop_flag.is_set():
+                raise RuntimeError("止めました")
+        self.message = "読み込み中"
+        r = yolo.import_yolo(project, self.mapping, self.by, bool(self.options.get("as_verified", True)), bool(self.options.get("set_station", True)),
+                             bool(self.options.get("overwrite_verified")), prog)
+        self.result = r
+        self.done = self.total = r["items"]
+        self.message = f"{r['items']} 枚（枠 {r['boxes']}、枠なし {r['no_boxes']}、確認済みで飛ばした {r['skipped_verified']}、季節・地点を付けた {r['station_set']}）"
+
+    def status(self) -> dict:
+        d = super().status()
+        d.update(result=self.result)
+        return d
+
+
 class ScanJob(Job):
     def __init__(self):
         super().__init__("scan", {}, "フォルダの走査")

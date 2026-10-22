@@ -168,6 +168,8 @@ def update_agree(db: Database, item_ids: list[int] | None = None) -> int:
     """items.agree を計算し直す（モデルの判定 auto_json があるものだけ）。item_ids を省くと全部。返り値は変えた数"""
     if item_ids is not None and not item_ids:
         return 0
+    if item_ids is not None and len(item_ids) > 900:          # SQL の変数の上限を超えないように分ける
+        return sum(update_agree(db, item_ids[i:i + 900]) for i in range(0, len(item_ids), 900))
     where = "auto_json IS NOT NULL"
     params: tuple = ()
     if item_ids is not None:

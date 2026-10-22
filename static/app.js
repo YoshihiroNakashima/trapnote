@@ -521,6 +521,7 @@ function renderJobs(jobs) {
   if (typeof archiveOnJobs === 'function') archiveOnJobs(jobs);
   if (typeof detectOnJobs === 'function') detectOnJobs(jobs);
   if (typeof trainOnJobs === 'function') trainOnJobs(jobs);
+  if (typeof yoloOnJobs === 'function') yoloOnJobs(jobs);
 }
 async function pollJobs() {
   try { const j = await api('/api/jobs'); renderJobs(j); } catch (e) { /* 終了中など */ }
