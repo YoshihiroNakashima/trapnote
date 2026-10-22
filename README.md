@@ -82,6 +82,8 @@ ffmpeg は「設定」で場所を指定できる（空なら PATH → resources
    右の欄の対象名の下に検出の要約（動物のフレーム数と最大の信頼度、SpeciesNet の上位の種）。細かい設定（フレームの間隔、閾値、p1 / p2 / K、枠の上限、バッチ、画像の長辺）は窓の「細かい設定」。
    枠ごとの特徴量（分類器の最終層の手前）を `cache/features/` に保存する（第 3 段階の追加学習用。設定で切れる）。
    CSV には Flag（low = 要確認）、DetAnimal / DetPerson / DetVehicle（1/0）、DetMaxConf、DetModel、AutoSpecies（モデルの出力そのまま）の列が付く。
+   YOLO 形式の学習データ（`<種のフォルダ>/images/画像` と `<種のフォルダ>/labels/同名.txt`。枠は class cx cy w h）は、そのフォルダをプロジェクトとして開いて走査したあと、
+   「Timelapse を読む」の窓の「YOLO 形式の学習データを読む」で読める（フォルダ名の種 → 確認済みの判定、枠 → 検出枠。画像名が N180712_BSN0870_IMG0047_img450 の形なら季節・地点も付く）。
    「書き出し」の「Timelapse2 に書き出す」で、Timelapse 2.3 のテンプレート（.tdb）とデータ（.ddb）を作れる（動画 1 本 = 1 行。Species に第 1 種、残りは Multispecies。
    選択で種ごとの Flag 列も。Star = お気に入り、Remarks = メモ、追加項目は項目ごとの列。RelativePath は .ddb を置いたフォルダからなので、メディアのルートに置く）。
 10. 複数人で分担するときは「統合」: 各 PC で「判定を書き出す」（JSON 1 つ）→ 親のプロジェクトで「判定を取り込む」。
@@ -144,7 +146,8 @@ trapnote/
   judge.py             一覧（絞り込み・並べ替え・ページング）、判定の保存、取り消し
   export.py            CSV の書き出しと取り込み      merge.py     判定の持ち寄りと統合
   species.py           種リストと固定項目            fields.py    追加項目
-  timelapse.py         Timelapse2 の .tdb / .ddb の取り込み（テンプレート → 種リストと追加項目、データ → 判定など）
+  timelapse.py         Timelapse2 の .tdb / .ddb の取り込み（テンプレート → 種リストと追加項目、データ → 判定など）と書き出し
+  yolo.py              YOLO 形式の学習データ（<種>/images + <種>/labels）の取り込み（種 → 確認済みの判定、枠 → 検出枠、画像名 → 季節・地点）
   detect.py            第 2 段階: フレームの抜き出し、MegaDetector（モデルの取得・読み込み・検出）、SpeciesNet（切り出し・分類・特徴量）、
                        ラベル → 種コードの対応、動画 1 本への集約、detections 表への書き込み（jobs.py の DetectJob が ml レーンで回す）
   train.py             第 3 段階: 学習データの収集（確認済みの枠と重み）、検証用の地点の分割、方式 A（softmax 回帰）、方式 B（本体の後ろの層の学習）、評価、

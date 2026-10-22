@@ -96,14 +96,25 @@ def register(project, found, progress=None) -> dict:
 
 def apply_pattern(project) -> int:
     """パターンを変えたとき、全対象の season / station を付け直す"""
+    from .pattern import names_in
     db = project.db
-    comp = compile_pattern(project.setting("pattern") or "")
-    rows = db.q("SELECT id, rel_path FROM items")
+    pattern = project.setting("pattern") or ""
+    comp = compile_pattern(pattern)
+    names = names_in(pattern)
+    rows = db.q("SELECT id, rel_path, season, station, pattern_json FROM items")
     upd = []
     for r in rows:
         pat = extract(r["rel_path"], comp)
-        upd.append((pat.get("season") or None, pat.get("station") or None,
-                    json.dumps({a: b for a, b in pat.items() if a not in ("season", "station")}, ensure_ascii=False), r["id"]))
+        try:
+            old = json.loads(r["pattern_json"] or "{}")
+        except Exception:
+            old = {}
+        keep = {k: v for k, v in old.items() if k not in pat}        # 画像名などから付けた値（YOLO の取り込み）は残す
+        keep.update({a: b for a, b in pat.items() if a not in ("season", "station")})
+        # パターンに {season} / {station} がなければ、画像名などから付けてある季節・地点はそのまま残す
+        season = (pat.get("season") or None) if "season" in names else r["season"]
+        station = (pat.get("station") or None) if "station" in names else r["station"]
+        upd.append((season, station, json.dumps(keep, ensure_ascii=False), r["id"]))
     with db.tx() as c:
         c.executemany("UPDATE items SET season=?, station=?, pattern_json=? WHERE id=?", upd)
     return len(upd)

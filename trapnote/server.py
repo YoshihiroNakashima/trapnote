@@ -11,7 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from aiohttp import web
 
-from . import APP_ID, APP_NAME, BUILD, BUILD_TIME, VERSION, detect, dialogs, export as export_mod, judge, media, merge as merge_mod, scan as scan_mod, timelapse, train
+from . import APP_ID, APP_NAME, BUILD, BUILD_TIME, VERSION, detect, dialogs, export as export_mod, judge, media, merge as merge_mod, scan as scan_mod, timelapse, train, yolo
 from .config import DATA_DIR, STATIC_DIR, Settings, State
 from .jobs import ArchiveJob, DetectJob, Lane, MetaJob, ReclassifyJob, ScanJob, TrainJob, TranscodeJob
 from .paths import abs_of, norm
@@ -939,6 +939,18 @@ def make_app(session: Session) -> web.Application:
                                                      bool(b.get("as_verified"))))
         return jr(res)
 
+    # ---- YOLO 形式の学習データ（<種>/images + <種>/labels） ----
+    async def yolo_preview(request):
+        p = S.need()
+        return jr(await io(yolo.preview, p))
+
+    async def yolo_import(request):
+        p = S.need()
+        b = await _body(request)
+        mapping = {str(k): (str(v) if v else None) for k, v in (b.get("mapping") or {}).items()}
+        res = await io(yolo.import_yolo, p, mapping, user(), bool(b.get("as_verified", True)), bool(b.get("set_station", True)), bool(b.get("overwrite_verified")))
+        return jr(res)
+
     async def timelapse_preview(request):
         p = S.need()
         b = await _body(request)
@@ -1057,6 +1069,8 @@ def make_app(session: Session) -> web.Application:
     r.add_post("/api/export/csv", export_csv)
     r.add_post("/api/export/index", export_index)
     r.add_post("/api/export/timelapse", export_timelapse)
+    r.add_get("/api/yolo/preview", yolo_preview)
+    r.add_post("/api/yolo/import", yolo_import)
     r.add_post("/api/export/md_json", export_md_json)
     r.add_post("/api/detect/plan", detect_plan)
     r.add_post("/api/detect/start", detect_start)

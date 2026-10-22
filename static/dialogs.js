@@ -265,7 +265,7 @@ async function importDialog(kind) {
 // ---------- Timelapse の取り込み（手順つきの窓） ----------
 async function timelapseDialog() {
   const fixedOpts = (S.species.fixed || []);
-  const m = showModal(`<h3>${esc(t('timelapse'))}</h3><div class="note">${esc(t('tl_help'))}</div>
+  const m = showModal(`<h3>${esc(t('timelapse'))}</h3><div class="note">${esc(t('tl_help'))} <span class="clickable" id="tlYolo">${esc(t('yl_link'))}</span></div>
     <div class="step" id="tlS1"><div class="num">1</div><div class="head">${esc(t('tl_step1'))}</div>
       <div class="body"><div class="note">${esc(t('tl_step1_help'))}</div>
         <div class="pathbox"><input type="text" id="tlPath" placeholder=".tdb / .ddb" spellcheck="false"><button type="button" class="primary" id="tlPick">${esc(t('pick'))}</button></div></div></div>
@@ -274,6 +274,7 @@ async function timelapseDialog() {
     <div class="step off" id="tlS4"><div class="num">4</div><div class="head">${esc(t('tl_step4'))}</div><div class="body"><div class="btn-row"><button type="button" class="primary" id="tlRun" disabled>${esc(t('run'))}</button></div><div id="tlResult" class="note"></div></div></div>
     <div class="modal-actions"><button id="mCancel">${esc(t('close'))}</button></div>`);
   m.querySelector('#mCancel').onclick = closeModal;
+  m.querySelector('#tlYolo').onclick = () => yoloDialog();
   let pv = null;
   const roleLabel = r => t('tl_role_' + r);
   const load = async () => {
@@ -873,4 +874,33 @@ async function trainResultDialog(name) {
     ${hist.length ? `<details class="adv"><summary>${esc(t('tr_history'))}</summary><div class="info">${hist.map(h => `${h.epoch}: ${h.train_loss}${h.val_loss != null ? ' / ' + h.val_loss + (h.val_acc != null ? ' (' + (100 * h.val_acc).toFixed(0) + '%)' : '') : ''}`).join(' · ')}</div></details>` : ''}
     <div class="modal-actions"><button id="mCancel">${esc(t('close'))}</button></div>`);
   m.querySelector('#mCancel').onclick = () => trainDialog();
+}
+
+// ---------- YOLO 形式の学習データ（<種>/images + <種>/labels）を読む ----------
+async function yoloDialog() {
+  let pv;
+  try { pv = await api('/api/yolo/preview'); } catch (e) { toast(e.message, 'error'); return; }
+  const all = (S.species.species || []).concat(S.species.fixed || []);
+  const opts = [['', t('yl_skip')]].concat(all.map(s => [s.code, spName(s)]));
+  const rows = pv.folders.map(f => `<tr><td><b>${esc(f.folder)}</b></td><td>${f.n_images}</td><td>${f.n_labels}</td><td><select data-folder="${esc(f.folder)}">${opts.map(([v, l]) => `<option value="${esc(v)}" ${v === (f.guess || '') ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>${f.guess ? '' : ` <span class="flag-low">${esc(t('yl_noguess'))}</span>`}</td></tr>`).join('');
+  const m = showModal(`<h3>${esc(t('yl_title'))}</h3><div class="note">${esc(t('yl_help'))}</div>
+    <div class="dt-counts"><span>${esc(t('yl_n_images'))} <b>${pv.n_images}</b></span><span>${esc(t('yl_n_matching'))} <b>${pv.n_matching}</b></span><span>${esc(t('yl_n_named'))} <b>${pv.n_named}</b></span></div>
+    ${pv.folders.length ? `<div style="max-height:45vh;overflow:auto"><table class="tbl"><tr><th>${esc(t('yl_folder'))}</th><th>${esc(t('yl_images'))}</th><th>${esc(t('yl_labels'))}</th><th>${esc(t('species'))}</th></tr>${rows}</table></div>` : `<div class="note">${esc(t('yl_none'))}</div>`}
+    <div class="form-row"><label></label><span style="display:flex;flex-direction:column;gap:2px"><label class="chk"><input type="checkbox" id="ylVerified" checked> ${esc(t('yl_verified'))}</label><label class="chk"><input type="checkbox" id="ylStation" checked> ${esc(t('yl_station'))}</label><label class="chk"><input type="checkbox" id="ylOverwrite"> ${esc(t('yl_overwrite'))}</label></span></div>
+    <div id="ylResult" class="note"></div>
+    <div class="modal-actions"><button id="mCancel">${esc(t('close'))}</button><button id="mOk" class="primary" ${pv.folders.length ? '' : 'disabled'}>${esc(t('run'))}</button></div>`);
+  m.querySelector('#mCancel').onclick = closeModal;
+  m.querySelector('#mOk').onclick = async () => {
+    const mapping = {};
+    m.querySelectorAll('select[data-folder]').forEach(sel => { mapping[sel.dataset.folder] = sel.value || null; });
+    m.querySelector('#mOk').disabled = true;
+    showOverlayLater(t('loading'));
+    try {
+      const r = await api('/api/yolo/import', { mapping, as_verified: m.querySelector('#ylVerified').checked, set_station: m.querySelector('#ylStation').checked, overwrite_verified: m.querySelector('#ylOverwrite').checked });
+      hideOverlay();
+      m.querySelector('#ylResult').textContent = `${t('yl_done')}: ${r.items} ${t('items')} · ${t('yl_boxes')} ${r.boxes} · ${t('yl_noboxes')} ${r.no_boxes}` + (r.skipped_verified ? ` · ${t('yl_skipped')} ${r.skipped_verified}` : '') + (r.station_set ? ` · ${t('yl_station_set')} ${r.station_set}` : '');
+      const snap = await api('/api/state'); setSnapshot(snap); await reloadList(); if (S.cur) refreshCurrent();
+    } catch (e) { hideOverlay(); toast(e.message, 'error'); }
+    m.querySelector('#mOk').disabled = false;
+  };
 }
