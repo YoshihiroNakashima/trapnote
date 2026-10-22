@@ -81,6 +81,10 @@
       </span>
       <label class="vb-opt"><input type="checkbox" id="vbLoop"> <span data-t="loop">ループ</span></label>
       <label class="vb-opt" id="vbBoxesWrap" data-title="boxes_tip"><input type="checkbox" id="vbBoxes"> <span data-t="boxes">検出枠</span></label>
+      <button id="vbEdit" class="small" data-t="box_edit" data-title="box_edit_tip">枠を編集</button>
+      <span id="boxTools" class="vb-opt hidden"><select id="beCat" class="small"><option value="animal" data-t="det_animal">動物</option><option value="person" data-t="det_person">人</option><option value="vehicle" data-t="det_vehicle">車</option></select>
+        <button id="beDel" class="small" data-t="box_del" data-title="box_del_tip">枠を消す</button><button id="beClear" class="small" data-t="box_clear" data-title="box_clear_tip">全部消す</button>
+        <button id="beSave" class="small primary" data-t="box_save">保存</button><button id="beCancel" class="small" data-t="cancel">キャンセル</button><span class="info" data-t="box_edit_hint">ドラッグで新しい枠。枠をドラッグで移動、角で大きさ</span></span>
       <span id="vbPos" class="info"></span>
     </div>
   </section>
@@ -122,6 +126,7 @@
 <script src="/static/app.js?v=__V__"></script>
 <script src="/static/avi.js?v=__V__"></script>
 <script src="/static/player.js?v=__V__"></script>
+<script src="/static/boxedit.js?v=__V__"></script>
 <script src="/static/judge.js?v=__V__"></script>
 <script src="/static/dialogs.js?v=__V__"></script>
 <script>init();</script>

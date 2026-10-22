@@ -134,6 +134,7 @@ function currentTimeSec() { const v = player(); return (!v.classList.contains('h
 // ---------- 検出枠（MegaDetector の枠を動画・画像に重ねる） ----------
 const BOX_COLORS = { animal: '#3ddc84', person: '#ffb020', vehicle: '#4ea1ff' };
 async function loadBoxes(d) {
+  if (typeof BE !== 'undefined' && BE.on) boxEditEnd(false);
   P.boxes = []; P.boxTimes = []; P.boxItem = d.id;
   const wrap = $('#vbBoxesWrap');
   drawBoxes();
@@ -176,7 +177,8 @@ function drawBoxes() {
   if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
   const ctx = cv.getContext('2d');
   ctx.clearRect(0, 0, W, H);
-  if (!$('#vbBoxes').checked || !P.boxes.length) return;
+  const editing = typeof BE !== 'undefined' && BE.on;
+  if (!editing && (!$('#vbBoxes').checked || !P.boxes.length)) return;
   const r = mediaRect();
   if (!r) return;
   ctx.font = '12px system-ui, sans-serif'; ctx.textBaseline = 'top'; ctx.lineWidth = 2;
@@ -190,6 +192,7 @@ function drawBoxes() {
     ctx.fillStyle = '#111'; ctx.fillText(label, x + 4, Math.max(0, y - 16) + 2);
     ctx.globalAlpha = 1;
   }
+  if (typeof boxEditDraw === 'function') boxEditDraw(ctx, r);
 }
 function boxLoop() {
   cancelAnimationFrame(P.raf); P.raf = null;
@@ -223,4 +226,5 @@ function wirePlayer() {
   sl.addEventListener('change', () => { P.seeking = false; });
   document.querySelectorAll('button.spd').forEach(b => { b.onclick = () => setSpeed(parseFloat(b.dataset.v)); });
   $('#vbLoop').addEventListener('change', () => { S.settings.loop = $('#vbLoop').checked; v.loop = S.settings.loop; if (P.avi) P.avi.loop = S.settings.loop; api('/api/settings', { loop: S.settings.loop }).catch(() => {}); });
+  if (typeof wireBoxEdit === 'function') wireBoxEdit();
 }

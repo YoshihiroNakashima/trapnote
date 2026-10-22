@@ -890,6 +890,11 @@ def make_app(session: Session) -> web.Application:
         S.need()
         return jr(await io(S.detections_of, int(request.match_info["id"])))
 
+    async def item_boxes(request):
+        p = S.need()
+        b = await _body(request)
+        return jr(await io(detect.save_boxes, p, int(request.match_info["id"]), list(b.get("boxes") or [])))
+
     # ---- 書き出しと取り込み ----
     async def export_csv(request):
         p = S.need()
@@ -1091,6 +1096,7 @@ def make_app(session: Session) -> web.Application:
     r.add_get("/api/items/{id}/raw", raw)
     r.add_post("/api/items/bulk", items_bulk)
     r.add_post("/api/items/{id}/exclude", item_exclude)
+    r.add_post("/api/items/{id}/boxes", item_boxes)
     r.add_post("/api/import/csv/preview", import_preview)
     r.add_post("/api/import/csv/values", import_values)
     r.add_post("/api/import/csv", import_csv)

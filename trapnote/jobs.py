@@ -347,8 +347,8 @@ class DetectJob(Job):
             where.append(f"id IN ({','.join('?' * len(self.item_ids))})")
             params += list(self.item_ids)
         use_existing = bool(opt.get("use_existing"))
-        if not opt.get("redo") and not use_existing:
-            where.append("det_state=0")
+        if not opt.get("redo"):
+            where.append("cls_state=0" if use_existing else "det_state=0")     # 既存の枠を使うとき: 種判別がまだのもの（編集した枠など）だけ。やり直しなら全部
         if s.get("detect_skip_verified", True) and not opt.get("include_verified") and not use_existing:
             where.append("status<>'verified'")
         rows = db.q(f"SELECT id, rel_path, kind, duration, fps, det_json FROM items WHERE {' AND '.join(where)} ORDER BY station, id", tuple(params))

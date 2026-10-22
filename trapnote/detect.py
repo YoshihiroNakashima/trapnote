@@ -917,6 +917,60 @@ def finish_item(project, hub: ModelHub, item: dict, summary: dict, cls: dict | N
     return summary
 
 
+def save_boxes(project, item_id: int, boxes: list[dict]) -> dict:
+    """画面で編集した枠で detections 表を置き換える（boxes = [{t, c, p, x, y, w, h, sp, sp_p}]）。
+    det_json の要約を数え直し（model に (edited) を付ける）、種判別と特徴量は付け直しが要る状態にする（cls_state = 0、cache の特徴量と枠の画像を消す）"""
+    from .paths import cache_name
+    db = project.db
+    it = db.q1("SELECT rel_path, det_json FROM items WHERE id=?", (item_id,))
+    if it is None:
+        raise ValueError("対象がありません")
+    s = project_settings(project)
+    a_th, p_th = float(s["animal_threshold"]), float(s["person_threshold"])
+    try:
+        old = json.loads(it["det_json"] or "{}")
+    except Exception:
+        old = {}
+    rows = []
+    for b in boxes:
+        try:
+            cat = str(b.get("c") or "animal")
+            if cat not in ("animal", "person", "vehicle"):
+                cat = "animal"
+            x, y, w, h = (max(0.0, min(1.0, float(b.get(k, 0)))) for k in ("x", "y", "w", "h"))
+            if w <= 0 or h <= 0:
+                continue
+            rows.append((item_id, round(float(b.get("t") or 0.0), 3), cat, round(max(0.0, min(1.0, float(b.get("p", 1.0) if b.get("p") is not None else 1.0))), 4),
+                         round(x, 4), round(y, 4), round(min(w, 1.0 - x), 4), round(min(h, 1.0 - y), 4), b.get("sp") or None, float(b["sp_p"]) if b.get("sp_p") is not None else None))
+        except (TypeError, ValueError):
+            continue
+    n_frames = int(old.get("n_frames") or 0) or max(1, len({r[1] for r in rows}))
+    nf = lambda cat, th: len({r[1] for r in rows if r[2] == cat and r[3] >= th})
+    summary = dict(old)
+    summary.update(n_frames=n_frames, animal_frames=nf("animal", a_th), person_frames=nf("person", p_th), vehicle_frames=nf("vehicle", p_th),
+                   max_animal=round(max([r[3] for r in rows if r[2] == "animal"], default=0.0), 3), max_person=round(max([r[3] for r in rows if r[2] == "person"], default=0.0), 3),
+                   max_vehicle=round(max([r[3] for r in rows if r[2] == "vehicle"], default=0.0), 3), max_area=round(max([r[6] * r[7] for r in rows if r[2] == "animal" and r[3] >= a_th], default=0.0), 4),
+                   animal_threshold=a_th, person_threshold=p_th, edited=True, edited_at=now_iso(), model=(old.get("model") or "edited").replace(" (edited)", "") + " (edited)")
+    a_min, p_min = min(int(s["animal_min_frames"]), n_frames), min(int(s["person_min_frames"]), n_frames)
+    summary.update(animal=summary["animal_frames"] >= a_min, person=summary["person_frames"] >= p_min, vehicle=summary["vehicle_frames"] >= p_min)
+    with db.tx() as c:
+        c.execute("DELETE FROM detections WHERE item_id=?", (item_id,))
+        c.executemany("INSERT INTO detections(item_id, t_sec, category, conf, x, y, w, h, species, sp_conf) VALUES(?,?,?,?,?,?,?,?,?,?)", rows)
+        c.execute("UPDATE items SET det_state=1, det_json=?, cls_state=0, cls_json=NULL, updated_at=? WHERE id=?", (json.dumps(summary, ensure_ascii=False), now_iso(), item_id))
+    # 古い特徴量と枠の画像は捨てる（枠が変わったので）
+    try:
+        fp = os.path.join(project.cache_dir("features"), cache_name(it["rel_path"]) + ".npz")
+        if os.path.isfile(fp):
+            os.remove(fp)
+        cdir = os.path.join(project.cache_dir("crops"), cache_name(it["rel_path"]))
+        if os.path.isdir(cdir):
+            import shutil
+            shutil.rmtree(cdir, ignore_errors=True)
+    except OSError:
+        pass
+    return dict(n=len(rows), det=summary)
+
+
 def clear_detections(db, item_ids: list[int] | None = None) -> int:
     """検出をやり直すために消す（判定は消さない）"""
     with db.tx() as c:
