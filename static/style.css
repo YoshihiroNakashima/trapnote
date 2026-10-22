@@ -237,3 +237,4 @@ table.matrix td:first-child, table.matrix th:first-child { white-space: nowrap; 
 #vbEdit.active { background: #eef2ff; border-color: #3b5bdb; color: #2a44b0; }
 #boxTools { gap: 4px; }
 #boxTools select.small { font-size: 12px; padding: 1px 4px; }
+li.item .nbox { color: #6b7280; }

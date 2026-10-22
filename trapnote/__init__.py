@@ -5,7 +5,7 @@ areacheck（有効範囲の確認）と同じ作り: Python の aiohttp サー�
 APP_NAME = "TrapNote"
 APP_ID = "trapnote"
 VERSION = "0.3.0"
-SCHEMA_VERSION = 8          # data.sqlite の版。上げたときは db.migrate() に移行を書く
+SCHEMA_VERSION = 9          # data.sqlite の版。上げたときは db.migrate() に移行を書く
 
 
 def _build_stamp():

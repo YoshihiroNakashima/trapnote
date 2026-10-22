@@ -18,7 +18,7 @@ function qs(obj) { return Object.entries(obj).filter(([k, v]) => v !== undefined
 
 const S = {
   snap: null, settings: {}, project: null, facets: null, species: { species: [], fixed: [] }, fields: { fields: [] },
-  filter: { station: '', season: '', status: '', species: '', assignee: '', text: '', folder_prefix: '', favorite: '', det: '', flag: '', agree: '', exclude: '' }, sort: 'station', desc: false,
+  filter: { station: '', season: '', status: '', species: '', assignee: '', text: '', folder_prefix: '', favorite: '', det: '', flag: '', agree: '', exclude: '', boxes: '' }, sort: 'station', desc: false,
   picked: new Set(), selAnchor: -1,   // 一覧の複数選択（id の集合）と Shift の起点（並びの位置）
   treeOpen: {},
   total: 0, pages: new Map(), pageLoading: new Map(), listToken: 0,
@@ -140,9 +140,10 @@ function renderFilters() {
   const cnt = n => n ? ` (${n})` : '';
   fillSelect($('#fDet'), [['', t('all_det')], ['low', `${t('det_low')}${cnt(low)}`],
       ['cmp:disagree', `${t('cmp_disagree')}${cnt(ag.mismatch)}`], ['cmp:partial', `${t('cmp_partial')}${cnt(ag.partial)}`], ['cmp:agree', `${t('cmp_agree')}${cnt(ag.match)}`], ['cmp:nohuman', t('cmp_nohuman')], ['cmp:any', `${t('cmp_any')}${cnt(ag.auto)}`], ['cmp:rechecked', `${t('cmp_rechecked')}${cnt(ag.rechecked)}`], ['excl', `${t('det_excluded')}${cnt(f.excluded)}`],
+      ['box:0', t('det_box0')], ['box:1', t('det_box1')], ['box:2', t('det_box2')], ['box:3+', t('det_box3')],
       ['todo', t('det_todo')], ['done', t('det_done')], ['animal', t('det_animal')], ['person', t('det_person')], ['vehicle', t('det_vehicle')], ['none', t('det_none')], ['failed', t('det_failed')]],
-    S.filter.flag === 'low' ? 'low' : S.filter.exclude ? 'excl' : (S.filter.agree ? 'cmp:' + S.filter.agree : (S.filter.det || '')));
-  fillSelect($('#sortSel'), [['station', t('sort_station')], ['datetime', t('sort_datetime')], ['name', t('sort_name')], ['path', t('sort_path')], ['status', t('sort_status')], ['updated', t('sort_updated')], ['confidence', t('sort_confidence')], ['id', t('sort_id')]], S.sort);
+    S.filter.flag === 'low' ? 'low' : S.filter.exclude ? 'excl' : S.filter.boxes ? 'box:' + S.filter.boxes : (S.filter.agree ? 'cmp:' + S.filter.agree : (S.filter.det || '')));
+  fillSelect($('#sortSel'), [['station', t('sort_station')], ['datetime', t('sort_datetime')], ['name', t('sort_name')], ['path', t('sort_path')], ['status', t('sort_status')], ['updated', t('sort_updated')], ['confidence', t('sort_confidence')], ['boxes', t('sort_boxes')], ['id', t('sort_id')]], S.sort);
   $('#sortDir').textContent = S.desc ? '↑' : '↓';
 }
 // ---------- フォルダの木（Picasa 風。クリックでその中に絞り込む） ----------
@@ -236,12 +237,13 @@ function activeFilterNames() {
   if (f.favorite) out.push('★');
   if (f.flag === 'low') out.push(t('det_low'));
   if (f.exclude) out.push(t('det_excluded'));
+  if (f.boxes) out.push(`${t('boxes_n')} ${f.boxes}`);
   if (f.agree) out.push(t('cmp_' + f.agree) || f.agree);
   if (f.det) out.push(t('det_' + f.det) || f.det);
   return out;
 }
 function clearFilters() {   // フォルダの選択（木）はそのまま
-  Object.assign(S.filter, { station: '', season: '', status: '', species: '', assignee: '', text: '', favorite: '', det: '', flag: '', agree: '', exclude: '' });
+  Object.assign(S.filter, { station: '', season: '', status: '', species: '', assignee: '', text: '', favorite: '', det: '', flag: '', agree: '', exclude: '', boxes: '' });
   $('#fText').value = '';
   renderFilters(); saveUi(); reloadList();
 }
@@ -268,7 +270,7 @@ function rowHtml(it, i) {
     <img class="thumb" loading="lazy" src="/api/items/${it.id}/thumb" alt="" onerror="this.style.visibility='hidden'">
     <span class="name">${it.favorite ? '<span class="star">★</span>' : ''}${it.train_exclude ? `<span class="excl" title="${esc(t('det_excluded'))}">🚫</span>` : ''}${it.kind === 'image' ? '🖼 ' : ''}${esc(it.name)}${it.missing ? ' ！' : ''}${tc}</span>
     <span class="badge">${esc(badgeText(it))}</span>
-    <span class="sub">${esc(it.station || '')}${it.station ? ' · ' : ''}${it.datetime_corrected ? `<span class="dtc" title="${esc(it.datetime || '')}">⏱ ${esc(it.datetime_corrected)}</span>` : esc(it.datetime || '')}${it.note ? ' · ' + esc(it.note) : ''}</span>
+    <span class="sub">${esc(it.station || '')}${it.station ? ' · ' : ''}${it.datetime_corrected ? `<span class="dtc" title="${esc(it.datetime || '')}">⏱ ${esc(it.datetime_corrected)}</span>` : esc(it.datetime || '')}${it.det_state === 1 ? ` · <span class="nbox" title="${esc(t('boxes_n_tip'))}">${esc(t('boxes_n'))} ${it.n_boxes || 0}</span>` : ''}${it.note ? ' · ' + esc(it.note) : ''}</span>
     <span class="jud">${sp || '<span class="info">—</span>'}</span></li>`;
 }
 /* 状態の札: 未確認のうち、判定が Timelapse / CSV から取り込んだものは「取り込み」、モデルのものは「AI 判定」 */
@@ -585,7 +587,7 @@ function wire() {
     $('#' + id).addEventListener('change', () => { S.filter[id.slice(1).toLowerCase()] = $('#' + id).value; saveUi(); reloadList(); });
   });
   $('#fFav').addEventListener('change', () => { S.filter.favorite = $('#fFav').checked ? '1' : ''; saveUi(); reloadList(); });
-  $('#fDet').addEventListener('change', () => { const v = $('#fDet').value; S.filter.flag = v === 'low' ? 'low' : ''; S.filter.exclude = v === 'excl' ? '1' : ''; S.filter.agree = v.startsWith('cmp:') ? v.slice(4) : ''; S.filter.det = (v === 'low' || v === 'excl' || v.startsWith('cmp:')) ? '' : v; saveUi(); reloadList(); });
+  $('#fDet').addEventListener('change', () => { const v = $('#fDet').value; S.filter.flag = v === 'low' ? 'low' : ''; S.filter.exclude = v === 'excl' ? '1' : ''; S.filter.boxes = v.startsWith('box:') ? v.slice(4) : ''; S.filter.agree = v.startsWith('cmp:') ? v.slice(4) : ''; S.filter.det = (v === 'low' || v === 'excl' || v.startsWith('cmp:') || v.startsWith('box:')) ? '' : v; saveUi(); reloadList(); });
   let textTimer = null;
   $('#fText').addEventListener('input', () => { clearTimeout(textTimer); textTimer = setTimeout(() => { S.filter.text = $('#fText').value.trim(); saveUi(); reloadList(); }, 300); });
   $('#sortSel').addEventListener('change', () => { S.sort = $('#sortSel').value; saveUi(); reloadList(); });

@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS items (
   agree INTEGER,                         -- 人の判定（確認済み / CSV / Timelapse 由来）とモデルの判定の比較: NULL = 比べられない / 1 一致 / 2 部分一致 / 3 不一致
   recheck INTEGER NOT NULL DEFAULT 0,    -- 人の判定と AI の判定が食い違っていたものを、人が見直して確定した（第 3 段階の追加学習で重みを付ける）
   train_exclude INTEGER NOT NULL DEFAULT 0,  -- 学習から外す（人の目にしか分からない動画、地点ごと不適など。評価には使う）
+  n_boxes INTEGER NOT NULL DEFAULT 0,        -- 枠の数（1 フレームに入る動物の枠の最大数。閾値以上のもの。絞り込みと並べ替えに）
   updated_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_items_station ON items(station);
@@ -140,6 +141,13 @@ def now_stamp() -> str:
     return datetime.now().strftime("%Y/%m/%d %H:%M:%S")
 
 
+# 枠の数（1 フレームに入る動物の枠の最大数、信頼度が閾値以上のもの）を items.n_boxes に
+N_BOXES_SQL_ONE = ("UPDATE items SET n_boxes = COALESCE((SELECT MAX(c) FROM (SELECT COUNT(*) AS c FROM detections d WHERE d.item_id = items.id AND d.category = 'animal' "
+                   "AND d.conf >= ? GROUP BY d.t_sec)), 0) WHERE id = ?")
+N_BOXES_SQL_ALL = ("UPDATE items SET n_boxes = COALESCE((SELECT MAX(c) FROM (SELECT COUNT(*) AS c FROM detections d WHERE d.item_id = items.id AND d.category = 'animal' "
+                   "AND d.conf >= ? GROUP BY d.t_sec)), 0) WHERE det_state = 1")
+
+
 class Database:
     def __init__(self, path: str):
         self.path = path
@@ -223,6 +231,9 @@ class Database:
             c.execute("ALTER TABLE items ADD COLUMN recheck INTEGER NOT NULL DEFAULT 0")
         if from_ver < 8 and "train_exclude" not in cols:
             c.execute("ALTER TABLE items ADD COLUMN train_exclude INTEGER NOT NULL DEFAULT 0")
+        if from_ver < 9 and "n_boxes" not in cols:
+            c.execute("ALTER TABLE items ADD COLUMN n_boxes INTEGER NOT NULL DEFAULT 0")
+            c.execute(N_BOXES_SQL_ALL, (0.2,))
 
     # ---------- 小道具 ----------
     def get_meta(self, k: str):

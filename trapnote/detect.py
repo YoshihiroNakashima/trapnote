@@ -26,7 +26,7 @@ import urllib.request
 
 import numpy as np
 
-from .db import now_iso
+from .db import N_BOXES_SQL_ONE, now_iso
 from .paths import abs_of, cache_name
 from .project import PROJECT_DEFAULTS
 
@@ -846,6 +846,7 @@ def process_item(project, hub: ModelHub, item: dict, classify: bool = True, fram
             c.execute("INSERT INTO detections(item_id, t_sec, category, conf, x, y, w, h, species, sp_conf) VALUES(?,?,?,?,?,?,?,?,?,?)",
                       (item["id"], r[0], r[1], round(r[2], 4), round(r[3], 4), round(r[4], 4), round(r[5], 4), round(r[6], 4),
                        sp[0], round(sp[1], 4) if sp[1] is not None else None))
+    db.x(N_BOXES_SQL_ONE, (a_th, item["id"]))
     summary = finish_item(project, hub, item, summary, cls, classify)
     summary["elapsed"] = round(time.time() - t0, 2)
     return summary
@@ -957,6 +958,7 @@ def save_boxes(project, item_id: int, boxes: list[dict]) -> dict:
         c.execute("DELETE FROM detections WHERE item_id=?", (item_id,))
         c.executemany("INSERT INTO detections(item_id, t_sec, category, conf, x, y, w, h, species, sp_conf) VALUES(?,?,?,?,?,?,?,?,?,?)", rows)
         c.execute("UPDATE items SET det_state=1, det_json=?, cls_state=0, cls_json=NULL, updated_at=? WHERE id=?", (json.dumps(summary, ensure_ascii=False), now_iso(), item_id))
+        c.execute(N_BOXES_SQL_ONE, (a_th, item_id))
     # 古い特徴量と枠の画像は捨てる（枠が変わったので）
     try:
         fp = os.path.join(project.cache_dir("features"), cache_name(it["rel_path"]) + ".npz")
@@ -977,10 +979,10 @@ def clear_detections(db, item_ids: list[int] | None = None) -> int:
         if item_ids:
             qs = ",".join("?" * len(item_ids))
             c.execute(f"DELETE FROM detections WHERE item_id IN ({qs})", tuple(item_ids))
-            cur = c.execute(f"UPDATE items SET det_state=0, det_json=NULL, cls_state=0, cls_json=NULL, auto_json=NULL, agree=NULL WHERE id IN ({qs})", tuple(item_ids))
+            cur = c.execute(f"UPDATE items SET det_state=0, det_json=NULL, cls_state=0, cls_json=NULL, auto_json=NULL, agree=NULL, n_boxes=0 WHERE id IN ({qs})", tuple(item_ids))
         else:
             c.execute("DELETE FROM detections")
-            cur = c.execute("UPDATE items SET det_state=0, det_json=NULL, cls_state=0, cls_json=NULL, auto_json=NULL, agree=NULL")
+            cur = c.execute("UPDATE items SET det_state=0, det_json=NULL, cls_state=0, cls_json=NULL, auto_json=NULL, agree=NULL, n_boxes=0")
         return cur.rowcount
 
 

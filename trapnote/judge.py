@@ -1,6 +1,8 @@
 """対象の一覧（絞り込み・並べ替え・ページング）、詳細、判定の保存と確認、取り消し"""
 from __future__ import annotations
 
+import re
+
 import json
 import logging
 import os
@@ -18,6 +20,7 @@ SORTS = {
     "path": "items.rel_path",
     "status": "items.status",
     "updated": "COALESCE(items.updated_at, '')",
+    "boxes": "items.n_boxes",
     "station": f"COALESCE(items.station, '') || '/' || COALESCE({EFF_DT}, '')",
     "confidence": "COALESCE((SELECT MIN(confidence) FROM judgements j WHERE j.item_id=items.id AND j.origin='auto'), 2)",
     "id": "items.id",
@@ -81,6 +84,19 @@ def build_where(f: dict) -> tuple[str, list]:
         w.append("items.recheck = 1")
     if f.get("exclude") in (True, "1", 1, "true"):
         w.append("items.train_exclude = 1")
+    bx = str(f.get("boxes") or "")             # 枠の数: 0 / 1 / 2 / 3+（3 以上）/ 2-5（範囲）
+    if bx:
+        m = re.match(r"^(\d+)(\+|-(\d+))?$", bx)
+        if m:
+            lo = int(m.group(1))
+            if m.group(2) == "+":
+                w.append("items.n_boxes >= ?"); p.append(lo)
+            elif m.group(3):
+                w.append("items.n_boxes BETWEEN ? AND ?"); p += [lo, int(m.group(3))]
+            else:
+                w.append("items.n_boxes = ?"); p.append(lo)
+            if lo == 0 and not m.group(2):
+                w.append("items.det_state = 1")      # 枠 0 は検出済みで枠がないもの（未検出は含めない）
     det = f.get("det")                       # 検出の状態: todo（未）/ done（済）/ failed（失敗）/ animal / person / vehicle / none（検出で動物なし）
     if det == "todo":
         w.append("items.det_state = 0")
@@ -114,7 +130,7 @@ def order_sql(sort: str, desc: bool) -> tuple[str, str]:
 
 # ---------- 一覧 ----------
 ROW_COLS = ("id, rel_path, name, kind, folder, season, station, datetime, datetime_source, duration, width, height, "
-            "status, verified_by, assignee, missing, meta_state, flag, note, det_state, cls_state, favorite, datetime_corrected, time_offset_sec, auto_json, agree, recheck, train_exclude")
+            "status, verified_by, assignee, missing, meta_state, flag, note, det_state, cls_state, favorite, datetime_corrected, time_offset_sec, auto_json, agree, recheck, train_exclude, n_boxes")
 
 
 def _parse_auto(r: dict) -> None:

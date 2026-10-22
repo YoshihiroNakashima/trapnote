@@ -349,7 +349,7 @@ async def _body(request) -> dict:
     return json.loads(text) if text.strip() else {}
 
 
-FILTER_KEYS = ("station", "season", "folder", "folder_prefix", "status", "kind", "species", "date_from", "date_to", "assignee", "flag", "missing", "text", "include_missing", "favorite", "corrected", "det", "agree", "exclude")
+FILTER_KEYS = ("station", "season", "folder", "folder_prefix", "status", "kind", "species", "date_from", "date_to", "assignee", "flag", "missing", "text", "include_missing", "favorite", "corrected", "det", "agree", "exclude", "boxes")
 
 
 def _filters(src) -> dict:

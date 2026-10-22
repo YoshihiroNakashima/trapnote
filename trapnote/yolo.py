@@ -121,7 +121,8 @@ def import_yolo(project, mapping: dict[str, str | None], by: str | None, as_veri
                            max_animal=max([b[4] for b in boxes], default=0.0), max_person=0.0, max_vehicle=0.0,
                            max_area=round(max([b[2] * b[3] for b in boxes], default=0.0), 4), animal_threshold=0.2, person_threshold=0.2,
                            animal=bool(boxes), person=False, vehicle=False, model="yolo-labels", at=now_iso())
-            cur.execute("UPDATE items SET det_state=1, det_json=?, cls_state=0, cls_json=NULL, meta_error=NULL WHERE id=?", (json.dumps(summary, ensure_ascii=False), r["id"]))
+            cur.execute("UPDATE items SET det_state=1, det_json=?, cls_state=0, cls_json=NULL, meta_error=NULL, n_boxes=? WHERE id=?",
+                        (json.dumps(summary, ensure_ascii=False), len([b for b in boxes if b[4] >= 0.2]), r["id"]))
             n_boxes += len(boxes)
             if not boxes:
                 n_noboxes += 1
