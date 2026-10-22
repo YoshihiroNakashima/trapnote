@@ -148,3 +148,132 @@ def import_yolo(project, mapping: dict[str, str | None], by: str | None, as_veri
     for start in range(0, len(ids), 900):
         update_agree(db, ids[start:start + 900])
     return dict(items=n_items, boxes=n_boxes, no_boxes=n_noboxes, skipped_verified=n_skipped, station_set=n_station)
+
+
+# ---------- 書き出し（YOLO 形式: images/ と labels/） ----------
+def _yolo_line(cls: int, x: float, y: float, w: float, h: float) -> str:
+    return f"{cls} {x + w / 2:.6f} {y + h / 2:.6f} {w:.6f} {h:.6f}"
+
+
+def export_yolo(project, out_dir: str, f: dict | None = None, per_species: bool = True, class_mode: str = "animal0", write_images: bool = True,
+                in_place: bool = False, progress=None, stop=None) -> dict:
+    """検出枠を YOLO 形式で書く。
+    in_place: 「<種>/images/画像」の作りのプロジェクトで、元の「<種>/labels/同名.txt」に書き戻す（out_dir は使わない）
+    そうでなければ out_dir の下に <種のフォルダ>/images（画像のコピー。動画は枠のあるフレームを JPEG で）と <種のフォルダ>/labels を作る
+    class_mode: animal0 = 動物の枠を class 0（人・車は書かない）/ species = 種ごとの番号（classes.txt。人・車も）
+    枠のない対象は空のラベル（背景）として書く"""
+    import shutil
+    from .export import _iter_items
+    from .detect import read_frames
+    from .judge import human_codes
+    from .species import FIXED
+    db = project.db
+    sl = project.species
+    label_of = {r["code"]: (r.get("csv_label") or r.get("name_en") or r["code"]) for r in sl.rows}
+    for fx in FIXED:
+        label_of.setdefault(fx["code"], fx["csv_label"])
+    classes: list[str] = []
+    cidx: dict[str, int] = {}
+    if class_mode == "species":
+        for r in sl.rows:
+            if r.get("enabled") and r["code"] not in cidx:
+                cidx[r["code"]] = len(classes)
+                classes.append(label_of[r["code"]])
+        for code in ("human", "vehicle"):
+            cidx[code] = len(classes)
+            classes.append(label_of[code])
+    n_items = n_labels = n_boxes = n_images = n_skip = 0
+    if not in_place:
+        os.makedirs(out_dir, exist_ok=True)
+    rows_all = list(_iter_items(db, f or {}))
+    for k, (it, js, fv, auto) in enumerate(rows_all):
+        if stop and stop():
+            break
+        if progress and k % 50 == 0:
+            progress(k, len(rows_all))
+        human = human_codes(it["status"], [dict(species=j["species"], origin=j.get("origin")) for j in js])
+        animals = [c for c in human if c not in ("area", "human", "vehicle", "empty", "unknown")]
+        first = animals[0] if animals else (next(iter(human)) if human else None)
+        folder = (label_of.get(first, first) if first else "Unlabeled") if per_species else ""
+        folder = re.sub(r'[\\/:*?"<>|]+', "_", folder)
+        dets = db.q("SELECT t_sec, category, conf, x, y, w, h, species FROM detections WHERE item_id=? ORDER BY t_sec, id", (it["id"],))
+        src = abs_of(it["rel_path"], project.root)
+        stem = os.path.splitext(os.path.basename(it["rel_path"]))[0]
+
+        def cls_of(d) -> int | None:
+            if class_mode != "species":
+                return 0 if d["category"] == "animal" else None
+            if d["category"] == "person":
+                return cidx.get("human")
+            if d["category"] == "vehicle":
+                return cidx.get("vehicle")
+            code = d["species"] if d["species"] in animals else first
+            return cidx.get(code) if code else None
+
+        def lines_of(ds) -> list[str]:
+            out = []
+            if human and not animals and "empty" in human and class_mode != "species":   # 人が「動物なし」と確定した対象: 枠があっても背景として書く
+                return out
+            for d in ds:
+                c = cls_of(d)
+                if c is not None:
+                    out.append(_yolo_line(c, d["x"], d["y"], d["w"], d["h"]))
+            return out
+        if in_place:
+            m = ITEM_RE.match(it["rel_path"])
+            if not m or it["kind"] != "image":
+                n_skip += 1
+                continue
+            ldir = os.path.join(project.root, m.group("folder"), "labels")
+            os.makedirs(ldir, exist_ok=True)
+            lines = lines_of(dets)
+            with open(os.path.join(ldir, stem + ".txt"), "w", encoding="utf-8") as fh:
+                fh.write("\n".join(lines) + ("\n" if lines else ""))
+            n_labels += 1
+            n_boxes += len(lines)
+            n_items += 1
+            continue
+        idir = os.path.join(out_dir, folder, "images") if folder else os.path.join(out_dir, "images")
+        ldir = os.path.join(out_dir, folder, "labels") if folder else os.path.join(out_dir, "labels")
+        os.makedirs(idir, exist_ok=True)
+        os.makedirs(ldir, exist_ok=True)
+        if it["kind"] == "image":
+            lines = lines_of(dets)
+            if write_images and os.path.isfile(src):
+                dst = os.path.join(idir, os.path.basename(it["rel_path"]))
+                if not os.path.isfile(dst):
+                    shutil.copy2(src, dst)
+                n_images += 1
+            with open(os.path.join(ldir, stem + ".txt"), "w", encoding="utf-8") as fh:
+                fh.write("\n".join(lines) + ("\n" if lines else ""))
+            n_labels += 1
+            n_boxes += len(lines)
+        else:                                  # 動画: 枠のある時刻のフレームを JPEG で
+            times = sorted({float(d["t_sec"]) for d in dets})
+            if not times:
+                n_skip += 1
+                continue
+            try:
+                frames = read_frames(src, times, it.get("fps"))
+            except Exception as e:
+                log.warning("フレームを読めません %s: %s", it["rel_path"], e)
+                n_skip += 1
+                continue
+            have = {ft: im for ft, im in frames}
+            for t in times:
+                ft = min(have.keys(), key=lambda x: abs(x - t)) if have else None
+                if ft is None:
+                    continue
+                name = f"{stem}_t{int(round(t * 1000)):07d}"
+                have[ft].save(os.path.join(idir, name + ".jpg"), "JPEG", quality=92)
+                n_images += 1
+                lines = lines_of([d for d in dets if abs(float(d["t_sec"]) - t) < 1e-6])
+                with open(os.path.join(ldir, name + ".txt"), "w", encoding="utf-8") as fh:
+                    fh.write("\n".join(lines) + ("\n" if lines else ""))
+                n_labels += 1
+                n_boxes += len(lines)
+        n_items += 1
+    if not in_place and class_mode == "species":
+        with open(os.path.join(out_dir, "classes.txt"), "w", encoding="utf-8") as fh:
+            fh.write("\n".join(classes) + "\n")
+    return dict(out_dir=out_dir if not in_place else project.root, items=n_items, labels=n_labels, boxes=n_boxes, images=n_images, skipped=n_skip, classes=classes)

@@ -564,6 +564,36 @@ class YoloImportJob(Job):
         return d
 
 
+class YoloExportJob(Job):
+    """検出枠を YOLO 形式で書き出す（bg レーン。動画はフレームを切り出すので裏で）"""
+
+    def __init__(self, options: dict):
+        super().__init__("yolo_export", dict(out=options.get("out_dir")), "YOLO 形式の書き出し")
+        self.options = options
+        self.result: dict | None = None
+
+    def run(self, ctx) -> None:
+        from . import yolo
+        project = ctx.project
+        if project is None:
+            return
+        o = self.options
+
+        def prog(a, b):
+            self.done, self.total = a, b
+        self.message = "書き出し中"
+        r = yolo.export_yolo(project, o.get("out_dir") or "", o.get("filters") or {}, bool(o.get("per_species", True)), o.get("class_mode") or "animal0",
+                             bool(o.get("write_images", True)), bool(o.get("in_place")), prog, self.stop_flag.is_set)
+        self.result = r
+        self.done = self.total = r["items"]
+        self.message = f"{r['items']} 件（ラベル {r['labels']}、枠 {r['boxes']}、画像 {r['images']}、飛ばした {r['skipped']}）→ {r['out_dir']}"
+
+    def status(self) -> dict:
+        d = super().status()
+        d.update(result=self.result)
+        return d
+
+
 class ScanJob(Job):
     def __init__(self):
         super().__init__("scan", {}, "フォルダの走査")

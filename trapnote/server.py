@@ -13,7 +13,7 @@ from aiohttp import web
 
 from . import APP_ID, APP_NAME, BUILD, BUILD_TIME, VERSION, detect, dialogs, export as export_mod, judge, media, merge as merge_mod, scan as scan_mod, timelapse, train, yolo
 from .config import DATA_DIR, STATIC_DIR, Settings, State
-from .jobs import ArchiveJob, DetectJob, Lane, MetaJob, ReclassifyJob, ScanJob, TrainJob, TranscodeJob, YoloImportJob
+from .jobs import ArchiveJob, DetectJob, Lane, MetaJob, ReclassifyJob, ScanJob, TrainJob, TranscodeJob, YoloExportJob, YoloImportJob
 from .paths import abs_of, norm
 from .pattern import names_in, preview as pattern_preview
 from .project import PROJECT_DIRNAME, Project, find_project_for_root, is_project_dir
@@ -956,6 +956,14 @@ def make_app(session: Session) -> web.Application:
         S.bg.submit(YoloImportJob(mapping, dict(as_verified=b.get("as_verified", True), set_station=b.get("set_station", True), overwrite_verified=b.get("overwrite_verified")), user()), front=True)
         return jr(S.jobs_status())
 
+    async def yolo_export(request):
+        p = S.need()
+        b = await _body(request)
+        opts = dict(out_dir=norm(b.get("out_dir") or os.path.join(p.dir, "exports", "yolo")), filters=_filters(b.get("filters") or {}),
+                    per_species=b.get("per_species", True), class_mode=b.get("class_mode") or "animal0", write_images=b.get("write_images", True), in_place=bool(b.get("in_place")))
+        S.bg.submit(YoloExportJob(opts), front=True)
+        return jr(S.jobs_status())
+
     async def timelapse_preview(request):
         p = S.need()
         b = await _body(request)
@@ -1076,6 +1084,7 @@ def make_app(session: Session) -> web.Application:
     r.add_post("/api/export/timelapse", export_timelapse)
     r.add_get("/api/yolo/preview", yolo_preview)
     r.add_post("/api/yolo/import", yolo_import)
+    r.add_post("/api/yolo/export", yolo_export)
     r.add_post("/api/export/md_json", export_md_json)
     r.add_post("/api/detect/plan", detect_plan)
     r.add_post("/api/detect/start", detect_start)

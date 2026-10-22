@@ -529,6 +529,7 @@ function renderJobs(jobs) {
   if (typeof detectOnJobs === 'function') detectOnJobs(jobs);
   if (typeof trainOnJobs === 'function') trainOnJobs(jobs);
   if (typeof yoloOnJobs === 'function') yoloOnJobs(jobs);
+  if (typeof yoloExportOnJobs === 'function') yoloExportOnJobs(jobs);
 }
 async function pollJobs() {
   try { const j = await api('/api/jobs'); renderJobs(j); } catch (e) { /* 終了中など */ }

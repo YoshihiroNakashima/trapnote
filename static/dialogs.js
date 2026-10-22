@@ -181,7 +181,26 @@ async function exportDialog() {
     <div class="form-row"><label>${esc(t('ex_tl_style'))}</label><select id="exTlStyle"><option value="choice">${esc(t('ex_tl_choice'))}</option><option value="flags">${esc(t('ex_tl_flags'))}</option></select></div>
     <div class="form-row"><label></label><span><label class="chk"><input type="checkbox" id="exTlFields" checked> ${esc(t('ex_tl_fields'))}</label>　<label class="chk"><input type="checkbox" id="exTlCorrected" checked> ${esc(t('ex_tl_corrected'))}</label></span></div>
     <button type="button" id="exTl">${esc(t('ex_tl_run'))}</button>
+    <h4>${esc(t('ex_yolo'))}</h4><div class="note">${esc(t('ex_yolo_help'))}</div>
+    <div class="form-row"><label>${esc(t('ex_yolo_where'))}</label><select id="exYoloWhere"><option value="new">${esc(t('ex_yolo_new'))}</option><option value="in_place">${esc(t('ex_yolo_in_place'))}</option></select></div>
+    <div id="exYoloNewRows">${pathRow('exYoloDir', t('ex_yolo_dir'), 'folder', `${S.project.dir}/exports/yolo`, '')}
+    <div class="form-row"><label>${esc(t('ex_yolo_class'))}</label><select id="exYoloClass"><option value="animal0">${esc(t('ex_yolo_class0'))}</option><option value="species">${esc(t('ex_yolo_class_sp'))}</option></select></div>
+    <div class="form-row"><label></label><span><label class="chk"><input type="checkbox" id="exYoloPer" checked> ${esc(t('ex_yolo_per'))}</label>　<label class="chk"><input type="checkbox" id="exYoloImg" checked> ${esc(t('ex_yolo_img'))}</label></span></div></div>
+    <button type="button" id="exYolo">${esc(t('ex_yolo_run'))}</button><div id="exYoloStatus" class="note"></div>
     <div class="modal-actions"><button id="mCancel">${esc(t('close'))}</button><button id="mOk" class="primary">${esc(t('run'))}</button></div>`);
+  exportModalEl = m;
+  m.querySelector('#exYoloWhere').addEventListener('change', () => { m.querySelector('#exYoloNewRows').classList.toggle('hidden', m.querySelector('#exYoloWhere').value === 'in_place'); });
+  m.querySelector('#exYolo').onclick = async () => {
+    const range = m.querySelector('#exRange').value;
+    const filters = range === 'filter' ? Object.assign({}, S.filter) : (range === 'verified' ? { status: 'verified' } : {});
+    const inPlace = m.querySelector('#exYoloWhere').value === 'in_place';
+    if (inPlace) { exportModalEl = null; if (!await confirmModal(t('ex_yolo'), esc(t('ex_yolo_in_place_q')), t('run'), true)) { exportDialog(); return; } await exportDialog(); }
+    const mm = exportModalEl || m;
+    try {
+      const j = await api('/api/yolo/export', { out_dir: mm.querySelector('#exYoloDir').value.trim(), filters, per_species: mm.querySelector('#exYoloPer').checked, class_mode: mm.querySelector('#exYoloClass').value, write_images: mm.querySelector('#exYoloImg').checked, in_place: inPlace });
+      mm._yoloRunning = true; yoloExportOnJobs(j);
+    } catch (e) { toast(e.message, 'error'); }
+  };
   wirePicks(m);
   m.querySelector('#mCancel').onclick = closeModal;
   m.querySelector('#exIndex').onclick = async () => { const r = await api('/api/export/index', {}); m.querySelector('#exResult').textContent = `${t('ex_done')}: ${r.path} (${r.rows})`; };
@@ -924,5 +943,21 @@ function yoloOnJobs(jobs) {   // 取り込みは裏の処理（bg レーン）�
     el.textContent = `${t(rec.state === 'done' ? 'yl_done' : 'ar_result')}: ${rec.message || rec.error || ''}`;
     m.querySelector('#mOk').disabled = false;
     api('/api/state').then(snap => { setSnapshot(snap); reloadList(); if (S.cur) refreshCurrent(); }).catch(() => {});
+  }
+}
+
+let exportModalEl = null;
+function yoloExportOnJobs(jobs) {
+  const m = exportModalEl;
+  if (!m || !document.body.contains(m) || !jobs || !jobs.bg) return;
+  const el = m.querySelector('#exYoloStatus'); if (!el) return;
+  const cur = jobs.bg.current, rec = (jobs.bg.recent || []).find(x => x.kind === 'yolo_export');
+  if (cur && cur.kind === 'yolo_export') {
+    const pct = cur.total ? Math.round(100 * cur.done / cur.total) : 0;
+    el.innerHTML = `<div><b>${esc(t('ar_running'))}</b>: ${cur.done} / ${cur.total} (${pct}%)</div><div class="prog"><div style="width:${pct}%"></div></div>`;
+    m._yoloRunning = true;
+  } else if (m._yoloRunning && rec) {
+    m._yoloRunning = false;
+    el.textContent = `${t(rec.state === 'done' ? 'ex_done' : 'ar_result')}: ${rec.message || rec.error || ''}`;
   }
 }
