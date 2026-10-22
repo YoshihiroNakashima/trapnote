@@ -124,6 +124,47 @@ async function fieldsDialog() {
   render();
 }
 
+/* 右の欄の「＋ 項目」: 項目を 1 つその場で足す（細かい編集は 設定 → 追加項目） */
+async function addFieldDialog(scope) {
+  const types = ['select', 'multiselect', 'check', 'number', 'text', 'time'];
+  const m = showModal(`<h3>${esc(t('fd_add'))}</h3><div class="note">${esc(t('fd_add_help'))}</div>
+    <div class="form-row"><label>${esc(t('fd_ja'))}</label><input type="text" id="afJa" spellcheck="false"></div>
+    <div class="form-row"><label>${esc(t('fd_en'))}</label><input type="text" id="afEn" spellcheck="false" placeholder="${esc(t('fd_optional'))}"></div>
+    <div class="form-row"><label>${esc(t('fd_key'))}</label><input type="text" id="afKey" spellcheck="false" style="width:160px" placeholder="${esc(t('fd_key_auto'))}"></div>
+    <div class="form-row"><label>${esc(t('fd_type'))}</label><select id="afType">${types.map(x => `<option value="${x}">${esc(t('t_' + x))}</option>`).join('')}</select></div>
+    <div class="form-row" id="afOptRow"><label>${esc(t('fd_options'))}</label><input type="text" id="afOpts" spellcheck="false" placeholder="${esc(t('fd_options_ph'))}"></div>
+    <div class="form-row"><label>${esc(t('fd_scope'))}</label><select id="afScope"><option value="species">${esc(t('sc_species'))}</option><option value="item">${esc(t('sc_item'))}</option></select></div>
+    <div class="form-row"><label>${esc(t('fd_default'))}</label><input type="text" id="afDef" spellcheck="false" style="width:160px"></div>
+    <div class="form-row"><label>${esc(t('fd_repeat'))}</label><label class="chk"><input type="checkbox" id="afRepeat"> ${esc(t('fd_repeat_l'))}</label></div>
+    <div class="modal-actions"><button id="mCancel">${esc(t('cancel'))}</button><button id="mOk" class="primary">${esc(t('fd_add_ok'))}</button></div>`);
+  const q = sel => m.querySelector(sel);
+  q('#afScope').value = scope === 'item' ? 'item' : 'species';
+  const slug = v => v.normalize('NFKD').replace(/[^A-Za-z0-9_]+/g, '_').replace(/^_+|_+$/g, '');
+  const optRow = () => q('#afOptRow').classList.toggle('hidden', !['select', 'multiselect'].includes(q('#afType').value));
+  q('#afType').addEventListener('change', optRow); optRow();
+  q('#afEn').addEventListener('input', () => { if (!q('#afKey').dataset.edited) q('#afKey').value = slug(q('#afEn').value).toLowerCase(); });
+  q('#afKey').addEventListener('input', () => { q('#afKey').dataset.edited = '1'; });
+  q('#mCancel').onclick = closeModal;
+  q('#mOk').onclick = async () => {
+    const ja = q('#afJa').value.trim(), en = q('#afEn').value.trim();
+    if (!ja && !en) { toast(t('fd_need_name'), 'error'); return; }
+    const existing = (S.fields.fields || []);
+    let key = slug(q('#afKey').value.trim() || en || '').toLowerCase();
+    if (!key || /^[0-9]/.test(key)) key = 'field' + (existing.length + 1);
+    while (existing.some(f => f.key === key)) key += '_';
+    const type = q('#afType').value;
+    const nf = { key, label_ja: ja || en, label_en: en || ja, type, scope: q('#afScope').value, repeat: q('#afRepeat').checked, group: q('#afRepeat').checked ? key : '',
+      options: ['select', 'multiselect'].includes(type) ? q('#afOpts').value.split(/[,、\n]/).map(x => x.trim()).filter(Boolean) : [], default: q('#afDef').value.trim() };
+    try {
+      S.fields = await api('/api/fields', { fields: existing.concat([nf]).map((f, i) => Object.assign({}, f, { order: i })) });
+      closeModal();
+      if (S.cur) renderFieldsPanel();
+      toast(`${t('fd_added')}: ${ja || en}`);
+    } catch (e) { toast(e.message, 'error'); }
+  };
+  q('#afJa').focus();
+}
+
 // ---------- 書き出し ----------
 async function exportDialog() {
   const def = `${S.project.dir}/exports/trapnote_${new Date().toISOString().slice(0, 10)}.csv`;
@@ -135,6 +176,11 @@ async function exportDialog() {
     <div id="exResult" class="note"></div>
     <h4>${esc(t('ex_index'))}</h4><div class="note">${esc(t('ex_index_help'))}</div><button type="button" id="exIndex">${esc(t('ex_index'))}</button>
     <h4>${esc(t('ex_md'))}</h4><div class="note">${esc(t('ex_md_help'))}</div><button type="button" id="exMd">${esc(t('ex_md'))}</button>
+    <h4>${esc(t('ex_tl'))}</h4><div class="note">${esc(t('ex_tl_help'))}</div>
+    ${pathRow('exTlPath', t('ex_path'), 'saveddb', `${S.project.root}/${(S.project.root || '').split('/').pop()}.ddb`, t('ex_tl_path_help'), `${(S.project.root || '').split('/').pop()}.ddb`)}
+    <div class="form-row"><label>${esc(t('ex_tl_style'))}</label><select id="exTlStyle"><option value="choice">${esc(t('ex_tl_choice'))}</option><option value="flags">${esc(t('ex_tl_flags'))}</option></select></div>
+    <div class="form-row"><label></label><span><label class="chk"><input type="checkbox" id="exTlFields" checked> ${esc(t('ex_tl_fields'))}</label>　<label class="chk"><input type="checkbox" id="exTlCorrected" checked> ${esc(t('ex_tl_corrected'))}</label></span></div>
+    <button type="button" id="exTl">${esc(t('ex_tl_run'))}</button>
     <div class="modal-actions"><button id="mCancel">${esc(t('close'))}</button><button id="mOk" class="primary">${esc(t('run'))}</button></div>`);
   wirePicks(m);
   m.querySelector('#mCancel').onclick = closeModal;
@@ -145,6 +191,16 @@ async function exportDialog() {
     const path = await pickPath('savejson', `${S.project.dir}/exports`, 'detections_md.json');
     if (!path) return;
     try { const r = await api('/api/export/md_json', { path, filters }); m.querySelector('#exResult').textContent = `${t('ex_done')}: ${r.path} (${r.items} ${t('items')})`; } catch (e) { toast(e.message, 'error'); }
+  };
+  m.querySelector('#exTl').onclick = async () => {
+    const range = m.querySelector('#exRange').value;
+    const filters = range === 'filter' ? Object.assign({}, S.filter) : (range === 'verified' ? { status: 'verified' } : {});
+    const path = m.querySelector('#exTlPath').value.trim();
+    if (!path) { toast(t('ex_tl_need_path'), 'error'); return; }
+    try {
+      const r = await api('/api/export/timelapse', { path, filters, species_style: m.querySelector('#exTlStyle').value, include_fields: m.querySelector('#exTlFields').checked, use_corrected: m.querySelector('#exTlCorrected').checked });
+      m.querySelector('#exResult').textContent = `${t('ex_done')}: ${r.ddb} / ${r.tdb} (${r.rows} ${t('items')}${r.skipped ? `, ${t('ex_tl_skipped')} ${r.skipped}` : ''})`;
+    } catch (e) { toast(e.message, 'error'); }
   };
   m.querySelector('#mOk').onclick = async () => {
     const range = m.querySelector('#exRange').value;

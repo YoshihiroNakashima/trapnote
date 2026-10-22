@@ -15,7 +15,7 @@ from collections import Counter
 
 from . import media
 from .db import now_iso
-from .paths import norm, rel_key, rel_of
+from .paths import abs_of, norm, rel_key, rel_of
 from .species import FIXED_CODES
 
 log = logging.getLogger(__name__)
@@ -385,3 +385,224 @@ def import_data(project, path: str, prefix: str, as_verified: bool, by: str | No
     return dict(rows=len(rows), items=n_items, skipped_verified=n_skipped, favorites=n_fav, notes=n_note, field_values=n_fields,
                 unmatched_paths=len(unmatched), unmatched_path_examples=[p for p, _ in unmatched.most_common(5)],
                 unmatched_labels=[dict(value=v, count=n) for v, n in unknown_labels.most_common(50)])
+
+
+# ---------- 書き出し（Timelapse2 の .tdb / .ddb を作る） ----------
+TL_VERSION = "2.3.0.4"
+TL_STD_LABELS = {"RelativePath", "File", "DateTime", "DeleteFlag", "Species", "Multispecies", "Star", "Remarks"}
+
+
+def _data_label(name: str, used: set[str]) -> str:
+    """Timelapse の DataLabel（英数字と _、先頭は英字）。重なれば番号を付ける"""
+    s = re.sub(r"[^A-Za-z0-9_]+", "_", str(name or "")).strip("_") or "Field"
+    if not re.match(r"[A-Za-z]", s):
+        s = "F_" + s
+    base, n = s, 2
+    while s in used:
+        s = f"{base}{n}"
+        n += 1
+    used.add(s)
+    return s
+
+
+def _tl_bool(v) -> str:
+    return "true" if str(v).strip().lower() in ("1", "true", "yes", "on") else "false"
+
+
+def _fmt_dt(s: str | None) -> str:
+    """TrapNote の 2026/10/20 19:05:21 → Timelapse の 2026-10-20 19:05:21"""
+    if not s:
+        return "1900-01-01 12:00:00"
+    return s.replace("/", "-")[:19]
+
+
+def build_export_template(project, species_style: str = "choice", include_fields: bool = True, lang: str = "ja") -> dict:
+    """書き出す TemplateTable の行（Timelapse の control）を組み立てる。返り値 dict(controls, species_labels, label_of(code → Species の値), field_cols)"""
+    from .species import FIXED
+    sl = project.species
+    rows = [r for r in sl.rows if r.get("enabled")] + [dict(f, fixed=True) for f in FIXED]
+    seen: set[str] = set()
+    label_of: dict[str, str] = {}
+    labels: list[str] = []
+    for r in rows:
+        lab = (r.get("csv_label") or r.get("name_en") or r.get("code") or "").strip() or r.get("code")
+        if lab in seen:
+            lab = r.get("code")
+        seen.add(lab)
+        label_of[r["code"]] = lab
+        labels.append(lab)
+    used = set(TL_STD_LABELS)
+    controls: list[dict] = []
+
+    def add(type_, data_label, label, default="", tooltip="", width="100", copyable="false", visible="true", lst=""):
+        controls.append(dict(Type=type_, DefaultValue=default, Label=label, DataLabel=data_label, Tooltip=tooltip, TXTBOXWIDTH=width, Copyable=copyable, Visible=visible, List=lst))
+    add("RelativePath", "RelativePath", "RelativePath", "", "Path from the folder containing the template and image data files to the file", "100", "false")
+    add("File", "File", "File", "", "The file name", "100", "false")
+    add("DateTime", "DateTime", "DateTime", "1900-01-01 12:00:00", "Date and time taken (Year-Month-Day Hours:Minutes:Seconds)", "160", "false")
+    add("DeleteFlag", "DeleteFlag", "Delete?", "false", "Mark a file as one to be deleted. You can then confirm deletion through the Edit Menu", "20", "false", "false")
+    add("FixedChoice", "Species", "Species", "", "Species (first species when several; see Multispecies)", "100", "true", "true",
+        json.dumps(dict(IncludeEmptyChoice=True, ChoiceListNonEmpty=labels), ensure_ascii=False))
+    add("Note", "Multispecies", "Multispecies", "", "Second and later species, separated by ; (TrapNote)", "100", "false")
+    flag_cols: dict[str, str] = {}
+    if species_style == "flags":
+        for r in rows:
+            if r.get("fixed"):
+                continue
+            dl = _data_label(label_of[r["code"]], used)
+            flag_cols[r["code"]] = dl
+            add("Flag", dl, label_of[r["code"]], "false", f"{r.get('name_ja') or ''} {r.get('name_sci') or ''}".strip() or "species present", "20", "false")
+    add("Flag", "Star", "Star", "false", "Favourite (TrapNote)", "20", "false")
+    add("Note", "Remarks", "Remarks", "", "Note (TrapNote)", "100", "false")
+    field_cols: list[dict] = []
+    if include_fields:
+        groups_done: set[str] = set()
+        for fd in project.fields.fields:
+            lab = fd.get("label_ja" if lang == "ja" else "label_en") or fd["key"]
+            tip = (fd.get("help") or "") + (" (per species: first species)" if fd["scope"] == "species" else "")
+            if fd.get("repeat"):
+                g = fd.get("group") or fd["key"]
+                if g in groups_done:                      # 組の 2 つ目以降（開始・終了など）は最初の項目の列に "値 (開始-終了)" で入る
+                    field_cols.append(dict(key=fd["key"], scope=fd["scope"], repeat=True, group=g, data_label="", kind="note", type=fd["type"]))
+                    continue
+                groups_done.add(g)
+                dl = _data_label(fd["key"], used)
+                add("Note", dl, lab, "", tip + " records separated by ;", "100", "false")
+                kind = "note"
+                field_cols.append(dict(key=fd["key"], scope=fd["scope"], repeat=True, group=g, data_label=dl, kind=kind, type=fd["type"]))
+                continue
+            dl = _data_label(fd["key"], used)
+            if fd["type"] == "number":
+                add("Counter", dl, lab, str(fd.get("default") or "0") if str(fd.get("default") or "").strip().lstrip("-").isdigit() else "0", tip, "30", "false")
+                kind = "counter"
+            elif fd["type"] == "select":
+                add("FixedChoice", dl, lab, fd.get("default") or "", tip, "100", "true", "true",
+                    json.dumps(dict(IncludeEmptyChoice=True, ChoiceListNonEmpty=list(fd.get("options") or [])), ensure_ascii=False))
+                kind = "choice"
+            elif fd["type"] == "check":
+                add("Flag", dl, lab, _tl_bool(fd.get("default")), tip, "20", "false")
+                kind = "flag"
+            else:
+                add("Note", dl, lab, fd.get("default") or "", tip, "100", "false")
+                kind = "note"
+            field_cols.append(dict(key=fd["key"], scope=fd["scope"], repeat=False, group="", data_label=dl, kind=kind, type=fd["type"]))
+    for i, c in enumerate(controls):
+        c["ControlOrder"] = i + 1
+        c["SpreadsheetOrder"] = i + 1
+    return dict(controls=controls, labels=labels, label_of=label_of, flag_cols=flag_cols, field_cols=field_cols)
+
+
+def _create_template_table(c: sqlite3.Connection, controls: list[dict]) -> None:
+    c.execute("CREATE TABLE TemplateTable ( \nId INTEGER PRIMARY KEY AUTOINCREMENT, \nControlOrder  INTEGER , \nSpreadsheetOrder  INTEGER , \nType TEXT, \nDefaultValue TEXT, \nLabel TEXT, \nDataLabel TEXT, \nTooltip TEXT, \nTXTBOXWIDTH TEXT, \nCopyable TEXT, \nVisible TEXT, \nList TEXT )")
+    for ctl in controls:
+        c.execute("INSERT INTO TemplateTable(ControlOrder, SpreadsheetOrder, Type, DefaultValue, Label, DataLabel, Tooltip, TXTBOXWIDTH, Copyable, Visible, List) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                  (ctl["ControlOrder"], ctl["SpreadsheetOrder"], ctl["Type"], ctl["DefaultValue"], ctl["Label"], ctl["DataLabel"], ctl["Tooltip"], ctl["TXTBOXWIDTH"], ctl["Copyable"], ctl["Visible"], ctl["List"]))
+
+
+def export_timelapse(project, ddb_path: str, f: dict | None = None, species_style: str = "choice", include_fields: bool = True,
+                     use_corrected: bool = True, lang: str = "ja") -> dict:
+    """Timelapse2 の .tdb（テンプレート）と .ddb（データ）を書く。.ddb と同じ名前の .tdb を隣に作る。
+    RelativePath は .ddb を置いたフォルダからの相対パス（Timelapse の約束）なので、.ddb はメディアのルート（かその中のフォルダ）に置く。
+    その外にある対象は書けないので飛ばす。動画 1 本 = 1 行: 種が複数なら Species に第 1 種、残りは Multispecies（flags なら種ごとの Flag も）。
+    種ごとの追加項目は第 1 種のもの。＋の記録は "値 (開始-終了); ..." の文字に"""
+    from .export import _iter_items, _join
+    db = project.db
+    tpl = build_export_template(project, species_style, include_fields, lang)
+    ddb_path = norm(ddb_path)
+    if not ddb_path.lower().endswith(".ddb"):
+        ddb_path += ".ddb"
+    tdb_path = ddb_path[:-4] + ".tdb"
+    base_dir = os.path.dirname(ddb_path)
+    os.makedirs(base_dir, exist_ok=True)
+    for pth in (ddb_path, tdb_path):
+        if os.path.exists(pth):
+            os.remove(pth)
+    # .tdb
+    t = sqlite3.connect(tdb_path)
+    try:
+        _create_template_table(t, tpl["controls"])
+        t.execute("CREATE TABLE TemplateInfo ( \nVersionCompatabily TEXT DEFAULT '2.3.0.0' )")
+        t.execute("INSERT INTO TemplateInfo(VersionCompatabily) VALUES(?)", (TL_VERSION,))
+        t.commit()
+    finally:
+        t.close()
+    # .ddb
+    custom = [c for c in tpl["controls"] if c["Type"] not in ("RelativePath", "File", "DateTime", "DeleteFlag")]
+    cols_sql = ", ".join([f"[{c['DataLabel']}] TEXT  DEFAULT '{c['DefaultValue'].replace(chr(39), chr(39) * 2)}'" for c in custom])
+    d = sqlite3.connect(ddb_path)
+    n_rows = n_skip = 0
+    try:
+        _create_template_table(d, tpl["controls"])
+        d.execute(f"CREATE TABLE \"DataTable\" ( Id INTEGER  PRIMARY KEY, RelativePath TEXT  DEFAULT '', File TEXT  DEFAULT '', DateTime DATETIME  DEFAULT '1900-01-01 12:00:00', DeleteFlag TEXT  DEFAULT 'false', {cols_sql} )")
+        counters = [c for c in custom if c["Type"] == "Counter"]
+        d.execute("CREATE TABLE \"MarkersTable\" ( Id INTEGER  PRIMARY KEY " + "".join(f", [{c['DataLabel']}] TEXT DEFAULT '[]'" for c in counters) + ",  FOREIGN KEY  ( Id )  References DataTable ( Id )  ON Delete Cascade  )")
+        d.execute("CREATE TABLE \"ImageSetTable\" ( Id INTEGER    PRIMARY KEY, Log TEXT   DEFAULT 'Add text here', Row TEXT, VersionCompatabily TEXT, SortTerms TEXT, QuickPasteTerms TEXT, BBDisplayThreshold REAL   DEFAULT '-1', RootFolder TEXT   DEFAULT '', SearchTerms TEXT   DEFAULT '{}' )")
+        sort_terms = json.dumps([dict(DataLabel="RelativePath", DisplayLabel="Relative Path (folder)", ControlType="RelativePath", IsAscending="true"),
+                                 dict(DataLabel="DateTime", DisplayLabel="DateTime", ControlType="DateTime", IsAscending="true")])
+        d.execute("INSERT INTO ImageSetTable(Id, Log, Row, VersionCompatabily, SortTerms, QuickPasteTerms, BBDisplayThreshold, RootFolder, SearchTerms) VALUES(1, 'Add text here', '0', ?, ?, '[]', -1, ?, '{}')",
+                  (TL_VERSION, sort_terms, os.path.basename(base_dir)))
+        sp = project.species.by_code()
+        label_of = tpl["label_of"]
+        fcols = tpl["field_cols"]
+        col_names = ["RelativePath", "File", "DateTime", "DeleteFlag"] + [c["DataLabel"] for c in custom]
+        ins = f"INSERT INTO DataTable({', '.join('[' + c + ']' for c in col_names)}) VALUES({', '.join('?' * len(col_names))})"
+        batch = []
+        for it, js, fv, auto in _iter_items(db, f or {}):
+            ab = abs_of(it["rel_path"], project.root)
+            rel = rel_of(ab, base_dir)
+            if os.path.isabs(rel) or rel.startswith("..") or rel == ab:    # .ddb のフォルダの外
+                n_skip += 1
+                continue
+            folder = os.path.dirname(rel).replace("/", "\\")        # Timelapse（Windows）は \ 区切り
+            codes = [j["species"] for j in js]
+            codes_sp = [c for c in codes if c != "area"] or codes
+            first = codes_sp[0] if codes_sp else None
+            vals = {c["DataLabel"]: c["DefaultValue"] for c in custom}
+            vals["Species"] = label_of.get(first, first) if first else ""
+            vals["Multispecies"] = ";".join(label_of.get(c, c) for c in codes_sp[1:])
+            for code, dl in tpl["flag_cols"].items():
+                vals[dl] = "true" if code in codes else "false"
+            vals["Star"] = _tl_bool(it.get("favorite"))
+            vals["Remarks"] = it.get("note") or ""
+            ifv = fv.get((it["id"], None), {})
+            sfv = fv.get((it["id"], js[0]["id"]), {}) if js else {}
+            if first is not None:
+                jf = next((j for j in js if j["species"] == first), js[0])
+                sfv = fv.get((it["id"], jf["id"]), {})
+            groups: dict[str, list[dict]] = {}
+            for fc in fcols:
+                store = sfv if fc["scope"] == "species" else ifv
+                if fc["repeat"]:
+                    groups.setdefault(fc["group"] or fc["key"], []).append(fc)
+                    continue
+                v = _join(store.get(fc["key"]))
+                if fc["kind"] == "flag":
+                    vals[fc["data_label"]] = _tl_bool(v) if v != "" else _tl_bool(vals.get(fc["data_label"]))
+                elif fc["kind"] == "counter":
+                    vals[fc["data_label"]] = v if v.strip().lstrip("-").isdigit() else vals.get(fc["data_label"], "0")
+                elif v != "":
+                    vals[fc["data_label"]] = v
+            for gname, members in groups.items():         # ＋の記録: 組の 1 行ごとに "行動 (開始-終了)" を ; でつなぐ
+                store = sfv if members[0]["scope"] == "species" else ifv
+                n = max([len(store.get(m["key"]) or {}) for m in members], default=0)
+                parts = []
+                for i in range(n):
+                    cells = [(store.get(m["key"]) or {}).get(i, "") for m in members]
+                    if not any(cells):
+                        continue
+                    head, rest = cells[0], [x for x in cells[1:] if x != ""]
+                    parts.append(head + (f" ({'-'.join(rest)})" if rest else ""))
+                if members[0]["data_label"]:
+                    vals[members[0]["data_label"]] = "; ".join(parts)
+            dt = (it.get("datetime_corrected") if use_corrected else None) or it.get("datetime")
+            row = [folder, os.path.basename(rel), _fmt_dt(dt), "true" if it.get("flag") == "delete" else "false"] + [vals.get(c["DataLabel"], c["DefaultValue"]) for c in custom]
+            batch.append(row)
+            n_rows += 1
+            if len(batch) >= 500:
+                d.executemany(ins, batch)
+                batch = []
+        if batch:
+            d.executemany(ins, batch)
+        d.commit()
+    finally:
+        d.close()
+    return dict(ddb=ddb_path, tdb=tdb_path, rows=n_rows, skipped=n_skip, species=tpl["labels"], fields=[c["data_label"] for c in fcols if c["data_label"]])

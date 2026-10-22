@@ -908,6 +908,14 @@ def make_app(session: Session) -> web.Application:
         path = b.get("path") or os.path.join(p.dir, "exports", "detections_md.json")
         return jr(await io(detect.export_md_json, p, path, _filters(b.get("filters") or {})))
 
+    async def export_timelapse(request):
+        p = S.need()
+        b = await _body(request)
+        path = b.get("path") or os.path.join(p.root or p.dir, f"{os.path.basename(p.root or p.dir)}.ddb")
+        res = await io(timelapse.export_timelapse, p, path, _filters(b.get("filters") or {}), "flags" if b.get("species_style") == "flags" else "choice",
+                       b.get("include_fields", True), b.get("use_corrected", True), S.settings.get("language", "ja"))
+        return jr(res)
+
     async def export_index(request):
         p = S.need()
         return jr(await io(export_mod.write_index_csv, p))
@@ -1048,6 +1056,7 @@ def make_app(session: Session) -> web.Application:
     r.add_post("/api/archive/stop", archive_stop)
     r.add_post("/api/export/csv", export_csv)
     r.add_post("/api/export/index", export_index)
+    r.add_post("/api/export/timelapse", export_timelapse)
     r.add_post("/api/export/md_json", export_md_json)
     r.add_post("/api/detect/plan", detect_plan)
     r.add_post("/api/detect/start", detect_start)

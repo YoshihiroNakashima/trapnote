@@ -171,30 +171,28 @@ function renderFieldsPanel() {
   // 種の行ごと
   const host = $('#spFields');
   host.innerHTML = '';
+  const addBtn = scope => `<button type="button" class="small right addf" data-scope="${scope}" title="${esc(t('fd_add_tip'))}">${esc(t('fd_add_short'))}</button>`;
   S.sel.filter(c => !['empty', 'area'].includes(c)).forEach(code => {
-    if (!spF.length) return;
     const store = S.spFields[code] = S.spFields[code] || {};
     const div = document.createElement('div'); div.className = 'box spf';
     const simple = spF.filter(f => !f.repeat);
-    div.innerHTML = `<div class="box-head">${esc(spLabel(code))}</div>` +
+    div.innerHTML = `<div class="box-head">${esc(spLabel(code))}${addBtn('species')}</div>` +
       simple.map(f => `<div class="fld" title="${esc(f.help || '')}"><span>${esc(fdLabel(f))}</span>${fieldInput(f, (store[f.key] || [])[0] ?? f.default, null, `data-f="${f.key}"`)}</div>`).join('') +
       groupsOf(spF).map(g => `<div class="repwrap" data-g="${esc(g.name)}">${renderRepeat(store, g)}</div>`).join('');
     simple.forEach(f => bindField(div, f, () => (store[f.key] || [])[0], v => { store[f.key] = [v]; }));
     groupsOf(spF).forEach(g => bindRepeat(div.querySelector(`.repwrap[data-g="${g.name}"]`), store, g, renderFieldsPanel));
     host.appendChild(div);
   });
-  // 対象ごと
+  // 対象ごと（項目がなくても「＋ 項目」のために箱は出す）
   const ib = $('#itemFields');
-  if (!itF.length) { ib.classList.add('hidden'); ib.innerHTML = ''; }
-  else {
-    ib.classList.remove('hidden');
-    const simple = itF.filter(f => !f.repeat);
-    ib.innerHTML = `<div class="box-head">${esc(t('fields_item'))}</div>` +
-      simple.map(f => `<div class="fld" title="${esc(f.help || '')}"><span>${esc(fdLabel(f))}</span>${fieldInput(f, (S.itemFields[f.key] || [])[0] ?? f.default, null, `data-f="${f.key}"`)}</div>`).join('') +
-      groupsOf(itF).map(g => `<div class="repwrap" data-g="${esc(g.name)}">${renderRepeat(S.itemFields, g)}</div>`).join('');
-    simple.forEach(f => bindField(ib, f, () => (S.itemFields[f.key] || [])[0], v => { S.itemFields[f.key] = [v]; }));
-    groupsOf(itF).forEach(g => bindRepeat(ib.querySelector(`.repwrap[data-g="${g.name}"]`), S.itemFields, g, renderFieldsPanel));
-  }
+  ib.classList.remove('hidden');
+  const simple = itF.filter(f => !f.repeat);
+  ib.innerHTML = `<div class="box-head">${esc(t('fields_item'))}${addBtn('item')}</div>` +
+    simple.map(f => `<div class="fld" title="${esc(f.help || '')}"><span>${esc(fdLabel(f))}</span>${fieldInput(f, (S.itemFields[f.key] || [])[0] ?? f.default, null, `data-f="${f.key}"`)}</div>`).join('') +
+    groupsOf(itF).map(g => `<div class="repwrap" data-g="${esc(g.name)}">${renderRepeat(S.itemFields, g)}</div>`).join('');
+  simple.forEach(f => bindField(ib, f, () => (S.itemFields[f.key] || [])[0], v => { S.itemFields[f.key] = [v]; }));
+  groupsOf(itF).forEach(g => bindRepeat(ib.querySelector(`.repwrap[data-g="${g.name}"]`), S.itemFields, g, renderFieldsPanel));
+  document.querySelectorAll('#spFields button.addf, #itemFields button.addf').forEach(b => { b.onclick = () => addFieldDialog(b.dataset.scope); });
 }
 function renderJudgeInfo(d) {
   const el = $('#judgeInfo');

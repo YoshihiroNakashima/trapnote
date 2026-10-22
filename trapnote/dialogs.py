@@ -44,6 +44,8 @@ elif kind == "savecsv":
     p = filedialog.asksaveasfilename(title="CSV", defaultextension=".csv", filetypes=[("CSV", "*.csv")], initialfile=name or "export.csv", **kw)
 elif kind == "savejson":
     p = filedialog.asksaveasfilename(title="JSON", defaultextension=".json", filetypes=[("JSON", "*.json")], initialfile=name or "judgements.json", **kw)
+elif kind == "saveddb":
+    p = filedialog.asksaveasfilename(title="Timelapse (.ddb)", defaultextension=".ddb", filetypes=[("Timelapse data", "*.ddb")], initialfile=name or "TrapNote.ddb", **kw)
 else:
     p = filedialog.askdirectory(title="Folder", **kw)
 try:
@@ -64,6 +66,7 @@ OSASCRIPT = {
     "exe": 'POSIX path of (choose file with prompt "ffmpeg")',
     "savecsv": 'POSIX path of (choose file name with prompt "CSV" default name "export.csv")',
     "savejson": 'POSIX path of (choose file name with prompt "JSON" default name "judgements.json")',
+    "saveddb": 'POSIX path of (choose file name with prompt "Timelapse (.ddb)" default name "TrapNote.ddb")',
 }
 
 
