@@ -544,6 +544,21 @@ def bulk_mark(db: Database, item_ids: list[int], action: str) -> int:
     return n
 
 
+def bulk_judge(db: Database, item_ids: list[int], payload: dict, by: str) -> dict:
+    """選択した全部に同じ判定（payload は save と同じ形。status='new' なら消す）を付ける。1 枚ずつ save するので履歴も 1 枚ずつ残る"""
+    n = failed = 0
+    hids = []
+    for iid in item_ids:
+        try:
+            res = save(db, iid, dict(payload), by)
+            hids.append(res["history_id"])
+            n += 1
+        except Exception as e:
+            failed += 1
+            log.warning("まとめて判定: %s に失敗: %s", iid, e)
+    return dict(n=n, failed=failed, history_ids=hids)
+
+
 def delete_items(project, item_ids: list[int], to_trash: bool = True) -> dict:
     """動画（画像）をごみ箱へ（send2trash。なければ消す）、対象を DB から消す（判定・枠も一緒に）。再生用の変換とサムネイルも消す"""
     from .paths import abs_of

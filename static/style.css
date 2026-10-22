@@ -238,3 +238,4 @@ table.matrix td:first-child, table.matrix th:first-child { white-space: nowrap; 
 #boxTools { gap: 4px; }
 #boxTools select.small { font-size: 12px; padding: 1px 4px; }
 li.item .nbox { color: #6b7280; }
+.selnote { background: #eef2ff; color: #2a44b0; font-size: 12px; font-weight: 600; padding: 4px 8px; border-radius: 4px; border: 1px solid #c7d2fe; }

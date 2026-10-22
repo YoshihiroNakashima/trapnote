@@ -526,6 +526,14 @@ def make_app(session: Session) -> web.Application:
             res = await io(judge.delete_items, p, ids, b.get("to_trash", True))
             S.undo_stack.clear()
             return jr(res)
+        if action in ("judge", "clear"):
+            payload = dict(b.get("payload") or {})
+            if action == "clear":
+                payload = dict(species=[], status="new")
+            res = await io(judge.bulk_judge, p.db, ids, payload, user())
+            S.undo_stack.extend(res["history_ids"])
+            S.state.save()
+            return jr(dict(n=res["n"], failed=res["failed"]))
         if action not in ("favorite", "unfavorite", "exclude", "include"):
             raise ApiError("action が不正です")
         return jr(dict(n=await io(judge.bulk_mark, p.db, ids, action)))

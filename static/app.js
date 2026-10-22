@@ -362,6 +362,7 @@ async function selectAll() {
 }
 async function currentIds() { const r = await api(`/api/items/ids?${listQuery()}`); return r.ids || []; }
 function renderSelection() {
+  renderSelectionNote();
   const bar = $('#selBar'); if (!bar) return;
   const n = S.picked.size;
   bar.classList.toggle('hidden', !n);
@@ -441,6 +442,7 @@ function hideCtxMenu() { const m = $('#ctxMenu'); if (m) m.classList.add('hidden
 async function toggleExclude() {
   if (!S.cur) return;
   const on = !S.cur.train_exclude;
+  if (S.picked.size) { await bulkAction(on ? 'exclude' : 'include', selectionIds()); return; }       // 選択中は選択した全部に
   try { await api(`/api/items/${S.cur.id}/exclude`, { on }); S.cur.train_exclude = on ? 1 : 0; renderFav(S.cur); patchRow({ id: S.cur.id, train_exclude: S.cur.train_exclude }); refreshFacets(); } catch (e) { toast(e.message, 'error'); }
 }
 
@@ -485,7 +487,17 @@ function renderFav(d) {
 async function toggleFavorite() {
   if (!S.cur) return;
   const on = !S.cur.favorite;
+  if (S.picked.size) { await bulkAction(on ? 'favorite' : 'unfavorite', selectionIds()); return; }     // 選択中は選択した全部に
   try { await api(`/api/items/${S.cur.id}/favorite`, { on }); S.cur.favorite = on ? 1 : 0; renderFav(S.cur); patchRow({ id: S.cur.id, favorite: S.cur.favorite }); refreshFacets(); } catch (e) { toast(e.message, 'error'); }
+}
+function selectionIds() {   // 選択した対象（いま開いている対象も含める）
+  const ids = new Set(S.picked); if (S.cur) ids.add(S.cur.id); return [...ids];
+}
+function renderSelectionNote() {   // 右の欄: 選択中なら「n 枚に付きます」と出す
+  const el = $('#selNote'); if (!el) return;
+  const n = S.picked.size ? selectionIds().length : 0;
+  el.classList.toggle('hidden', !n);
+  if (n) el.textContent = `${n} ${t('sel_apply_note')}`;
 }
 async function neighborIds(n) {   // いまの対象の次の n 件の id（先に変換しておくため）
   const out = [];
@@ -544,10 +556,9 @@ async function openProjectPath(path, create) {
   showOverlay(t('loading'));
   try {
     const r = await api('/api/project/open', { path, create: !!create });
-    if (r.needs_create) {
-      hideOverlay();
-      if (await confirmModal(t('open_title'), `<div>${esc(r.path)}</div><div class="note">${esc(t('create_q'))}</div>`, t('create'))) return openProjectPath(path, true);
-      return;
+    if (r.needs_create) {                       // プロジェクトがなければ作って開く（確認しない）
+      toast(t('created_project'));
+      return openProjectPath(path, true);
     }
     if (r.needs_root) {
       hideOverlay();
@@ -556,6 +567,7 @@ async function openProjectPath(path, create) {
       if (p) { const r2 = await api('/api/project/root', { path: p }); setSnapshot(r2.state); }
       else return;
     } else setSnapshot(r.state);
+    if (modalOpen()) closeModal();              // 「プロジェクトを開く」の窓が開いたままなら閉じる
     S.cur = null; S.curIndex = -1; $('#judgePanel').classList.add('hidden'); $('#itemName').textContent = t('no_item'); $('#itemMeta').textContent = '';
     stopMedia();
     await reloadList();

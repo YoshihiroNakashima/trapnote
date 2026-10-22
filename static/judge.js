@@ -211,6 +211,7 @@ function cleanFields(store) {
 async function confirmAndNext() {
   if (!S.cur || S.busy) return;
   if (!S.sel.length) { toast(t('need_species'), 'error'); return; }
+  if (S.picked.size) return confirmSelection();          // 選択中: 同じ判定を選択した全部に付ける
   S.busy = true;
   try {
     const spf = {}; S.sel.forEach(c => { spf[c] = cleanFields(S.spFields[c]); });
@@ -230,8 +231,29 @@ async function confirmAndNext() {
     }
   } catch (e) { S.busy = false; toast(e.message, 'error'); }
 }
+/* 選択した全部に、いまの判定（種・項目・メモ）を付けて確認済みにする */
+async function confirmSelection() {
+  const ids = selectionIds();
+  if (!await confirmModal(t('sel_judge_title'), `<div>${ids.length} ${t('items')}: ${esc(S.sel.map(c => spLabel(c)).join(', '))}</div><div class="note">${esc(t('sel_judge_help'))}</div>`, t('confirm'))) return;
+  S.busy = true;
+  try {
+    const spf = {}; S.sel.forEach(c => { spf[c] = cleanFields(S.spFields[c]); });
+    const r = await api('/api/items/bulk', { ids, action: 'judge', payload: { species: S.sel, fields: cleanFields(S.itemFields), species_fields: spf, note: $('#noteInput').value } });
+    toast(`${r.n} ${t('sel_judged')}`);
+    S.busy = false;
+    clearSelection(false);
+    await refreshFacets(); await reloadList(true);
+    if (S.cur) refreshCurrent();
+  } catch (e) { S.busy = false; toast(e.message, 'error'); }
+}
 async function clearJudgement() {
   if (!S.cur || S.busy) return;
+  if (S.picked.size) {
+    const ids = selectionIds();
+    if (!await confirmModal(t('clear_judgement'), `<div>${ids.length} ${t('items')}</div>`, t('clear_judgement'), true)) return;
+    try { const r = await api('/api/items/bulk', { ids, action: 'clear' }); toast(`${r.n} ${t('cleared')}`); clearSelection(false); await refreshFacets(); await reloadList(true); if (S.cur) refreshCurrent(); } catch (e) { toast(e.message, 'error'); }
+    return;
+  }
   try {
     const res = await api(`/api/items/${S.cur.id}/save`, { species: [], status: 'new', note: $('#noteInput').value });
     S.cur.status = 'new'; S.cur.judgements = []; S.cur.verified_by = null;
