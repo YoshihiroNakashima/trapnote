@@ -169,7 +169,7 @@ def split_stations(stations: list[str], frac: float, seed: int, explicit: list[s
     """検証用の地点。explicit があればそれ、なければ frac の割合を乱数で（seed で再現）"""
     if explicit:
         return set(explicit)
-    st = sorted(set(stations))
+    st = sorted({x for x in stations if x})          # 地点のない対象（"" = 一覧の「—」）は 1 つの地点とはみなさず、学習側に置く
     if len(st) < 3 or frac <= 0:
         return set()
     rng = random.Random(seed)
