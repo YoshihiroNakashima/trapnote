@@ -414,13 +414,13 @@ async function deleteItems(ids) {
   } catch (e) { hideOverlay(); toast(e.message, 'error'); }
 }
 /* 右クリックの品書き: 行が選択に入っていれば選択全部に、そうでなければその行だけに効く */
-function showCtxMenu(x, y, id, i) {
+function showCtxMenu(x, y, id, i, rowObj) {
   const m = $('#ctxMenu'); if (!m) return;
   const ids = S.picked.has(id) ? [...S.picked] : [id];
-  const row = rowAt(i) || {};
+  const row = rowObj || rowAt(i) || {};
   const many = ids.length > 1;
   const items = [
-    !many && ['open', t('ctx_open')],
+    !many && !rowObj && ['open', t('ctx_open')],
     [many || !row.favorite ? 'favorite' : 'unfavorite', many || !row.favorite ? t('ctx_fav') : t('ctx_unfav')],
     [many || !row.train_exclude ? 'exclude' : 'include', many || !row.train_exclude ? t('ctx_excl') : t('ctx_incl')],
     many && ['unfavorite', t('ctx_unfav')], many && ['include', t('ctx_incl')],
@@ -436,7 +436,7 @@ function showCtxMenu(x, y, id, i) {
     const d = e.target.closest('[data-act]'); if (!d) return;
     hideCtxMenu();
     const act = d.dataset.act;
-    if (act === 'open') openItem(id, i);
+    if (act === 'open') openItem(id, i >= 0 ? i : undefined);
     else if (act === 'all') selectAll();
     else if (act === 'delete') deleteItems(ids);
     else bulkAction(act, ids);
@@ -615,6 +615,11 @@ function wire() {
   $('#btnBulk').onclick = () => S.project && bulkDialog();
   $('#btnAgree').onclick = () => S.project && evalDialog({});
   $('#btnExcl').onclick = toggleExclude;
+  $('#viewWrap').addEventListener('contextmenu', e => {      // 再生の画面を右クリック: いま開いている対象に（選択に入っていれば選択全部に）同じ品書き
+    if (!S.cur || (typeof BE !== 'undefined' && BE.on)) return;
+    e.preventDefault();
+    showCtxMenu(e.clientX, e.clientY, S.cur.id, S.curIndex, S.cur);
+  });
   renderSelection();
   $('#modalBack').onclick = () => { if (!S.modalLocked) closeModal(); };
   document.addEventListener('keydown', onKey);
