@@ -84,6 +84,7 @@ ffmpeg は「設定」で場所を指定できる（空なら PATH → resources
    CSV には Flag（low = 要確認）、DetAnimal / DetPerson / DetVehicle（1/0）、DetMaxConf、DetModel、AutoSpecies（モデルの出力そのまま）の列が付く。
    YOLO 形式の学習データ（`<種のフォルダ>/images/画像` と `<種のフォルダ>/labels/同名.txt`。枠は class cx cy w h）は、そのフォルダをプロジェクトとして開いて走査したあと、
    「Timelapse を読む」の窓の「YOLO 形式の学習データを読む」で読める（フォルダ名の種 → 確認済みの判定、枠 → 検出枠。画像名が N180712_BSN0870_IMG0047_img450 の形なら季節・地点も付く）。
+   自動判定の「枠はいまあるものを使う」で、検出はせずに既存の枠（YOLO のラベルなど）に種判別と特徴量だけ付けられる（追加学習の材料に）。
    「書き出し」の「Timelapse2 に書き出す」で、Timelapse 2.3 のテンプレート（.tdb）とデータ（.ddb）を作れる（動画 1 本 = 1 行。Species に第 1 種、残りは Multispecies。
    選択で種ごとの Flag 列も。Star = お気に入り、Remarks = メモ、追加項目は項目ごとの列。RelativePath は .ddb を置いたフォルダからなので、メディアのルートに置く）。
 10. 複数人で分担するときは「統合」: 各 PC で「判定を書き出す」（JSON 1 つ）→ 親のプロジェクトで「判定を取り込む」。

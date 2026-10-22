@@ -756,8 +756,8 @@ def make_app(session: Session) -> web.Application:
         if ids is None and b.get("filters"):
             where, params = judge.build_where(_filters(b["filters"]))
             ids = [r["id"] for r in p.db.q(f"SELECT id FROM items WHERE {where}", params)] or [-1]
-        opts = dict(redo=bool(b.get("redo")), include_verified=bool(b.get("include_verified")))
-        if ids and opts["redo"]:
+        opts = dict(redo=bool(b.get("redo")), include_verified=bool(b.get("include_verified")), use_existing=bool(b.get("use_existing")))
+        if ids and opts["redo"] and not opts["use_existing"]:
             await io(detect.clear_detections, p.db, ids)
         S.ml.submit(DetectJob(ids, opts))
         return jr(S.jobs_status())

@@ -730,17 +730,27 @@ def frame_interval(s: dict, device: str | None) -> float:
     return INTERVAL_GPU if device in ("cuda", "mps") else INTERVAL_CPU
 
 
-def load_frames(project, item: dict, device: str | None = None):
-    """対象のフレームを読む（検出の前に別スレッドで先に読んでおける）。device は間隔の自動（GPU 0.2 秒 / CPU 0.5 秒）のため"""
+def load_frames(project, item: dict, device: str | None = None, times: list[float] | None = None):
+    """対象のフレームを読む（検出の前に別スレッドで先に読んでおける）。device は間隔の自動（GPU 0.2 秒 / CPU 0.5 秒）のため。
+    times を渡せばその秒だけ（既存の枠に種判別を付けるとき）"""
     src = abs_of(item["rel_path"], project.root)
     s = project_settings(project)
     if item["kind"] == "image":
         return read_image(src)
+    if times is not None:
+        return read_frames(src, sorted(set(float(t) for t in times)), item.get("fps"))
     return read_frames(src, frame_times(item.get("duration"), float(s["frame_first_sec"]), float(s["frame_first_fps"]), frame_interval(s, device)), item.get("fps"))
 
 
-def process_item(project, hub: ModelHub, item: dict, classify: bool = True, frames=None) -> dict:
-    """検出（と判別）を 1 本について行い、DB に書く。返り値は要約。frames は load_frames() で先に読んだもの（省略可）"""
+def existing_boxes(db, item_id: int) -> list[list]:
+    """detections 表にある枠（YOLO のラベルなど人が付けたものや前の検出）を [t, category, conf, x, y, w, h] で"""
+    return [[r["t_sec"], r["category"], float(r["conf"]), r["x"], r["y"], r["w"], r["h"]]
+            for r in db.q("SELECT t_sec, category, conf, x, y, w, h FROM detections WHERE item_id=? ORDER BY t_sec, conf DESC", (item_id,))]
+
+
+def process_item(project, hub: ModelHub, item: dict, classify: bool = True, frames=None, use_existing: bool = False) -> dict:
+    """検出（と判別）を 1 本について行い、DB に書く。返り値は要約。frames は load_frames() で先に読んだもの（省略可）。
+    use_existing なら detections 表にある枠（YOLO のラベルなど）をそのまま使い、検出はせずに種判別と特徴量だけ付ける（枠がなければ普通に検出）"""
     db = project.db
     s = project_settings(project)
     a_th, a_min = float(s["animal_threshold"]), int(s["animal_min_frames"])
@@ -748,18 +758,39 @@ def process_item(project, hub: ModelHub, item: dict, classify: bool = True, fram
     p1, p2, kk = float(s["species_p1"]), float(s["species_p2"]), int(s["species_k"])
     max_crops = max(1, int(s["max_crops"]))
     t0 = time.time()
-    if frames is None:
-        frames = load_frames(project, item, hub.device)
-    if not frames:
-        raise RuntimeError("フレームを読めません")
-    floor = min(DET_FLOOR, a_th, p_th)
-    dets = hub.detect([im for _, im in frames], floor, int(s.get("detect_image_size") or 0) or None)
-    rows = []            # [t, category, conf, x, y, w, h]
-    for (t, im), ds in zip(frames, dets):
-        for d in ds:
-            cat = CATEGORY.get(str(d.get("category")), str(d.get("category")))
-            b = d["bbox"]
-            rows.append([t, cat, float(d["conf"]), float(b[0]), float(b[1]), float(b[2]), float(b[3])])
+    rows = existing_boxes(db, item["id"]) if use_existing else []      # [t, category, conf, x, y, w, h]
+    det_model = hub.detector_name
+    if rows:
+        need = sorted({r[0] for r in rows})
+        if frames is None or not all(t in {ft for ft, _ in frames} for t in need):
+            frames = load_frames(project, item, hub.device, need)
+        if not frames:
+            raise RuntimeError("フレームを読めません")
+        have = {ft for ft, _ in frames}
+        if not all(t in have for t in need):           # 近い時刻のフレームに寄せる（動画の秒がぴったり合わないとき）
+            ts = sorted(have)
+            for r in rows:
+                if r[0] not in have:
+                    r[0] = min(ts, key=lambda x: abs(x - r[0]))
+        try:
+            det_model = json.loads(item.get("det_json") or "{}").get("model") or "existing"
+        except Exception:
+            det_model = "existing"
+    else:
+        if frames is None:
+            frames = load_frames(project, item, hub.device)
+        if not frames:
+            raise RuntimeError("フレームを読めません")
+        if hub.detector is None:
+            hub.load_detector(s.get("md_model") or "auto")
+            det_model = hub.detector_name
+        floor = min(DET_FLOOR, a_th, p_th)
+        dets = hub.detect([im for _, im in frames], floor, int(s.get("detect_image_size") or 0) or None)
+        for (t, im), ds in zip(frames, dets):
+            for d in ds:
+                cat = CATEGORY.get(str(d.get("category")), str(d.get("category")))
+                b = d["bbox"]
+                rows.append([t, cat, float(d["conf"]), float(b[0]), float(b[1]), float(b[2]), float(b[3])])
 
     def nframes(cat, th):
         return len({r[0] for r in rows if r[1] == cat and r[2] >= th})
@@ -768,8 +799,9 @@ def process_item(project, hub: ModelHub, item: dict, classify: bool = True, fram
                    max_person=round(max([r[2] for r in rows if r[1] == "person"], default=0.0), 3),
                    max_vehicle=round(max([r[2] for r in rows if r[1] == "vehicle"], default=0.0), 3),
                    max_area=round(max([r[5] * r[6] for r in rows if r[1] == "animal" and r[2] >= a_th], default=0.0), 4),
-                   animal_threshold=a_th, person_threshold=p_th, model=hub.detector_name, at=now_iso())
-    summary.update(animal=summary["animal_frames"] >= a_min, person=summary["person_frames"] >= p_min, vehicle=summary["vehicle_frames"] >= p_min)
+                   animal_threshold=a_th, person_threshold=p_th, model=det_model, at=now_iso())
+    nf = max(1, len({r[0] for r in rows} | {t for t, _ in frames}))
+    summary.update(animal=summary["animal_frames"] >= min(a_min, nf), person=summary["person_frames"] >= min(p_min, nf), vehicle=summary["vehicle_frames"] >= min(p_min, nf))   # 静止画や短い動画はフレーム数で頭打ち
     # 種判別（動物の枠だけ）
     cls = None
     sp_by_idx: dict[int, tuple[str, float]] = {}

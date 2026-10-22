@@ -346,11 +346,12 @@ class DetectJob(Job):
         if self.item_ids:
             where.append(f"id IN ({','.join('?' * len(self.item_ids))})")
             params += list(self.item_ids)
-        if not opt.get("redo"):
+        use_existing = bool(opt.get("use_existing"))
+        if not opt.get("redo") and not use_existing:
             where.append("det_state=0")
-        if s.get("detect_skip_verified", True) and not opt.get("include_verified"):
+        if s.get("detect_skip_verified", True) and not opt.get("include_verified") and not use_existing:
             where.append("status<>'verified'")
-        rows = db.q(f"SELECT id, rel_path, kind, duration, fps FROM items WHERE {' AND '.join(where)} ORDER BY station, id", tuple(params))
+        rows = db.q(f"SELECT id, rel_path, kind, duration, fps, det_json FROM items WHERE {' AND '.join(where)} ORDER BY station, id", tuple(params))
         self.total = len(rows)
         if not rows:
             self.message = "対象がありません"
@@ -362,7 +363,8 @@ class DetectJob(Job):
         self.phase = "load"
         self.current = "モデルを読み込み中"
         try:
-            hub.load_detector(opt.get("md_model") or s.get("md_model") or "auto", prog, self.stop_flag.is_set)
+            if not use_existing:                       # 既存の枠を使うときは検出器は要らない（枠のない対象があれば process_item が読む）
+                hub.load_detector(opt.get("md_model") or s.get("md_model") or "auto", prog, self.stop_flag.is_set)
             if classify:
                 base = opt.get("speciesnet_model") or s.get("speciesnet_model")
                 hub.load_classifier(base, prog, self.stop_flag.is_set)
@@ -376,14 +378,22 @@ class DetectJob(Job):
         # 次の対象のフレームは、いまの対象をモデルに通している間に別スレッドで読んでおく（CPU の読み出しと GPU の推論を重ねる）
         reader = ThreadPoolExecutor(1, thread_name_prefix="frames")
         nxt = None
+
+        def prefetch(row):
+            times = None
+            if use_existing:
+                ex = detect.existing_boxes(db, row["id"])
+                if ex:
+                    times = sorted({x[0] for x in ex})
+            return detect.load_frames(project, dict(row), hub.device, times)
         for k, r in enumerate(rows):
             if self.stop_flag.is_set():
                 break
             self.current = r["rel_path"]
-            fut, nxt = nxt, (reader.submit(detect.load_frames, project, dict(rows[k + 1]), hub.device) if k + 1 < len(rows) else None)
+            fut, nxt = nxt, (reader.submit(prefetch, rows[k + 1]) if k + 1 < len(rows) else None)
             try:
                 frames = fut.result() if fut is not None else None
-                res = detect.process_item(project, hub, dict(r), classify, frames)
+                res = detect.process_item(project, hub, dict(r), classify, frames, use_existing)
                 self.done += 1
                 sp = [x["species"] for x in res.get("results", [])]
                 if res.get("flag") == "low":

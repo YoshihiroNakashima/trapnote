@@ -443,7 +443,7 @@ async function detectDialog() {
     <div class="form-row"><label>${esc(t('dt_model'))}</label><select id="dtModel"></select></div>
     <div class="form-row"><label>${esc(t('dt_classifier'))}</label><select id="dtCls"><option value="speciesnet">SpeciesNet</option><option value="none">${esc(t('dt_cls_none'))}</option></select></div>
     <div class="form-row"><label>${esc(t('dt_device'))}</label><select id="dtDevice"><option value="auto">${esc(t('dt_dev_auto'))}</option><option value="cuda">GPU (CUDA)</option><option value="mps">GPU (Apple)</option><option value="cpu">CPU</option></select></div>
-    <div class="form-row"><label>${esc(t('dt_redo'))}</label><span style="display:flex;flex-direction:column;gap:2px"><label class="chk"><input type="checkbox" id="dtRedo"> ${esc(t('dt_redo_l'))}</label><label class="chk"><input type="checkbox" id="dtVerified"> ${esc(t('dt_verified_l'))}</label><span class="info">${esc(t('dt_redo_help'))}</span></span></div>
+    <div class="form-row"><label>${esc(t('dt_redo'))}</label><span style="display:flex;flex-direction:column;gap:2px"><label class="chk"><input type="checkbox" id="dtRedo"> ${esc(t('dt_redo_l'))}</label><label class="chk"><input type="checkbox" id="dtVerified"> ${esc(t('dt_verified_l'))}</label><label class="chk"><input type="checkbox" id="dtExisting"> ${esc(t('dt_existing_l'))}</label><span class="info">${esc(t('dt_redo_help'))}</span></span></div>
     <details class="adv"><summary>${esc(t('dt_adv'))}</summary>
       <div class="form-row"><label>${esc(t('dt_frames'))}</label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><input type="number" id="dtFirstSec" step="0.5" min="0" style="width:70px"> s × <input type="number" id="dtFirstFps" step="1" min="1" style="width:60px"> fps, ${esc(t('dt_then'))} <input type="number" id="dtInterval" step="0.1" min="0.1" style="width:90px"> s <span class="info">${esc(t('dt_interval_help'))}</span></span></div>
       <div class="form-row"><label>${esc(t('dt_animal_rule'))}</label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${esc(t('dt_conf'))} ≥ <input type="number" id="dtAth" step="0.05" min="0.05" max="0.95" style="width:70px"> × <input type="number" id="dtAmin" step="1" min="1" style="width:60px"> ${esc(t('dt_frames_u'))}</span></div>
@@ -511,14 +511,14 @@ async function detectDialog() {
     const filters = q('#dtRange').value === 'filter' ? Object.assign({}, S.filter) : null;
     const redo = q('#dtRedo').checked;
     const body = {                                     // 確認の窓で中身が入れ替わる前に読んでおく
-      filters: filters || undefined, redo, include_verified: q('#dtVerified').checked,
+      filters: filters || undefined, redo, include_verified: q('#dtVerified').checked, use_existing: q('#dtExisting').checked,
       md_model: q('#dtModel').value, classifier: q('#dtCls').value, device: q('#dtDevice').value, batch_size: parseInt(q('#dtBatch').value) || 8,
       frame_first_sec: parseFloat(q('#dtFirstSec').value), frame_first_fps: parseFloat(q('#dtFirstFps').value), frame_interval_sec: parseFloat(q('#dtInterval').value) || 'auto',
       animal_threshold: parseFloat(q('#dtAth').value), animal_min_frames: parseInt(q('#dtAmin').value), person_threshold: parseFloat(q('#dtPth').value), person_min_frames: parseInt(q('#dtPmin').value),
       species_p1: parseFloat(q('#dtP1').value), species_p2: parseFloat(q('#dtP2').value), species_k: parseInt(q('#dtK').value), max_crops: parseInt(q('#dtCrops').value),
       detect_image_size: parseInt(q('#dtImgSize').value) || 0, save_features: q('#dtFeat').checked, country: q('#dtCountry').value.trim().toUpperCase(),
     };
-    if (redo) {
+    if (redo && !body.use_existing) {
       detectModalEl = null;
       if (!await confirmModal(t('dt_title'), esc(t('dt_redo_confirm')), t('dt_start'))) { detectDialog(); return; }
     }
@@ -526,7 +526,7 @@ async function detectDialog() {
       const j = await api('/api/detect/start', body);
       S._bgWasRunning = true;                              // 終わったら一覧と件数を読み直す
       if (S.project) S.project.settings = Object.assign(S.project.settings || {}, body);
-      if (redo) await detectDialog();                      // 確認の窓で入れ替わったので開き直す
+      if (redo && !body.use_existing) await detectDialog();   // 確認の窓で入れ替わったので開き直す
       const mm = detectModalEl || m;
       mm._wasRunning = true;
       detectOnJobs(j);
