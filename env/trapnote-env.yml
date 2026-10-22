@@ -1,0 +1,29 @@
+# TrapNote を動かす conda 環境。名前は trapnote（起動.bat がこの名前で探す）
+# 第 2 段階（MegaDetector・SpeciesNet）の torch は CUDA 12.8 版（NVIDIA のドライバは 570 以降。GPU がない PC や Mac では自動で CPU / MPS 版になる）
+# megadetector 本体は依存の衝突（ultralytics-yolov5 と yolov5）を避けるため、インストール.bat が最後に --no-deps で入れる
+#   （手で入れるなら: conda activate trapnote && pip install --no-deps megadetector==10.0.28）
+name: trapnote
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+      - --extra-index-url https://download.pytorch.org/whl/cu128
+      - aiohttp
+      - pillow
+      - numpy
+      - opencv-python-headless
+      - imageio-ffmpeg
+      # ---- 第 2 段階: 検出と種判別 ----
+      - torch>=2.6
+      - torchvision
+      - speciesnet==5.0.6        # SpeciesNet（分類器）。yolov5、kagglehub、huggingface_hub などが一緒に入る
+      - ultralytics              # MegaDetector v1000（redwood / spruce など）の読み込みに必要
+      - tqdm
+      - humanfriendly
+      - jsonpickle
+      - pytest                   # megadetector の utils が import する
+      - dill                     # MDv1000-redwood などのモデルファイル（pickle）が参照する。ないと「No module named 'dill'」
+      - send2trash
+      - setuptools<81            # yolov5 が pkg_resources を使う

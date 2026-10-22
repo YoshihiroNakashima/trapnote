@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>TrapNote</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%276%27 fill=%27%233b5bdb%27/%3E%3Cpath d=%27M9 11h14v3h-5.5v9h-3v-9H9z%27 fill=%27%23fff%27/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/style.css?v=__V__">
+</head>
+<body>
+<header id="topbar">
+  <div class="group">
+    <button id="btnOpen" class="primary" data-t="open_project" data-title="open_project_tip">プロジェクトを開く</button>
+    <input id="pathInput" type="text" data-placeholder="path_placeholder" placeholder="フォルダのパスを貼り付けて Enter" spellcheck="false">
+    <button id="btnRescan" data-t="rescan" data-title="rescan_tip">更新</button>
+    <button id="btnTimelapse" data-t="timelapse" data-title="timelapse_tip">Timelapse を読む</button>
+    <button id="btnImport" data-t="import" data-title="import_tip">CSV を読む</button>
+  </div>
+  <div class="group">
+    <button id="btnDetect" data-t="detect" data-title="detect_tip">自動判定</button>
+    <button id="btnTrain" data-t="train" data-title="train_tip">追加学習</button>
+    <button id="btnArchive" data-t="archive" data-title="archive_tip">保存用の変換</button>
+    <button id="btnExport" data-t="export" data-title="export_tip">書き出し</button>
+    <button id="btnMerge" data-t="merge" data-title="merge_tip">統合</button>
+  </div>
+  <div class="group right">
+    <span id="jobInfo" class="info clickable" data-title="jobs_tip"></span>
+    <span id="verInfo" class="info"></span>
+    <button id="btnSettings" data-t="settings">設定</button>
+    <button id="btnLang" class="small" title="日本語 / English">EN</button>
+    <button id="btnQuit" class="danger-outline" data-t="quit" data-title="quit_tip">終了</button>
+  </div>
+</header>
+<div id="targetBar"><span id="targetLabel"></span></div>
+<main>
+  <aside id="listPane">
+    <div id="folderTree" data-title="tree_tip"></div>
+    <div class="list-tools">
+      <select id="fStation" data-title="filter_station"></select>
+      <select id="fSeason" data-title="filter_season"></select>
+      <select id="fStatus" data-title="filter_status"></select>
+      <select id="fSpecies" data-title="filter_species"></select>
+      <select id="fAssignee" class="hidden" data-title="filter_assignee"></select>
+      <select id="fDet" data-title="filter_det"></select>
+      <input id="fText" type="text" data-placeholder="filter_text" placeholder="名前・メモで検索" spellcheck="false">
+      <select id="sortSel" data-title="sort"></select>
+      <button id="sortDir" class="small" data-title="sort_dir">↓</button>
+      <label class="chk" data-title="filter_fav"><input type="checkbox" id="fFav"> ★</label>
+      <button id="btnAssign" class="small" data-t="assign" data-title="assign_title">担当</button>
+      <button id="btnBulk" class="small" data-t="bulk" data-title="bulk_tip">一括確定</button>
+      <button id="btnAgree" class="small" data-t="ag_title" data-title="ag_tip">一致率</button>
+    </div>
+    <div id="counts" class="counts"></div>
+    <div id="selBar" class="selbar hidden"><span id="selInfo"></span>
+      <button class="small" id="selFav" data-title="sel_fav_tip">★</button><button class="small" id="selUnfav" data-title="sel_unfav_tip">☆</button>
+      <button class="small" id="selExcl" data-t="sel_excl" data-title="sel_excl_tip">学習から外す</button><button class="small" id="selIncl" data-t="sel_incl" data-title="sel_incl_tip">外さない</button>
+      <button class="small danger-outline" id="selDel" data-t="sel_del">削除</button><button class="small" id="selClear" data-t="sel_clear">解除</button></div>
+    <ul id="itemList"></ul>
+    <div id="ctxMenu" class="ctxmenu hidden"></div>
+  </aside>
+  <section id="viewPane">
+    <div id="viewWrap">
+      <video id="player" preload="auto" playsinline></video>
+      <canvas id="mjpeg" class="hidden"></canvas>
+      <img id="photo" class="hidden" alt="">
+      <canvas id="overlay"></canvas>
+      <div id="viewOverlay" class="hidden"></div>
+    </div>
+    <div id="videoBar">
+      <button id="vbPrev" data-title="prev_item">◀</button>
+      <button id="vbPlay" data-title="play_pause">▶</button>
+      <button id="vbNext" data-title="next_item">▶|</button>
+      <button id="vbBack10" class="small" data-title="step_back10">«</button>
+      <button id="vbBack" class="small" data-title="step_back">‹</button>
+      <button id="vbFwd" class="small" data-title="step_fwd">›</button>
+      <button id="vbFwd10" class="small" data-title="step_fwd10">»</button>
+      <input id="vbSlider" type="range" min="0" max="1000" value="0" step="1">
+      <span id="vbInfo">0.00 / 0.00</span>
+      <span id="vbSpeed" class="vb-opt">
+        <button class="small spd" data-v="0.5">½×</button><button class="small spd active" data-v="1">1×</button><button class="small spd" data-v="2">2×</button><button class="small spd" data-v="4">4×</button>
+      </span>
+      <label class="vb-opt"><input type="checkbox" id="vbLoop"> <span data-t="loop">ループ</span></label>
+      <label class="vb-opt" id="vbBoxesWrap" data-title="boxes_tip"><input type="checkbox" id="vbBoxes"> <span data-t="boxes">検出枠</span></label>
+      <span id="vbPos" class="info"></span>
+    </div>
+  </section>
+  <aside id="sidePane">
+    <div id="itemHead">
+      <div id="itemName" data-t="no_item">対象が選ばれていません</div>
+      <span id="headBtns" class="hidden"><button id="btnTime" class="fav" data-title="time_tip">🕓</button><button id="btnExcl" class="fav" data-title="excl_tip">🚫</button><button id="btnFav" class="fav" data-title="fav_tip">☆</button></span>
+      <div id="itemMeta"></div>
+    </div>
+    <div id="judgePanel" class="hidden">
+      <div id="aiBox" class="box jbox ai hidden"></div>
+      <div id="humanBox" class="box jbox human hidden"></div>
+      <div class="box edit">
+        <div class="box-head"><span class="jtag human">人</span><span data-t="species_edit">種（人の判定）</span> <span class="info" data-t="species_hint">（キーで切り替え）</span>
+          <button id="btnAddSpecies" class="small right" data-t="add_species" data-title="add_species_tip">＋ 登録</button><button id="btnOtherSpecies" class="small" data-t="other_species">その他…</button></div>
+        <div id="speciesGrid" class="sp-grid"></div>
+        <div id="fixedRow" class="sp-fixed"></div>
+      </div>
+      <div id="spFields"></div>
+      <div id="itemFields" class="box"></div>
+      <div class="box">
+        <div class="box-head" data-t="note">メモ</div>
+        <textarea id="noteInput" rows="2" spellcheck="false"></textarea>
+      </div>
+      <div class="btn-row">
+        <button id="btnConfirm" class="primary" data-t="confirm_next">確定して次へ <kbd>Enter</kbd></button>
+        <button id="btnClear" data-t="clear_judgement">判定を消す</button>
+        <button id="btnUndo" data-t="undo">取り消し <kbd>Ctrl+Z</kbd></button>
+      </div>
+      <div id="judgeInfo" class="info"></div>
+    </div>
+    <details id="keysHelp"><summary data-t="keys">キー操作</summary><div id="keysBody" class="info"></div></details>
+  </aside>
+</main>
+<div id="modalBack" class="hidden"></div>
+<div id="modal" class="hidden"><div id="modalBody"></div></div>
+<div id="toast" class="hidden"></div>
+<script src="/static/i18n.js?v=__V__"></script>
+<script src="/static/app.js?v=__V__"></script>
+<script src="/static/avi.js?v=__V__"></script>
+<script src="/static/player.js?v=__V__"></script>
+<script src="/static/judge.js?v=__V__"></script>
+<script src="/static/dialogs.js?v=__V__"></script>
+<script>init();</script>
+</body>
+</html>

@@ -1,0 +1,32 @@
+code,name_ja,name_en,name_sci,rank,csv_label,non_native,speciesnet,key,enabled
+boar,イノシシ,Wild Boar,Sus scrofa,種,Boar,,sus scrofa,1,1
+deer,ニホンジカ,Sika Deer,Cervus nippon,種,Deer,,cervus nippon,2,1
+muntjac,キョン,Reeves' Muntjac,Muntiacus reevesi,種,Muntjac,1,muntiacus reevesi,3,1
+serow,ニホンカモシカ,Japanese Serow,Capricornis crispus,種,Serow,,capricornis,,1
+goat,ヤギ,Domestic Goat,Capra aegagrus hircus,種,Goat,1,capra hircus,,0
+cervidae,シカ科（種不明）,Cervidae Family,Cervidae,科,Cervidae,,cervidae,,0
+cetartiodactyla,鯨偶蹄目（種不明）,Cetartiodactyla Order,Cetartiodactyla,目,Cetartiodactyla,,cetartiodactyla,,0
+raccoon_dog,タヌキ,Raccoon Dog,Nyctereutes procyonoides,種,RaccoonDog,,nyctereutes procyonoides,4,1
+fox,アカギツネ,Red Fox,Vulpes vulpes,種,Fox,,vulpes,,1
+dog,イヌ,Domestic Dog,Canis familiaris,種,Dog,1,canis familiaris,,1
+bear,ツキノワグマ,Asiatic Black Bear,Ursus thibetanus,種,Bear,,ursus thibetanus,,1
+raccoon,アライグマ,Northern Raccoon,Procyon lotor,種,Raccoon,1,procyon lotor,,1
+civet,ハクビシン,Masked Palm Civet,Paguma larvata,種,Civet,1,paguma larvata,5,1
+badger,ニホンアナグマ,Japanese Badger,Meles anakuma,種,Badger,,meles,6,1
+marten,ホンドテン,Japanese Marten,Martes melampus,種,Marten,,martes,,1
+weasel,ニホンイタチ,Japanese Weasel,Mustela itatsi,種,Weasel,,mustela,,1
+mustela,イタチ属（種不明）,Weasel Species,Mustela,属,Mustela,,mustela,,0
+mustelidae,イタチ科（種不明）,Weasel Family,Mustelidae,科,Mustelidae,,mustelidae,,0
+cat,ネコ,Domestic Cat,Felis catus,種,Cat,1,felis catus,,1
+carnivora,食肉目（種不明）,Carnivorous Mammal,Carnivora,目,Carnivora,,carnivora,,0
+macaque,ニホンザル,Japanese Macaque,Macaca fuscata,種,Macaque,,macaca,7,1
+hare,ニホンノウサギ,Japanese Hare,Lepus brachyurus,種,Hare,,lepus,8,1
+squirrel,ニホンリス,Japanese Squirrel,Sciurus lis,種,Squirrel,,sciurus,,1
+dormouse,ヤマネ,Japanese Dormouse,Glirulus japonicus,種,Dormouse,,gliridae,,0
+apodemus,アカネズミ属,Apodemus Species,Apodemus,属,Apodemus,,apodemus,,0
+cricetidae,キヌゲネズミ科,Cricetidae Family,Cricetidae,科,Cricetidae,,cricetidae,,0
+rodent,齧歯目（種不明）,Rodent,Rodentia,目,Rodent,,rodentia,,1
+bat,コウモリ目（種不明）,Bat,Chiroptera,目,Bat,,chiroptera,,0
+small_mammal,小型哺乳類（種不明）,Small Mammal,Mammalia,綱,SmallMammal,,,,1
+mammal,哺乳類（種不明）,Mammal,Mammalia,綱,Mammal,,mammalia,,1
+bird,鳥類（種不明）,Bird,Aves,綱,Bird,,aves,,0

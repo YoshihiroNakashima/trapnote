@@ -1,0 +1,12 @@
+# 設定・状態・ログ・モデルの置き場（起動時に作る。MegaDetector / SpeciesNet の重みもここ）
+data/
+# Python
+__pycache__/
+*.pyc
+# 配布用のビルド
+dist/
+build/
+*.tmp
+*.log
+# 試験で作ったもの
+shots/
