@@ -239,3 +239,5 @@ table.matrix td:first-child, table.matrix th:first-child { white-space: nowrap; 
 #boxTools select.small { font-size: 12px; padding: 1px 4px; }
 li.item .nbox { color: #6b7280; }
 .selnote { background: #eef2ff; color: #2a44b0; font-size: 12px; font-weight: 600; padding: 4px 8px; border-radius: 4px; border: 1px solid #c7d2fe; }
+.itempos { font-size: 13px; font-weight: 700; color: #2a44b0; background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 10px; padding: 1px 8px; white-space: nowrap; margin-left: 6px; }
+.headRight { display: flex; align-items: center; gap: 6px; }

@@ -209,7 +209,7 @@ async function reloadList(keepScroll) {
   const d = await api(`/api/items?${listQuery({ offset: 0, limit: PAGE, count: 1 })}`);
   if (token !== S.listToken) return;
   S.total = d.total; S.pages.set(0, d.rows); S.transcoding = new Set(d.transcoding || []);
-  renderWindow(true); renderCounts();
+  renderWindow(true); renderCounts(); renderItemPos();
 }
 function renderCounts() {
   const f = S.facets || {}; const c = f.counts || {};
@@ -328,7 +328,14 @@ function renderWindow(force) {
   for (let i = first; i < last; i++) rows.push(rowHtml(rowAt(i), i));
   ul.innerHTML = `<li class="spacer" style="height:${first * h}px"></li>` + rows.join('') + `<li class="spacer" style="height:${Math.max(0, n - last) * h}px"></li>`;
 }
+function renderItemPos() {   // いまの一覧（フォルダ・絞り込み）の中で何番目か
+  const el = $('#itemPos'); if (!el) return;
+  const ok = S.cur && S.curIndex >= 0 && S.total;
+  el.classList.toggle('hidden', !ok);
+  if (ok) el.textContent = `${S.curIndex + 1} / ${S.total}`;
+}
 function scrollToIndex(i) {
+  renderItemPos();
   const ul = $('#itemList');
   if (i < 0) return;
   const top = i * VLIST.height, bottom = top + VLIST.height;
@@ -399,7 +406,7 @@ async function deleteItems(ids) {
     const r = await api('/api/items/bulk', { ids, action: 'delete', to_trash: true });
     hideOverlay();
     const set = new Set(ids);
-    if (S.cur && set.has(S.cur.id)) { stopMedia(); S.cur = null; S.detail = null; S.curIndex = -1; $('#judgePanel').classList.add('hidden'); $('#headBtns').classList.add('hidden'); $('#itemName').textContent = t('no_item'); $('#itemMeta').textContent = ''; }
+    if (S.cur && set.has(S.cur.id)) { stopMedia(); S.cur = null; S.detail = null; S.curIndex = -1; $('#judgePanel').classList.add('hidden'); $('#headBtns').classList.add('hidden'); $('#itemName').textContent = t('no_item'); $('#itemMeta').textContent = ''; renderItemPos(); }
     clearSelection(false);
     toast(`${r.n} ${t('del_done')}` + (r.failed ? `　${r.failed} ${t('del_failed')}` : ''), r.failed ? 'error' : undefined);
     if (r.errors && r.errors.length) console.warn(r.errors);
@@ -568,7 +575,7 @@ async function openProjectPath(path, create) {
       else return;
     } else setSnapshot(r.state);
     if (modalOpen()) closeModal();              // 「プロジェクトを開く」の窓が開いたままなら閉じる
-    S.cur = null; S.curIndex = -1; $('#judgePanel').classList.add('hidden'); $('#itemName').textContent = t('no_item'); $('#itemMeta').textContent = '';
+    S.cur = null; S.curIndex = -1; $('#judgePanel').classList.add('hidden'); $('#itemName').textContent = t('no_item'); $('#itemMeta').textContent = ''; renderItemPos();
     stopMedia();
     await reloadList();
     hideOverlay();
