@@ -878,6 +878,26 @@ def load_local(project, hub, name: str) -> dict:
     return info
 
 
+def fold_disabled(project, codes: list[str], pc: np.ndarray) -> tuple[list[str], np.ndarray]:
+    """種リストで使わない種（enabled でない。固定項目は除く）の列を「不明」にまとめる"""
+    from .species import FIXED_CODES
+    enabled = {r["code"] for r in project.species.rows if r.get("enabled")} | set(FIXED_CODES)
+    if all(c in enabled for c in codes):
+        return codes, pc
+    out: list[str] = []
+    cols: dict[str, list[int]] = {}
+    for j, c in enumerate(codes):
+        key = c if c in enabled else "unknown"
+        if key not in cols:
+            cols[key] = []
+            out.append(key)
+        cols[key].append(j)
+    new = np.zeros((len(pc), len(out)), dtype=np.float32)
+    for i, key in enumerate(out):
+        new[:, i] = pc[:, cols[key]].sum(axis=1)
+    return out, new
+
+
 def reclassify_item(project, hub, item: dict, s: dict) -> dict | None:
     """保存した特徴量（方式 A）または枠の画像（方式 B）から、動画の種判定だけを付け直す（動画は読み直さない。検出の結果はそのまま）。
     返り値は process_item の _finish と同じ要約（None なら特徴量がない）"""
@@ -905,6 +925,7 @@ def reclassify_item(project, hub, item: dict, s: dict) -> dict | None:
         codes2, pc2 = hub.head.apply(feats, codes, pc)
     else:
         codes2, pc2 = codes, pc
+    codes2, pc2 = fold_disabled(project, codes2, pc2)         # 種リストで「使わない」にした種は「不明」に寄せる（付け直しでいまの種リストを反映）
     cls = aggregate_video(pc2, codes2, float(s["species_p1"]), float(s["species_p2"]), int(s["species_k"]))
     per_crop = []
     for n in range(len(pc2)):

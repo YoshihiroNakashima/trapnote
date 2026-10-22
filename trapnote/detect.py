@@ -1045,12 +1045,23 @@ def evaluate(project, f: dict | None = None) -> dict:
             if status[j["item_id"]] == "verified" or j["origin"] in ("csv", "manual"):
                 if j["species"] != "area":
                     human.setdefault(j["item_id"], []).append(j["species"])
+    from .species import FIXED_CODES
+    enabled = {r["code"] for r in project.species.rows if r.get("enabled")} | set(FIXED_CODES)
     model: dict[int, list[tuple[str, float]]] = {}      # いまの AI の判定（auto_json。第 1 種が先頭）
+    n_folded = 0
     for iid, aj in auto_json.items():
         if not aj:
             continue
         try:
-            model[iid] = [(x["species"], x.get("confidence") or 0.0) for x in json.loads(aj).get("species", [])]
+            lst = []
+            for x in json.loads(aj).get("species", []):
+                code = x["species"]
+                if code not in enabled:                 # 種リストで「使わない」にした種の AI の判定は「不明」に数える（付け直せば消える）
+                    code = "unknown"
+                    n_folded += 1
+                if not any(c == code for c, _ in lst):
+                    lst.append((code, x.get("confidence") or 0.0))
+            model[iid] = lst
         except Exception:
             pass
     by: dict[str, dict] = {}
@@ -1082,7 +1093,7 @@ def evaluate(project, f: dict | None = None) -> dict:
     for d in by.values():
         d["conf"] = dict(sorted(d["conf"].items(), key=lambda x: -x[1])[:6])
     return dict(n=n, correct=correct, n_low=n_low, n_model=n_model, by_species=dict(sorted(by.items(), key=lambda x: key(x[0]))),
-                matrix=matrix, ai_cols=ai_cols)
+                matrix=matrix, ai_cols=ai_cols, n_folded=n_folded)
 
 
 def species_order(project) -> dict[str, int]:

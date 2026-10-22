@@ -581,6 +581,7 @@ async function evalDialog(filters, back) {
       <span class="info">${esc(t('dt_eval_n'))} ${r.n} · ${esc(t('det_low'))} ${r.n_low} (${pct(r.n_low, r.n)})</span></div>
     <div style="max-height:34vh;overflow:auto"><table class="tbl"><tr><th>${esc(t('dt_eval_human'))}</th><th>${esc(t('ag_n'))}</th><th>${esc(t('ag_rate'))}</th><th>${esc(t('det_low'))}</th><th>${esc(t('dt_eval_model'))}</th></tr>${rows || `<tr><td colspan="5" class="note">${esc(t('dt_eval_none'))}</td></tr>`}</table></div>
     ${matrix}
+    ${r.n_folded ? `<div class="note">${esc(t('ag_folded'))} (${r.n_folded})</div>` : ''}
     <div id="agResult" class="note"></div>
     <div class="modal-actions"><button id="mCancel">${esc(t('close'))}</button><button id="agExport" class="primary">${esc(t('ag_export'))}</button></div>`);
   m.querySelector('#mCancel').onclick = () => (back ? back() : closeModal());
