@@ -877,6 +877,14 @@ def make_app(session: Session) -> web.Application:
                 S._hub.unload()
                 S._hub.device = None
         opts = dict(kind=kind, holdout_stations=[str(x) for x in (b.get("holdout_stations") or [])] or None)
+        if kind == "B" and b.get("init_from"):
+            init = train.safe_model_name(str(b["init_from"]))
+            if init == name:
+                raise ApiError("出発点のモデルと同じ名前は付けられません")
+            info = train.model_info(p, init)          # なければ FileNotFoundError → 404 相当
+            if info.get("kind") != "B":
+                raise ApiError(f"出発点にできるのは方式 B のモデルだけです: {init}")
+            opts["init_from"] = init
         S.ml.submit(TrainJob(opts, name))
         return jr(dict(name=name, **S.jobs_status()))
 

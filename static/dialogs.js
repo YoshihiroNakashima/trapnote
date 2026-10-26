@@ -769,6 +769,7 @@ async function trainDialog(showName) {
       <div class="form-row tr-b"><label>${esc(t('tr_b_opts'))}</label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${esc(t('tr_epochs'))} <input type="number" id="trEpochs" step="1" min="1" max="50" style="width:60px"> ${esc(t('dt_batch'))} <input type="number" id="trBatch" step="1" min="1" max="64" style="width:60px"> ${esc(t('tr_unfreeze'))} <input type="number" id="trUnfreeze" step="0.1" min="0" max="1" style="width:60px"> ${esc(t('tr_lr'))} <input type="number" id="trLr" step="0.00005" min="0.000001" max="0.01" style="width:90px"></span></div>
       <div class="form-row tr-b"><label>${esc(t('dt_device'))}</label><select id="trDevice"><option value="auto">${esc(t('dt_dev_auto'))}</option><option value="cuda">GPU (CUDA)</option><option value="mps">GPU (Apple)</option><option value="cpu">CPU</option></select></div>
     </details>
+    <div class="form-row tr-b"><label>${esc(t('tr_init'))}</label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><select id="trInit"><option value="">${esc(t('tr_init_base'))}</option></select> <span class="info">${esc(t('tr_init_help'))}</span></span></div>
     <div id="trStatus"></div>
     <h4>${esc(t('tr_models'))}</h4>
     <div id="trModels"></div>
@@ -784,9 +785,11 @@ async function trainDialog(showName) {
     const ms = r.models || [];
     const cur = r.classifier || 'speciesnet';
     q('#trModels').innerHTML = ms.length ? `<table class="tbl"><tr><th>${esc(t('tr_name'))}</th><th>${esc(t('tr_kind'))}</th><th>${esc(t('tr_trained_at'))}</th><th>${esc(t('tr_data'))}</th><th>${esc(t('tr_eval_short'))}</th><th></th></tr>` +
-      ms.map(x => `<tr class="${cur === 'local:' + x.name ? 'cur' : ''}"><td><b>${esc(x.name)}</b>${cur === 'local:' + x.name ? ` <span class="chip ai">${esc(t('tr_in_use'))}</span>` : ''}${x.shared || x.also_shared ? ` <span class="chip human" title="${esc(t('tr_shared_tip'))}">${esc(t('tr_shared'))}</span>` : ''}</td><td>${esc(x.kind)}</td><td class="info">${esc((x.trained_at || '').slice(0, 16).replace('T', ' '))}</td><td class="info">${x.n_items || 0} ${esc(t('items'))} · ${x.n_crops || 0} ${esc(t('tr_crops'))} · ${(x.classes || []).length} ${esc(t('tr_species_u'))}</td><td>${x.eval ? `${evalLine(x.eval)} <span class="info">(${x.eval.n_items})</span>` : `<span class="info">${esc(t('tr_no_holdout'))}</span>`}</td><td><button type="button" class="small" data-res="${esc(x.name)}">${esc(t('tr_result'))}</button> ${!x.shared && !x.also_shared ? `<button type="button" class="small" data-share="${esc(x.name)}" title="${esc(t('tr_share_tip'))}">${esc(t('tr_share'))}</button> ` : ''}<button type="button" class="small" data-del="${esc(x.name)}">${esc(t('delete'))}</button></td></tr>`).join('') + '</table>'
+      ms.map(x => `<tr class="${cur === 'local:' + x.name ? 'cur' : ''}"><td><b>${esc(x.name)}</b>${cur === 'local:' + x.name ? ` <span class="chip ai">${esc(t('tr_in_use'))}</span>` : ''}${x.shared || x.also_shared ? ` <span class="chip human" title="${esc(t('tr_shared_tip'))}">${esc(t('tr_shared'))}</span>` : ''}${x.init_from ? `<div class="info">${esc(t('tr_init_from'))}: ${esc((x.init_chain || [x.init_from]).join(' → '))}</div>` : ''}</td><td>${esc(x.kind)}</td><td class="info">${esc((x.trained_at || '').slice(0, 16).replace('T', ' '))}</td><td class="info">${x.n_items || 0} ${esc(t('items'))} · ${x.n_crops || 0} ${esc(t('tr_crops'))} · ${(x.classes || []).length} ${esc(t('tr_species_u'))}</td><td>${x.eval ? `${evalLine(x.eval)} <span class="info">(${x.eval.n_items})</span>` : `<span class="info">${esc(t('tr_no_holdout'))}</span>`}</td><td><button type="button" class="small" data-res="${esc(x.name)}">${esc(t('tr_result'))}</button> ${!x.shared && !x.also_shared ? `<button type="button" class="small" data-share="${esc(x.name)}" title="${esc(t('tr_share_tip'))}">${esc(t('tr_share'))}</button> ` : ''}<button type="button" class="small" data-del="${esc(x.name)}">${esc(t('delete'))}</button></td></tr>`).join('') + '</table>'
       : `<div class="note">${esc(t('tr_none_models'))}</div>`;
     fillSelect(q('#trUse'), [['speciesnet', 'SpeciesNet' + (cur === 'speciesnet' ? ` (${t('tr_in_use')})` : '')]].concat(ms.map(x => ['local:' + x.name, `SpeciesNet + ${x.name} (${x.kind})`])), cur);
+    const initNow = q('#trInit').value;
+    fillSelect(q('#trInit'), [['', t('tr_init_base')]].concat(ms.filter(x => x.kind === 'B').map(x => [x.name, x.name + (x.shared ? ` (${t('tr_shared')})` : '')])), ms.some(x => x.kind === 'B' && x.name === initNow) ? initNow : '');
     m.querySelectorAll('[data-res]').forEach(b => { b.onclick = () => trainResultDialog(b.dataset.res); });
     m.querySelectorAll('[data-share]').forEach(b => { b.onclick = async () => { try { const r = await api('/api/train/models/share', { name: b.dataset.share }); toast(`${t('tr_shared_done')}: ${r.path}`); trainModalEl = null; trainDialog(); } catch (e) { toast(e.message, 'error'); } }; });
     m.querySelectorAll('[data-del]').forEach(b => { b.onclick = async () => {
@@ -834,6 +837,7 @@ async function trainDialog(showName) {
       train_min_per_class: parseInt(q('#trMinPer').value) || 5, train_use_empty: q('#trEmpty').checked, train_base_mix: parseFloat(q('#trMix').value),
       train_epochs_b: parseInt(q('#trEpochs').value) || 5, train_batch_b: parseInt(q('#trBatch').value) || 16, train_unfreeze: parseFloat(q('#trUnfreeze').value), train_lr_b: parseFloat(q('#trLr').value),
       holdout_stations: [...m.querySelectorAll('#trStations input:checked')].map(c => c.dataset.st),
+      init_from: q('#trKind').value === 'B' ? q('#trInit').value : '',
     };
     try {
       const j = await api('/api/train/start', body);
@@ -908,7 +912,7 @@ async function trainResultDialog(name) {
   const hist = ((r.train_record_all || r.train_record || {}).history || []);
   const m = showModal(`<h3>${esc(t('tr_result'))}: ${esc(r.name)} <span class="info">(${esc(t('tr_kind'))} ${esc(r.kind)} · ${esc((r.trained_at || '').slice(0, 16).replace('T', ' '))} · ${r.elapsed || 0} s)</span></h3>
     <div class="note">${esc(t('tr_result_help'))}</div>
-    <div class="info">${esc(t('tr_data'))}: ${r.n_items} ${esc(t('items'))} · ${r.n_crops} ${esc(t('tr_crops'))} · ${(r.classes || []).length} ${esc(t('tr_species_u'))}（${esc(counts)}）${dropped ? `<br>${esc(t('tr_dropped'))}: ${esc(dropped)}` : ''}${r.n_nofeat ? `<br>${esc(t('tr_nofeat'))}: ${r.n_nofeat}` : ''}</div>
+    <div class="info">${esc(t('tr_data'))}: ${r.n_items} ${esc(t('items'))} · ${r.n_crops} ${esc(t('tr_crops'))} · ${(r.classes || []).length} ${esc(t('tr_species_u'))}（${esc(counts)}）${dropped ? `<br>${esc(t('tr_dropped'))}: ${esc(dropped)}` : ''}${r.n_nofeat ? `<br>${esc(t('tr_nofeat'))}: ${r.n_nofeat}` : ''}${r.init_from ? `<br>${esc(t('tr_init_from'))}: SpeciesNet → ${esc((r.init_chain || [r.init_from]).join(' → '))}` : ''}</div>
     ${ev ? block(t('tr_eval_title'), ev, ev.n_items, ev.stations) : `<div class="note">${esc(t('tr_no_holdout'))}</div>`}
     ${r.fit_all ? block(t('tr_fit_all'), r.fit_all, r.fit_all.after.n, null) : ''}
     ${hist.length ? `<details class="adv"><summary>${esc(t('tr_history'))}</summary><div class="info">${hist.map(h => `${h.epoch}: ${h.train_loss}${h.val_loss != null ? ' / ' + h.val_loss + (h.val_acc != null ? ' (' + (100 * h.val_acc).toFixed(0) + '%)' : '') : ''}`).join(' · ')}</div></details>` : ''}

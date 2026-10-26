@@ -787,12 +787,23 @@ def apply_finetuned(model, state: dict) -> None:
                 own[n].copy_(v.to(own[n].device, own[n].dtype))
 
 
-def run_train_b(project, hub, opts: dict, name: str, progress=None, stop=None) -> dict:
-    """方式 B: 枠を切り出し → 検証用の地点を分けて学習・評価 → 全部で学習し直して保存"""
+def run_train_b(project, hub, opts: dict, name: str, progress=None, stop=None, init_from: str | None = None) -> dict:
+    """方式 B: 枠を切り出し → 検証用の地点を分けて学習・評価 → 全部で学習し直して保存。
+    init_from を渡すと、その方式 B のモデル（hub に付けてある前提）の重みから続けて学習する（最終層は種の顔ぶれが変わるので新しく作る）"""
     import torch
     from .detect import project_settings
     s = project_settings(project)
     t0 = time.time()
+    init_info, init_state = None, {}
+    if init_from:
+        init_info = model_info(project, init_from)
+        if init_info.get("kind") != "B":
+            raise RuntimeError(f"出発点にできるのは方式 B のモデルだけです: {init_from}")
+        if (init_info.get("base_classifier") or "") != (s.get("speciesnet_model") or "") and init_info.get("base_classifier") and s.get("speciesnet_model"):
+            raise RuntimeError(f"出発点のモデル {init_from} は別の SpeciesNet（{init_info.get('base_classifier')}）で学習したものです")
+        if not (hub.local and hub.local.get("name") == init_from and hub.local.get("kind") == "B"):
+            raise RuntimeError(f"出発点のモデル {init_from} が読み込まれていません")
+        init_state = torch.load(os.path.join(model_folder(project, init_from), "finetune.pt"), map_location="cpu", weights_only=False)["state"]
     col = collect(project, opts, lambda a, b: progress and progress("collect", a, b, ""), stop)
     items = col["items"]
     if not items:
@@ -854,6 +865,9 @@ def run_train_b(project, hub, opts: dict, name: str, progress=None, stop=None) -
 
     result = dict(kind="B", name=name, base_classifier=s.get("speciesnet_model"), trained_at=now_iso(), holdout_stations=sorted(holdout),
                   n_verified=col["n_verified"], settings={k: opts.get(k, TRAIN_DEFAULTS[k]) for k in TRAIN_DEFAULTS}, species_rule=dict(p1=s["species_p1"], p2=s["species_p2"], k=s["species_k"]))
+    if init_from:
+        result.update(init_from=init_from, init_chain=list(init_info.get("init_chain") or []) + [init_from], init_project=init_info.get("project"))
+    result["project"] = os.path.basename(os.path.normpath(project.root)) if getattr(project, "root", None) else None
     try:
         if holdout and len(ds["classes"]) >= 2:
             classes, state, rec = fit(ds, "train")
@@ -887,7 +901,10 @@ def run_train_b(project, hub, opts: dict, name: str, progress=None, stop=None) -
         result["fit_all"] = dict(before=evaluate_items(items, all_ids, base_pred, s), after=evaluate_items(items, all_ids, pred_all, s))
         folder = os.path.join(models_root(project), name)
         os.makedirs(folder, exist_ok=True)
-        torch.save(dict(state=state, classes=classes), os.path.join(folder, "finetune.pt"))
+        # 出発点のモデルから続けた場合: 今回動かさなかった層は出発点の重みのままなので、それも一緒に保存する（元の SpeciesNet に載せて再現できるように）
+        full_state = dict(init_state)
+        full_state.update(state)
+        torch.save(dict(state=full_state, classes=classes), os.path.join(folder, "finetune.pt"))
         result["elapsed"] = round(time.time() - t0, 1)
         with open(os.path.join(folder, "model.json"), "w", encoding="utf-8") as fh:
             json.dump(result, fh, ensure_ascii=False, indent=1)
