@@ -471,16 +471,19 @@ function archiveOnJobs(jobs) {
 
 // ---------- 自動判定（MegaDetector ＋ SpeciesNet） ----------
 let detectModalEl = null;
-async function detectDialog() {
+async function detectDialog(preset) {
+  // preset = {mode: 'reclass', classifier: 'local:<名前>'}（追加学習の窓から「付け直す」で開いたとき）
   const m = showModal(`<h3>${esc(t('dt_title'))}</h3><div class="note">${esc(t('dt_help'))}</div>
     <div id="dtEnv" class="env-row">${esc(t('loading'))}</div>
+    <div class="form-row"><label>${esc(t('dt_mode'))}</label><select id="dtMode"><option value="detect">${esc(t('dt_mode_detect'))}</option><option value="reclass">${esc(t('dt_mode_reclass'))}</option></select></div>
+    <div id="dtModeHelp" class="note hidden">${esc(t('dt_mode_reclass_help'))}</div>
     <div class="form-row"><label>${esc(t('dt_range'))}</label><select id="dtRange"><option value="all">${esc(t('ex_all'))}</option><option value="filter">${esc(t('ex_filter'))}</option></select></div>
     <div id="dtPlan" class="dt-counts"></div>
-    <div class="form-row"><label>${esc(t('dt_model'))}</label><select id="dtModel"></select></div>
+    <div class="form-row dt-det"><label>${esc(t('dt_model'))}</label><select id="dtModel"></select></div>
     <div class="form-row"><label>${esc(t('dt_classifier'))}</label><select id="dtCls"><option value="speciesnet">SpeciesNet</option><option value="none">${esc(t('dt_cls_none'))}</option></select></div>
     <div class="form-row"><label>${esc(t('dt_device'))}</label><select id="dtDevice"><option value="auto">${esc(t('dt_dev_auto'))}</option><option value="cuda">GPU (CUDA)</option><option value="mps">GPU (Apple)</option><option value="cpu">CPU</option></select></div>
-    <div class="form-row"><label>${esc(t('dt_redo'))}</label><span style="display:flex;flex-direction:column;gap:2px"><label class="chk"><input type="checkbox" id="dtRedo"> ${esc(t('dt_redo_l'))}</label><label class="chk"><input type="checkbox" id="dtVerified"> ${esc(t('dt_verified_l'))}</label><label class="chk"><input type="checkbox" id="dtExisting"> ${esc(t('dt_existing_l'))}</label><span class="info">${esc(t('dt_redo_help'))}</span></span></div>
-    <details class="adv"><summary>${esc(t('dt_adv'))}</summary>
+    <div class="form-row dt-det"><label>${esc(t('dt_redo'))}</label><span style="display:flex;flex-direction:column;gap:2px"><label class="chk"><input type="checkbox" id="dtRedo"> ${esc(t('dt_redo_l'))}</label><label class="chk"><input type="checkbox" id="dtVerified"> ${esc(t('dt_verified_l'))}</label><label class="chk"><input type="checkbox" id="dtExisting"> ${esc(t('dt_existing_l'))}</label><span class="info">${esc(t('dt_redo_help'))}</span></span></div>
+    <details class="adv dt-det"><summary>${esc(t('dt_adv'))}</summary>
       <div class="form-row"><label>${esc(t('dt_frames'))}</label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><input type="number" id="dtFirstSec" step="0.5" min="0" style="width:70px"> s × <input type="number" id="dtFirstFps" step="1" min="1" style="width:60px"> fps, ${esc(t('dt_then'))} <input type="number" id="dtInterval" step="0.1" min="0.1" style="width:90px"> s <span class="info">${esc(t('dt_interval_help'))}</span></span></div>
       <div class="form-row"><label>${esc(t('dt_animal_rule'))}</label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${esc(t('dt_conf'))} ≥ <input type="number" id="dtAth" step="0.05" min="0.05" max="0.95" style="width:70px"> × <input type="number" id="dtAmin" step="1" min="1" style="width:60px"> ${esc(t('dt_frames_u'))}</span></div>
       <div class="form-row"><label>${esc(t('dt_person_rule'))}</label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${esc(t('dt_conf'))} ≥ <input type="number" id="dtPth" step="0.05" min="0.05" max="0.95" style="width:70px"> × <input type="number" id="dtPmin" step="1" min="1" style="width:60px"> ${esc(t('dt_frames_u'))}</span></div>
@@ -494,9 +497,19 @@ async function detectDialog() {
   detectModalEl = m;
   const q = sel => m.querySelector(sel);
   let planData = null;
+  const isReclass = () => q('#dtMode').value === 'reclass';
+  const modeUi = () => {
+    const rc = isReclass();
+    m.querySelectorAll('.dt-det').forEach(el => el.classList.toggle('hidden', rc));
+    q('#dtModeHelp').classList.toggle('hidden', !rc);
+    const none = q('#dtCls').querySelector('option[value="none"]');
+    if (none) { none.disabled = rc; if (rc && q('#dtCls').value === 'none') q('#dtCls').value = 'speciesnet'; }
+    q('#mOk').textContent = rc ? t('tr_apply') : t('dt_start');
+  };
   const fill = ps => {
     const locals = (planData && planData.local_models) || [];
-    fillSelect(q('#dtCls'), [['speciesnet', 'SpeciesNet']].concat(locals.map(x => ['local:' + x.name, `SpeciesNet + ${x.name} (${x.kind})`]), [['none', t('dt_cls_none')]]), ps.classifier === 'none' ? 'none' : (ps.classifier && ps.classifier.startsWith('local:') && locals.some(x => 'local:' + x.name === ps.classifier) ? ps.classifier : 'speciesnet'));
+    const want = preset && preset.classifier ? preset.classifier : ps.classifier;
+    fillSelect(q('#dtCls'), [['speciesnet', 'SpeciesNet']].concat(locals.map(x => ['local:' + x.name, `SpeciesNet + ${x.name} (${x.kind})${ps.classifier === 'local:' + x.name ? ' (' + t('tr_in_use') + ')' : ''}`]), [['none', t('dt_cls_none')]]), want === 'none' ? 'none' : (want && want.startsWith('local:') && locals.some(x => 'local:' + x.name === want) ? want : 'speciesnet'));
     q('#dtFirstSec').value = ps.frame_first_sec; q('#dtFirstFps').value = ps.frame_first_fps; q('#dtInterval').value = (ps.frame_interval_sec === 'auto' || !ps.frame_interval_sec) ? '' : ps.frame_interval_sec; q('#dtInterval').placeholder = t('dt_interval_auto');
     q('#dtAth').value = ps.animal_threshold; q('#dtAmin').value = ps.animal_min_frames; q('#dtPth').value = ps.person_threshold; q('#dtPmin').value = ps.person_min_frames;
     q('#dtP1').value = ps.species_p1; q('#dtP2').value = ps.species_p2; q('#dtK').value = ps.species_k; q('#dtCrops').value = ps.max_crops;
@@ -531,6 +544,8 @@ async function detectDialog() {
         q('#dtDevice').value = r.device || 'auto';
         q('#dtBatch').value = r.batch_size || 8;
         fill(r.settings);
+        if (preset && preset.mode) q('#dtMode').value = preset.mode;
+        modeUi();
       }
       q('#mOk').disabled = !env.ok;
       const lb = q('#dtLabels');
@@ -540,11 +555,27 @@ async function detectDialog() {
     } catch (e) { q('#dtPlan').textContent = e.message; }
   };
   q('#dtRange').addEventListener('change', plan);
+  q('#dtMode').addEventListener('change', modeUi);
   plan();
   q('#mCancel').onclick = () => { detectModalEl = null; closeModal(); };
   q('#dtStop').onclick = async () => { await api('/api/detect/stop', {}); };
   q('#mOk').onclick = async () => {
     const filters = q('#dtRange').value === 'filter' ? Object.assign({}, S.filter) : null;
+    if (isReclass()) {                                   // 判定の付け直し: 保存してある特徴量・枠の画像から（動画は読まない）
+      const want = q('#dtCls').value === 'none' ? 'speciesnet' : q('#dtCls').value;
+      const dev = q('#dtDevice').value;
+      detectModalEl = null;
+      if (!await confirmModal(t('dt_title'), `<div>${esc(t('tr_apply_q'))}</div><div class="note">${esc(want === 'speciesnet' ? 'SpeciesNet' : want.slice(6))}</div>`, t('tr_apply'))) { detectDialog({ mode: 'reclass', classifier: want }); return; }
+      await detectDialog({ mode: 'reclass', classifier: want });
+      try {
+        const j = await api('/api/train/use', { classifier: want, reclassify: true, filters: filters || undefined, device: dev });
+        S._bgWasRunning = true;
+        if (S.project) S.project.settings = Object.assign(S.project.settings || {}, { classifier: want });
+        const mm = detectModalEl; if (mm) mm._wasRunning = true;
+        detectOnJobs(j);
+      } catch (e) { toast(e.message, 'error'); }
+      return;
+    }
     const redo = q('#dtRedo').checked;
     const body = {                                     // 確認の窓で中身が入れ替わる前に読んでおく
       filters: filters || undefined, redo, include_verified: q('#dtVerified').checked, use_existing: q('#dtExisting').checked,
@@ -627,7 +658,7 @@ function detectOnJobs(jobs) {
     const pct = cur.total ? Math.round(100 * (cur.done + cur.failed) / cur.total) : 0;
     const c = cur.counts || {};
     const counts = cur.done ? `${t('det_animal')} ${c.animal} · ${t('det_person')} ${c.person} · ${t('det_vehicle')} ${c.vehicle} · ${t('det_none')} ${c.empty} · ${t('det_low')} ${c.low}` : '';
-    st.innerHTML = `<div><b>${esc(cur.phase === 'load' ? t('dt_loading') : t('ar_running'))}</b>: ${cur.done + cur.failed} / ${cur.total} (${pct}%)${cur.remain != null && cur.phase === 'run' ? ' · ' + Math.round(cur.remain / 60) + ' min' : ''}</div><div class="prog"><div style="width:${pct}%"></div></div><div class="info">${esc(cur.current || '')}</div><div class="info">${esc(counts)} ${esc(cur.message || '')}</div>`;
+    st.innerHTML = `<div><b>${esc(cur.kind === 'reclassify' ? t('tr_reclassifying') : (cur.phase === 'load' ? t('dt_loading') : t('ar_running')))}</b>: ${cur.done + cur.failed} / ${cur.total} (${pct}%)${cur.remain != null && cur.phase === 'run' ? ' · ' + Math.round(cur.remain / 60) + ' min' : ''}</div><div class="prog"><div style="width:${pct}%"></div></div><div class="info">${esc(cur.current || '')}</div><div class="info">${esc(counts)} ${esc(cur.message || '')}</div>`;
     m.querySelector('#dtStop').classList.remove('hidden'); m.querySelector('#mOk').disabled = true;
     m._wasRunning = true;
   } else if (jobs.ml.queued && jobs.ml.queued.length) {
@@ -779,8 +810,7 @@ async function trainDialog(showName) {
     <div id="trStatus"></div>
     <h4>${esc(t('tr_models'))}</h4>
     <div id="trModels"></div>
-    <div class="form-row"><label>${esc(t('tr_use'))}</label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><select id="trUse"></select><button type="button" class="small" id="trApply">${esc(t('tr_apply'))}</button></span></div>
-    <div class="note">${esc(t('tr_use_help'))}</div>
+    <div class="note">${esc(t('tr_use_moved'))}</div>
     <div class="modal-actions"><button id="mCancel">${esc(t('close'))}</button><button id="trStop" class="danger-outline hidden">${esc(t('ar_stop'))}</button><button id="mOk" class="primary">${esc(t('tr_start'))}</button></div>`);
   trainModalEl = m;
   wirePicks(m);
@@ -834,9 +864,9 @@ async function trainDialog(showName) {
     const ms = r.models || [];
     const cur = r.classifier || 'speciesnet';
     q('#trModels').innerHTML = ms.length ? `<table class="tbl"><tr><th>${esc(t('tr_name'))}</th><th>${esc(t('tr_kind'))}</th><th>${esc(t('tr_trained_at'))}</th><th>${esc(t('tr_data'))}</th><th>${esc(t('tr_eval_short'))}</th><th></th></tr>` +
-      ms.map(x => `<tr class="${cur === 'local:' + x.name ? 'cur' : ''}"><td><b>${esc(x.name)}</b>${cur === 'local:' + x.name ? ` <span class="chip ai">${esc(t('tr_in_use'))}</span>` : ''}${x.shared || x.also_shared ? ` <span class="chip human" title="${esc(t('tr_shared_tip'))}">${esc(t('tr_shared'))}</span>` : ''}${x.init_from ? `<div class="info">${esc(t('tr_init_from'))}: ${esc((x.init_chain || [x.init_from]).join(' → '))}</div>` : ''}${x.sources && x.sources.length ? `<div class="info">${esc(t('tr_src_with'))}: ${esc([x.project || ''].concat(x.sources.map(y => y.name)).filter(Boolean).join(' + '))}</div>` : ''}${x.final_without_holdout ? `<div class="info">${esc(t('tr_final_wo_short'))}</div>` : ''}</td><td>${esc(x.kind)}</td><td class="info">${esc((x.trained_at || '').slice(0, 16).replace('T', ' '))}</td><td class="info">${x.n_items || 0} ${esc(t('items'))} · ${x.n_crops || 0} ${esc(t('tr_crops'))} · ${(x.classes || []).length} ${esc(t('tr_species_u'))}</td><td>${x.eval ? `${evalLine(x.eval)} <span class="info">(${x.eval.n_items})</span>` : `<span class="info">${esc(t('tr_no_holdout'))}</span>`}</td><td><button type="button" class="small" data-res="${esc(x.name)}">${esc(t('tr_result'))}</button> ${!x.shared && !x.also_shared ? `<button type="button" class="small" data-share="${esc(x.name)}" title="${esc(t('tr_share_tip'))}">${esc(t('tr_share'))}</button> ` : ''}<button type="button" class="small" data-del="${esc(x.name)}">${esc(t('delete'))}</button></td></tr>`).join('') + '</table>'
+      ms.map(x => `<tr class="${cur === 'local:' + x.name ? 'cur' : ''}"><td><b>${esc(x.name)}</b>${cur === 'local:' + x.name ? ` <span class="chip ai">${esc(t('tr_in_use'))}</span>` : ''}${x.shared || x.also_shared ? ` <span class="chip human" title="${esc(t('tr_shared_tip'))}">${esc(t('tr_shared'))}</span>` : ''}${x.init_from ? `<div class="info">${esc(t('tr_init_from'))}: ${esc((x.init_chain || [x.init_from]).join(' → '))}</div>` : ''}${x.sources && x.sources.length ? `<div class="info">${esc(t('tr_src_with'))}: ${esc([x.project || ''].concat(x.sources.map(y => y.name)).filter(Boolean).join(' + '))}</div>` : ''}${x.final_without_holdout ? `<div class="info">${esc(t('tr_final_wo_short'))}</div>` : ''}</td><td>${esc(x.kind)}</td><td class="info">${esc((x.trained_at || '').slice(0, 16).replace('T', ' '))}</td><td class="info">${x.n_items || 0} ${esc(t('items'))} · ${x.n_crops || 0} ${esc(t('tr_crops'))} · ${(x.classes || []).length} ${esc(t('tr_species_u'))}</td><td>${x.eval ? `${evalLine(x.eval)} <span class="info">(${x.eval.n_items})</span>` : `<span class="info">${esc(t('tr_no_holdout'))}</span>`}</td><td><button type="button" class="small" data-res="${esc(x.name)}">${esc(t('tr_result'))}</button> <button type="button" class="small" data-use="${esc(x.name)}" title="${esc(t('tr_row_apply_tip'))}">${esc(t('tr_row_apply'))}</button> ${!x.shared && !x.also_shared ? `<button type="button" class="small" data-share="${esc(x.name)}" title="${esc(t('tr_share_tip'))}">${esc(t('tr_share'))}</button> ` : ''}<button type="button" class="small" data-del="${esc(x.name)}">${esc(t('delete'))}</button></td></tr>`).join('') + '</table>'
       : `<div class="note">${esc(t('tr_none_models'))}</div>`;
-    fillSelect(q('#trUse'), [['speciesnet', 'SpeciesNet' + (cur === 'speciesnet' ? ` (${t('tr_in_use')})` : '')]].concat(ms.map(x => ['local:' + x.name, `SpeciesNet + ${x.name} (${x.kind})`])), cur);
+    m.querySelectorAll('[data-use]').forEach(b => { b.onclick = () => { trainModalEl = null; detectDialog({ mode: 'reclass', classifier: 'local:' + b.dataset.use }); }; });
     const initNow = q('#trInit').value;
     fillSelect(q('#trInit'), [['', t('tr_init_base')]].concat(ms.filter(x => x.kind === 'B').map(x => [x.name, x.name + (x.shared ? ` (${t('tr_shared')})` : '')])), ms.some(x => x.kind === 'B' && x.name === initNow) ? initNow : '');
     m.querySelectorAll('[data-res]').forEach(b => { b.onclick = () => trainResultDialog(b.dataset.res); });
@@ -899,19 +929,6 @@ async function trainDialog(showName) {
       trainOnJobs(j);
     } catch (e) { toast(e.message, 'error'); }
   };
-  q('#trApply').onclick = async () => {
-    const want = q('#trUse').value;
-    trainModalEl = null;
-    if (!await confirmModal(t('tr_title'), `<div>${esc(t('tr_apply_q'))}</div><div class="note">${esc(want === 'speciesnet' ? 'SpeciesNet' : want.slice(6))}</div>`, t('tr_apply'))) { trainDialog(); return; }
-    await trainDialog();
-    try {
-      const j = await api('/api/train/use', { classifier: want, reclassify: true });
-      S._bgWasRunning = true;
-      if (S.project) S.project.settings = Object.assign(S.project.settings || {}, { classifier: want });
-      const mm = trainModalEl; if (mm) mm._wasRunning = 'reclassify';
-      trainOnJobs(j);
-    } catch (e) { toast(e.message, 'error'); }
-  };
   await plan();
   trainOnJobs(S.snap && S.snap.jobs);
   if (showName) trainResultDialog(showName);
@@ -926,14 +943,14 @@ function trainOnJobs(jobs) {
     const pct = cur.total ? Math.round(100 * (cur.done + cur.failed) / cur.total) : 0;
     const phase = cur.kind === 'train' ? t('tr_phase_' + (cur.phase || 'collect')) : (cur.kind === 'reclassify' ? t('tr_reclassifying') : cur.label);
     st.innerHTML = `<div><b>${esc(phase)}</b>: ${cur.done}${cur.total ? ' / ' + cur.total : ''}${cur.total ? ` (${pct}%)` : ''}</div>${cur.total ? `<div class="prog"><div style="width:${pct}%"></div></div>` : ''}<div class="info">${esc(cur.current || '')}</div><div class="info">${esc(cur.message || '')}</div>`;
-    m.querySelector('#trStop').classList.toggle('hidden', !isMine(cur)); m.querySelector('#mOk').disabled = true; m.querySelector('#trApply').disabled = true;
+    m.querySelector('#trStop').classList.toggle('hidden', !isMine(cur)); m.querySelector('#mOk').disabled = true;
     if (isMine(cur)) m._wasRunning = m._wasRunning || cur.name || 'x';
   } else if (jobs.ml.queued && jobs.ml.queued.length) {
     st.innerHTML = `<div><b>${esc(t('jb_queued'))}</b></div>`;
     m.querySelector('#mOk').disabled = true;
   } else {
     st.innerHTML = rec && isMine(rec) ? `<div><b>${esc(t('ar_result'))}</b> (${esc(t('jb_state_' + rec.state))}): ${esc(rec.message || rec.error || '')}</div>` : '';
-    m.querySelector('#trStop').classList.add('hidden'); m.querySelector('#mOk').disabled = false; m.querySelector('#trApply').disabled = false;
+    m.querySelector('#trStop').classList.add('hidden'); m.querySelector('#mOk').disabled = false;
     if (m._wasRunning) {
       const name = m._wasRunning; m._wasRunning = false;
       trainModalEl = null;

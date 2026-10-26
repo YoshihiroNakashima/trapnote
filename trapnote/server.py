@@ -930,6 +930,11 @@ def make_app(session: Session) -> web.Application:
         if b.get("reclassify"):
             if S.ml.status()["current"]:
                 raise ApiError("検出か学習がもう動いています")
+            if b.get("device") in ("auto", "cuda", "mps", "cpu") and b["device"] != S.settings.get("device"):
+                S.settings.update(dict(device=b["device"]))
+                if S._hub is not None and S._hub.device is not None:
+                    S._hub.unload()
+                    S._hub.device = None
             ids = None
             if b.get("filters"):
                 where, params = judge.build_where(_filters(b["filters"]))
