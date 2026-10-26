@@ -5,6 +5,7 @@ import asyncio
 import json
 import logging
 import os
+import shutil
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -790,6 +791,58 @@ def make_app(session: Session) -> web.Application:
         return jr(await io(detect.export_evaluation, p, path, _filters(b.get("filters") or {}), S.settings.get("language", "ja")))
 
     # ---- 追加学習（第 3 段階） ----
+    # ---- キャッシュ（再生用の変換・サムネイル・枠の画像・特徴量）の大きさと削除 ----
+    async def cache_info(request):
+        p = S.need()
+
+        def sizes():
+            out = {}
+            for kind in ("video", "thumb", "crops", "features"):
+                d = p.cache_dir(kind)
+                total = n = 0
+                for root, _, files in os.walk(d):
+                    for f in files:
+                        try:
+                            total += os.path.getsize(os.path.join(root, f)); n += 1
+                        except OSError:
+                            pass
+                out[kind] = dict(bytes=total, n=n)
+            try:
+                du = shutil.disk_usage(p.root or p.dir)
+                out["disk"] = dict(free=du.free, total=du.total)
+            except OSError:
+                out["disk"] = None
+            return out
+        return jr(await io(sizes))
+
+    async def cache_clear(request):
+        p = S.need()
+        b = await _body(request)
+        kinds = [k for k in (b.get("kinds") or []) if k in ("video", "thumb", "crops", "features")]
+
+        def clear():
+            freed = 0
+            for kind in kinds:
+                d = p.cache_dir(kind)
+                for root, _, files in os.walk(d):
+                    for f in files:
+                        fp = os.path.join(root, f)
+                        try:
+                            freed += os.path.getsize(fp); os.remove(fp)
+                        except OSError:
+                            pass
+                if kind == "crops":
+                    for root, dirs, _ in os.walk(d, topdown=False):
+                        for dd in dirs:
+                            try:
+                                os.rmdir(os.path.join(root, dd))
+                            except OSError:
+                                pass
+                if kind == "features":          # 特徴量を消したら、種判別は付け直しが要る状態に
+                    p.db.x("UPDATE items SET cls_state=0 WHERE cls_state=1")
+            return dict(freed=freed)
+        return jr(await io(clear))
+
     async def train_plan(request):
         return jr(await io(S.train_plan))
 
@@ -1108,6 +1161,8 @@ def make_app(session: Session) -> web.Application:
     r.add_post("/api/detect/eval", detect_eval)
     r.add_post("/api/detect/eval/csv", detect_eval_csv)
     r.add_post("/api/judge/bulk_verify", bulk_verify)
+    r.add_get("/api/project/cache", cache_info)
+    r.add_post("/api/project/cache/clear", cache_clear)
     r.add_get("/api/train/plan", train_plan)
     r.add_post("/api/train/start", train_start)
     r.add_post("/api/train/stop", train_stop)

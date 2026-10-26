@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 import threading
 import time
 import traceback
@@ -274,6 +275,9 @@ class ArchiveJob(Job):
                 if os.path.isfile(dst):
                     raise FileExistsError("同じ名前の MP4 が既にあります")
                 st = os.stat(src)
+                free = shutil.disk_usage(os.path.dirname(dst)).free
+                if free < st.st_size + 512 * 1024 * 1024:           # 変換後のファイルを置く余地がない（元のサイズ + 512 MB）: 失敗を重ねずに止める
+                    raise RuntimeError(f"ドライブの空きが足りません（空き {free / 1e9:.1f} GB）。不要なファイルやキャッシュ（設定 → キャッシュ）を消してからやり直してください")
                 t0 = time.time()
                 enc = media.archive_encode(ffmpeg, src, dst, use_nvenc, crf, r["datetime"])
                 m = media.probe(dst, ffmpeg, ffprobe, z)
@@ -301,6 +305,10 @@ class ArchiveJob(Job):
                 self.done += 1
                 log.info("保存用に変換 %.1f 秒 %s（%s、%.1f MB → %.1f MB）", time.time() - t0, rel, enc, st.st_size / 1e6, nst.st_size / 1e6)
             except Exception as e:
+                if "空きが足りません" in str(e):
+                    self.error = str(e)
+                    self.message = str(e)
+                    break
                 self.failed += 1
                 log.warning("保存用の変換の失敗 %s: %s", rel, e)
                 db.x("UPDATE items SET meta_error=? WHERE id=?", (f"archive: {e}", iid))

@@ -42,7 +42,8 @@ async function settingsDialog() {
     <div id="pPrevBox"></div>
     <div class="form-row"><label>${esc(t('s_skip'))}</label><input type="text" id="pSkip" value="${esc((ps.skip_names || []).join(', '))}"></div>
     <div class="form-row"><label>${esc(t('s_z'))}</label><input type="checkbox" id="pZ" ${ps.z_is_utc ? 'checked' : ''}><div class="help">${esc(t('s_z_help'))}</div></div>
-    <div class="btn-row" style="margin-top:8px"><button type="button" id="pSpecies">${esc(t('s_species_edit'))}</button><button type="button" id="pFields">${esc(t('s_fields_edit'))}</button><button type="button" id="pMeta">${esc(t('s_meta_redo'))}</button></div>` : ''}
+    <div class="btn-row" style="margin-top:8px"><button type="button" id="pSpecies">${esc(t('s_species_edit'))}</button><button type="button" id="pFields">${esc(t('s_fields_edit'))}</button><button type="button" id="pMeta">${esc(t('s_meta_redo'))}</button></div>
+    <h4>${esc(t('s_cache_title'))}</h4><div class="note">${esc(t('s_cache_help'))}</div><div id="pCache" class="info">${esc(t('loading'))}</div>` : ''}
     <div class="modal-actions"><button id="mCancel">${esc(t('cancel'))}</button><button id="mOk" class="primary">${esc(t('save'))}</button></div>`);
   wirePicks(m);
   m.querySelector('#mCancel').onclick = closeModal;
@@ -55,6 +56,21 @@ async function settingsDialog() {
     m.querySelector('#pRootPick').onclick = async () => { const r = await pickPath('folder', p.root); if (r) { const res = await api('/api/project/root', { path: r }); setSnapshot(res.state); m.querySelector('#pRoot').value = r; reloadList(); } };
     m.querySelector('#pSpecies').onclick = () => speciesDialog();
     m.querySelector('#pFields').onclick = () => fieldsDialog();
+    const gb = b => (b / 1e9).toFixed(2) + ' GB';
+    const renderCache = async () => {
+      try {
+        const c = await api('/api/project/cache');
+        const kinds = [['video', t('s_cache_video')], ['thumb', t('s_cache_thumb')], ['crops', t('s_cache_crops')], ['features', t('s_cache_features')]];
+        m.querySelector('#pCache').innerHTML = (c.disk ? `<div>${esc(t('s_disk_free'))}: <b>${gb(c.disk.free)}</b> / ${gb(c.disk.total)}</div>` : '') +
+          kinds.map(([k, label]) => `<div class="fld"><span>${esc(label)}</span><span>${gb(c[k].bytes)} (${c[k].n})</span> <button type="button" class="small" data-cc="${k}" ${c[k].n ? '' : 'disabled'}>${esc(t('s_cache_clear'))}</button></div>`).join('');
+        m.querySelectorAll('[data-cc]').forEach(b => { b.onclick = async () => {
+          const k = b.dataset.cc;
+          if (k === 'features' && !confirm(t('s_cache_features_q'))) return;
+          try { const r = await api('/api/project/cache/clear', { kinds: [k] }); toast(`${t('s_cache_cleared')}: ${gb(r.freed)}`); renderCache(); } catch (e) { toast(e.message, 'error'); }
+        }; });
+      } catch (e) { m.querySelector('#pCache').textContent = e.message; }
+    };
+    renderCache();
     m.querySelector('#pMeta').onclick = async () => { await api('/api/jobs/meta', { redo: true, filters: {} }); toast(t('s_meta_redo')); };
   }
   m.querySelector('#mOk').onclick = async () => {
