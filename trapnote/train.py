@@ -140,6 +140,120 @@ def features_path(project, rel_path: str) -> str:
     return os.path.join(project.cache_dir("features"), cache_name(rel_path) + ".npz")
 
 
+# ---------- ほかのプロジェクトを材料に加える ----------
+def open_source(path: str):
+    """材料に加えるプロジェクトを開く（プロジェクトのフォルダ <root>/TrapNote か、そのルート）。使い終わったら close() する"""
+    from .paths import norm
+    from .project import Project, find_project_for_root, is_project_dir
+    path = norm(path)
+    if os.path.isfile(path) and os.path.basename(path).lower() == "project.json":
+        path = os.path.dirname(path)
+    if is_project_dir(path):
+        pdir = path
+    else:
+        pdir = find_project_for_root(path) if os.path.isdir(path) else None
+        if not pdir:
+            raise FileNotFoundError(f"プロジェクトがありません: {path}")
+    p = Project(pdir)
+    if not p.root:
+        p.close()
+        raise FileNotFoundError(f"プロジェクトのルート（動画のフォルダ）がこの PC にありません: {pdir}")
+    return p
+
+
+def plan_counts(project) -> dict:
+    """追加学習の材料の数（確認済み・学習に使える・特徴量あり・学習から外す・食い違い・地点ごと・種ごと）"""
+    db = project.db
+    where = "status='verified' AND missing=0 AND det_state=1 AND cls_state=1"
+    n_verified = int(db.scalar("SELECT COUNT(*) FROM items WHERE status='verified' AND missing=0") or 0)
+    n_ready = int(db.scalar(f"SELECT COUNT(*) FROM items WHERE {where}") or 0)
+    n_excl = int(db.scalar(f"SELECT COUNT(*) FROM items WHERE {where} AND train_exclude=1") or 0)
+    n_hard = int(db.scalar(f"SELECT COUNT(*) FROM items WHERE {where} AND (agree=3 OR recheck=1)") or 0)
+    fdir = project.cache_dir("features")
+    n_feat = len([f for f in os.listdir(fdir) if f.endswith(".npz")]) if os.path.isdir(fdir) else 0
+    stations = [dict(station=r["station"] or "", n=r["n"]) for r in db.q(f"SELECT station, COUNT(*) AS n FROM items WHERE {where} GROUP BY station ORDER BY station")]
+    species = [dict(code=r["species"], n=r["n"]) for r in db.q(f"SELECT j.species, COUNT(DISTINCT j.item_id) AS n FROM judgements j JOIN items i ON i.id=j.item_id WHERE i.{where.replace(' AND ', ' AND i.')} GROUP BY j.species ORDER BY n DESC")]
+    return dict(n_verified=n_verified, n_ready=n_ready, n_excluded=n_excl, n_hard=n_hard, n_features=n_feat, stations=stations, species=species,
+                name=project.name, dir=project.dir, root=project.root, speciesnet_model=project.setting("speciesnet_model"))
+
+
+def source_info(project, path: str) -> dict:
+    """材料に加える候補のプロジェクトの様子（開いて数えて閉じる）。いま開いているプロジェクトと同じなら same = True"""
+    from .paths import key
+    try:
+        src = open_source(path)
+    except Exception as e:
+        return dict(path=path, ok=False, error=str(e))
+    try:
+        d = plan_counts(src)
+        d.update(path=path, ok=True, same=key(src.dir) == key(project.dir),
+                 mismatch=(src.setting("speciesnet_model") or "") != (project.setting("speciesnet_model") or ""))
+        return d
+    finally:
+        src.close()
+
+
+def source_label(project) -> str:
+    return project.name or os.path.basename(os.path.dirname(project.dir)) or "project"
+
+
+def collect_all(project, sources: list[str] | None, opts: dict, progress=None, stop=None) -> dict:
+    """いま開いているプロジェクトと、材料に加えるプロジェクト（sources = パスの列）から集める。
+    返り値は collect() と同じ形だが、items の鍵は (何番目のプロジェクト, id)、各 item に proj（Project）、地点は加えたプロジェクトでは「<名前>:<地点>」。
+    加えたプロジェクトは開いたままなので、使い終わったら close_sources() する"""
+    from .paths import key
+    projs = [project]
+    seen = {key(project.dir)}
+    for path in sources or []:
+        src = open_source(path)
+        if key(src.dir) in seen:
+            src.close()
+            continue
+        base_main, base_src = project.setting("speciesnet_model") or "", src.setting("speciesnet_model") or ""
+        if base_main != base_src:
+            src.close()
+            raise RuntimeError(f"{source_label(src)} は別の SpeciesNet（{base_src}）の設定なので一緒に学習できません（いまのプロジェクトは {base_main}）")
+        projs.append(src)
+        seen.add(key(src.dir))
+    items: dict = {}
+    n_verified = n_nofeat = 0
+    srcs = []
+    dims: set[int] = set()
+    try:
+        for si, pr in enumerate(projs):
+            label = source_label(pr)
+            col = collect(pr, opts, lambda a, b: progress and progress(a, b, label if si else ""), stop)
+            for iid, it in col["items"].items():
+                it["proj"] = pr
+                it["src"] = si
+                it["item_id"] = iid
+                it["id"] = (si, iid)                   # build_dataset の samples はこの id を使う
+                if si and it["station"]:
+                    it["station"] = f"{label}:{it['station']}"
+                if it["feats"] is not None and len(it["feats"]):
+                    dims.add(int(it["feats"].shape[1]))
+                items[(si, iid)] = it
+            n_verified += col["n_verified"]
+            n_nofeat += col["n_nofeat"]
+            srcs.append(dict(name=label, dir=pr.dir, n_items=len(col["items"]), n_verified=col["n_verified"], n_nofeat=col["n_nofeat"]))
+            if stop and stop():
+                break
+        if len(dims) > 1:
+            raise RuntimeError(f"特徴量の次元がプロジェクトで違います（{sorted(dims)}）。同じ SpeciesNet で自動判定をやり直してください")
+    except Exception:
+        close_sources(projs[1:])
+        raise
+    return dict(items=items, n_verified=n_verified, n_nofeat=n_nofeat, sources=srcs, projects=projs)
+
+
+def close_sources(projs: list) -> None:
+    for pr in projs:
+        try:
+            pr.close()
+        except Exception:
+            pass
+
+
 # ---------- 学習データを集める ----------
 def collect(project, opts: dict, progress=None, stop=None) -> dict:
     """確認済みの対象から学習・評価用の枠を集める。返り値:
@@ -430,14 +544,22 @@ def base_pred(it: dict) -> tuple[list[str], np.ndarray]:
 
 
 # ---------- 方式 A の全体 ----------
-def run_train_a(project, opts: dict, name: str, progress=None, stop=None) -> dict:
-    """集める → 検証用の地点を分けて学習・評価 → 全部で学習し直して保存。返り値は記録（model.json の中身）"""
+def run_train_a(project, opts: dict, name: str, progress=None, stop=None, sources: list[str] | None = None) -> dict:
+    """集める → 検証用の地点を分けて学習・評価 → 全部で学習し直して保存。返り値は記録（model.json の中身）。
+    sources = 材料に加えるほかのプロジェクト（パスの列）"""
     from .detect import project_settings
     s = project_settings(project)
     t0 = time.time()
     if progress:
         progress("collect", 0, 0, "")
-    col = collect(project, opts, lambda a, b: progress and progress("collect", a, b, ""), stop)
+    col = collect_all(project, sources, opts, lambda a, b, lab: progress and progress("collect", a, b, lab), stop)
+    try:
+        return _run_train_a(project, opts, name, progress, stop, s, t0, col)
+    finally:
+        close_sources(col["projects"][1:])
+
+
+def _run_train_a(project, opts, name, progress, stop, s, t0, col) -> dict:
     items = col["items"]
     if not items:
         raise RuntimeError("学習に使える対象がありません（確認済みで、検出・種判別が済んでいて、特徴量が保存されているもの）")
@@ -473,7 +595,8 @@ def run_train_a(project, opts: dict, name: str, progress=None, stop=None) -> dic
     result = dict(kind="A", name=name, base_classifier=str(next(iter(items.values()))["codes"] and s.get("speciesnet_model")), trained_at=now_iso(),
                   classes=ds["classes"], counts=ds["counts"], dropped=ds["dropped"], n_items=ds["n_items"], n_crops=len(ds["samples"]),
                   n_verified=col["n_verified"], n_nofeat=col["n_nofeat"], holdout_stations=sorted(holdout), base_mix=base_mix,
-                  settings={k: opts.get(k, TRAIN_DEFAULTS[k]) for k in TRAIN_DEFAULTS}, species_rule=dict(p1=s["species_p1"], p2=s["species_p2"], k=s["species_k"]))
+                  settings={k: opts.get(k, TRAIN_DEFAULTS[k]) for k in TRAIN_DEFAULTS}, species_rule=dict(p1=s["species_p1"], p2=s["species_p2"], k=s["species_k"]),
+                  project=source_label(project), sources=[dict(name=x["name"], dir=x["dir"], n_items=x["n_items"]) for x in col["sources"][1:]])
     # 1) 検証用の地点を除いて学習 → 検証用の地点で学習前・後を比べる
     if holdout:
         head, rec = fit(ds["samples"], ds["classes"], "train")
@@ -526,12 +649,13 @@ def ensure_crops(project, items: dict, ids: list[int], progress=None, stop=None)
         if stop and stop():
             break
         it = items[iid]
-        need = [k for k in range(len(it["t"])) if not os.path.isfile(crop_path(project, it["rel_path"], k))]
+        pr = it.get("proj") or project                 # 材料に加えたプロジェクトの対象は、そのプロジェクトの動画と cache/crops
+        need = [k for k in range(len(it["t"])) if not os.path.isfile(crop_path(pr, it["rel_path"], k))]
         if progress:
             progress(n, len(ids), it["rel_path"])
         if not need:
             continue
-        src = abs_of(it["rel_path"], project.root)
+        src = abs_of(it["rel_path"], pr.root)
         try:
             if src.lower().endswith((".jpg", ".jpeg", ".png")):
                 frames = read_image(src)
@@ -543,11 +667,11 @@ def ensure_crops(project, items: dict, ids: list[int], progress=None, stop=None)
         if not frames:
             continue
         ts = np.array([t for t, _ in frames], dtype=np.float32)
-        os.makedirs(os.path.dirname(crop_path(project, it["rel_path"], 0)), exist_ok=True)
+        os.makedirs(os.path.dirname(crop_path(pr, it["rel_path"], 0)), exist_ok=True)
         for k in need:
             j = int(np.argmin(np.abs(ts - float(it["t"][k]))))
             try:
-                crop_image(frames[j][1], it["bbox"][k]).save(crop_path(project, it["rel_path"], k), "JPEG", quality=90)
+                crop_image(frames[j][1], it["bbox"][k]).save(crop_path(pr, it["rel_path"], k), "JPEG", quality=90)
                 made += 1
             except Exception as e:
                 log.warning("枠の保存に失敗 %s #%d: %s", it["rel_path"], k, e)
@@ -787,9 +911,10 @@ def apply_finetuned(model, state: dict) -> None:
                 own[n].copy_(v.to(own[n].device, own[n].dtype))
 
 
-def run_train_b(project, hub, opts: dict, name: str, progress=None, stop=None, init_from: str | None = None) -> dict:
+def run_train_b(project, hub, opts: dict, name: str, progress=None, stop=None, init_from: str | None = None, sources: list[str] | None = None) -> dict:
     """方式 B: 枠を切り出し → 検証用の地点を分けて学習・評価 → 全部で学習し直して保存。
-    init_from を渡すと、その方式 B のモデル（hub に付けてある前提）の重みから続けて学習する（最終層は種の顔ぶれが変わるので新しく作る）"""
+    init_from を渡すと、その方式 B のモデル（hub に付けてある前提）の重みから続けて学習する（最終層は種の顔ぶれが変わるので新しく作る）。
+    sources = 材料に加えるほかのプロジェクト（パスの列。枠の画像はそれぞれのプロジェクトの cache/crops に置く）"""
     import torch
     from .detect import project_settings
     s = project_settings(project)
@@ -804,7 +929,15 @@ def run_train_b(project, hub, opts: dict, name: str, progress=None, stop=None, i
         if not (hub.local and hub.local.get("name") == init_from and hub.local.get("kind") == "B"):
             raise RuntimeError(f"出発点のモデル {init_from} が読み込まれていません")
         init_state = torch.load(os.path.join(model_folder(project, init_from), "finetune.pt"), map_location="cpu", weights_only=False)["state"]
-    col = collect(project, opts, lambda a, b: progress and progress("collect", a, b, ""), stop)
+    col = collect_all(project, sources, opts, lambda a, b, lab: progress and progress("collect", a, b, lab), stop)
+    try:
+        return _run_train_b(project, hub, opts, name, progress, stop, init_from, s, t0, init_info, init_state, col)
+    finally:
+        close_sources(col["projects"][1:])
+
+
+def _run_train_b(project, hub, opts, name, progress, stop, init_from, s, t0, init_info, init_state, col) -> dict:
+    import torch
     items = col["items"]
     if not items:
         raise RuntimeError("学習に使える対象がありません（確認済みで、検出・種判別が済んでいるもの）")
@@ -839,7 +972,7 @@ def run_train_b(project, hub, opts: dict, name: str, progress=None, stop=None, i
     def paths_of(samples):
         d = {}
         for iid, k, _, _ in samples:
-            pth = crop_path(project, items[iid]["rel_path"], k)
+            pth = crop_path(items[iid].get("proj") or project, items[iid]["rel_path"], k)
             if os.path.isfile(pth):
                 d[(iid, k)] = pth
         return d
@@ -867,14 +1000,14 @@ def run_train_b(project, hub, opts: dict, name: str, progress=None, stop=None, i
                   n_verified=col["n_verified"], settings={k: opts.get(k, TRAIN_DEFAULTS[k]) for k in TRAIN_DEFAULTS}, species_rule=dict(p1=s["species_p1"], p2=s["species_p2"], k=s["species_k"]))
     if init_from:
         result.update(init_from=init_from, init_chain=list(init_info.get("init_chain") or []) + [init_from], init_project=init_info.get("project"))
-    result["project"] = os.path.basename(os.path.normpath(project.root)) if getattr(project, "root", None) else None
+    result.update(project=source_label(project), sources=[dict(name=x["name"], dir=x["dir"], n_items=x["n_items"]) for x in col["sources"][1:]])
     try:
         if holdout and len(ds["classes"]) >= 2:
             classes, state, rec = fit(ds, "train")
             ev_ids = [iid for iid, it in items.items() if it["station"] in holdout]
 
             def pred(it):
-                pths = [crop_path(project, it["rel_path"], k) for k in range(len(it["t"]))]
+                pths = [crop_path(it.get("proj") or project, it["rel_path"], k) for k in range(len(it["t"]))]
                 ok = [p for p in pths if os.path.isfile(p)]
                 if not ok:
                     return classes, np.zeros((0, len(classes)), dtype=np.float32)
@@ -893,7 +1026,7 @@ def run_train_b(project, hub, opts: dict, name: str, progress=None, stop=None, i
         ensure_crops(project, items, all_ids, lambda a, b, c: progress and progress("crops", a, b, c), stop)
 
         def pred_all(it):
-            pths = [crop_path(project, it["rel_path"], k) for k in range(len(it["t"]))]
+            pths = [crop_path(it.get("proj") or project, it["rel_path"], k) for k in range(len(it["t"]))]
             ok = [p for p in pths if os.path.isfile(p)]
             if not ok:
                 return classes, np.zeros((0, len(classes)), dtype=np.float32)

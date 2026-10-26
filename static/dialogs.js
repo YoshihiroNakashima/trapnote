@@ -760,6 +760,12 @@ async function trainDialog(showName) {
     <div class="form-row"><label>${esc(t('tr_kind'))}</label><select id="trKind"><option value="A">${esc(t('tr_kind_a'))}</option><option value="B">${esc(t('tr_kind_b'))}</option></select></div>
     <div class="form-row"><label>${esc(t('tr_name'))}</label><input type="text" id="trName" spellcheck="false" style="width:260px"></div>
     <div class="form-row"><label>${esc(t('tr_holdout'))}</label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><input type="number" id="trHold" step="0.05" min="0" max="0.6" style="width:70px"> <span class="info">${esc(t('tr_holdout_help'))}</span></span></div>
+    <details class="adv" id="trSrcDetails"><summary>${esc(t('tr_sources'))} <span id="trSrcN" class="info"></span></summary>
+      <div class="note">${esc(t('tr_sources_help'))}</div>
+      <div id="trSources" class="sp-grid" style="max-height:20vh;overflow:auto"></div>
+      <div class="form-row"><label>${esc(t('tr_src_path'))}</label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><input type="text" id="trSrcPath" spellcheck="false" style="width:320px"><button type="button" class="small" data-pick="trSrcPath" data-kind="folder" data-name="">${esc(t('pick'))}</button><button type="button" class="small" id="trSrcAdd">${esc(t('tr_src_add'))}</button></span></div>
+      <div id="trSrcInfo"></div>
+    </details>
     <details class="adv" id="trStDetails"><summary>${esc(t('tr_pick_stations'))}</summary><div id="trStations" class="sp-grid" style="max-height:20vh;overflow:auto"></div><div class="note">${esc(t('tr_pick_help'))}</div></details>
     <details class="adv"><summary>${esc(t('dt_adv'))}</summary>
       <div class="form-row"><label>${esc(t('tr_min_conf'))}</label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><input type="number" id="trMinConf" step="0.05" min="0.1" max="0.95" style="width:70px"> <span class="info">${esc(t('tr_min_conf_help'))}</span></span></div>
@@ -777,15 +783,53 @@ async function trainDialog(showName) {
     <div class="note">${esc(t('tr_use_help'))}</div>
     <div class="modal-actions"><button id="mCancel">${esc(t('close'))}</button><button id="trStop" class="danger-outline hidden">${esc(t('ar_stop'))}</button><button id="mOk" class="primary">${esc(t('tr_start'))}</button></div>`);
   trainModalEl = m;
+  wirePicks(m);
   const q = sel => m.querySelector(sel);
   let planData = null;
+  let srcList = [];          // 材料に加える候補 [{path, name, checked, info}]
+  let srcSeq = 0;
+  const srcChecked = () => srcList.filter(x => x.checked);
+  const renderStations = () => {
+    const main = (planData ? planData.stations : []).map(x => ({ st: x.station || '', label: x.station || '—', n: x.n }));
+    const extra = [];
+    for (const x of srcChecked()) if (x.info && x.info.ok && !x.info.same) for (const y of x.info.stations || []) if (y.station) extra.push({ st: `${x.info.name}:${y.station}`, label: `${x.info.name}:${y.station}`, n: y.n });
+    const keep = new Set([...m.querySelectorAll('#trStations input:checked')].map(c => c.dataset.st));
+    q('#trStations').innerHTML = main.concat(extra).map(x => `<label><input type="checkbox" data-st="${esc(x.st)}" ${keep.has(x.st) ? 'checked' : ''}> <span>${esc(x.label)}</span> <span class="info">${x.n}</span></label>`).join('');
+  };
+  const renderSources = () => {
+    q('#trSources').innerHTML = srcList.length ? srcList.map(x => `<label><input type="checkbox" data-src="${x.id}" ${x.checked ? 'checked' : ''}> <span>${esc(x.name)}</span> <span class="info" title="${esc(x.path)}">${esc(x.path)}</span></label>`).join('') : `<div class="note">${esc(t('tr_src_none'))}</div>`;
+    m.querySelectorAll('#trSources input[data-src]').forEach(c => { c.onchange = () => { const x = srcList.find(y => String(y.id) === c.dataset.src); if (x) x.checked = c.checked; refreshSources(); }; });
+    const sel = srcChecked();
+    q('#trSrcN').textContent = sel.length ? `(${sel.length} ${t('tr_src_selected')})` : '';
+  };
+  const refreshSources = async () => {
+    const sel = srcChecked();
+    renderSources();
+    if (!sel.length) { q('#trSrcInfo').innerHTML = ''; renderStations(); return; }
+    try {
+      const r = await api('/api/train/sources', { paths: sel.map(x => x.path) });
+      sel.forEach((x, i) => { x.info = r.sources[i]; });
+      const nOk = sel.filter(x => x.info && x.info.ok && !x.info.same).length;
+      q('#trSrcN').textContent = nOk ? `(${nOk} ${t('tr_src_selected')})` : '';
+      q('#trSrcInfo').innerHTML = sel.map(x => { const i = x.info || {}; if (!i.ok) return `<div class="ng">${esc(x.name)}: ${esc(i.error || '')}</div>`; if (i.same) return `<div class="info">${esc(x.name)}: ${esc(t('tr_src_same'))}</div>`;
+        return `<div><b>${esc(i.name)}</b>: ${esc(t('tr_n_ready'))} ${i.n_ready} <span class="info">(${esc(t('tr_n_feat'))} ${i.n_features})</span> · ${esc(t('tr_n_stations'))} ${i.stations.length}${i.species.length ? ` · ${i.species.map(y => `${esc(spLabel(y.code))} ${y.n}`).join(' · ')}` : ''}${i.mismatch ? ` <span class="ng">${esc(t('tr_src_mismatch'))} (${esc(i.speciesnet_model || '')})</span>` : ''}</div>`; }).join('');
+    } catch (e) { q('#trSrcInfo').innerHTML = `<div class="ng">${esc(e.message)}</div>`; }
+    renderStations();
+  };
+  q('#trSrcAdd').onclick = () => {
+    const pth = q('#trSrcPath').value.trim(); if (!pth) return;
+    let x = srcList.find(y => y.path.toLowerCase() === pth.toLowerCase());
+    if (!x) { x = { id: ++srcSeq, path: pth, name: pth.replace(/[\\/]+$/, '').split(/[\\/]/).filter(Boolean).slice(-2).join('/'), checked: true }; srcList.push(x); } else x.checked = true;
+    q('#trSrcPath').value = '';
+    refreshSources();
+  };
   const kindUi = () => { const b = q('#trKind').value === 'B'; m.querySelectorAll('.tr-a').forEach(el => el.classList.toggle('hidden', b)); m.querySelectorAll('.tr-b').forEach(el => el.classList.toggle('hidden', !b)); if (!q('#trName').dataset.edited) q('#trName').value = defaultName(); };
   const defaultName = () => { const d = new Date(), z = n => String(n).padStart(2, '0'); return `${q('#trKind').value}_${d.getFullYear()}${z(d.getMonth() + 1)}${z(d.getDate())}_${z(d.getHours())}${z(d.getMinutes())}`; };
   const renderModels = r => {
     const ms = r.models || [];
     const cur = r.classifier || 'speciesnet';
     q('#trModels').innerHTML = ms.length ? `<table class="tbl"><tr><th>${esc(t('tr_name'))}</th><th>${esc(t('tr_kind'))}</th><th>${esc(t('tr_trained_at'))}</th><th>${esc(t('tr_data'))}</th><th>${esc(t('tr_eval_short'))}</th><th></th></tr>` +
-      ms.map(x => `<tr class="${cur === 'local:' + x.name ? 'cur' : ''}"><td><b>${esc(x.name)}</b>${cur === 'local:' + x.name ? ` <span class="chip ai">${esc(t('tr_in_use'))}</span>` : ''}${x.shared || x.also_shared ? ` <span class="chip human" title="${esc(t('tr_shared_tip'))}">${esc(t('tr_shared'))}</span>` : ''}${x.init_from ? `<div class="info">${esc(t('tr_init_from'))}: ${esc((x.init_chain || [x.init_from]).join(' → '))}</div>` : ''}</td><td>${esc(x.kind)}</td><td class="info">${esc((x.trained_at || '').slice(0, 16).replace('T', ' '))}</td><td class="info">${x.n_items || 0} ${esc(t('items'))} · ${x.n_crops || 0} ${esc(t('tr_crops'))} · ${(x.classes || []).length} ${esc(t('tr_species_u'))}</td><td>${x.eval ? `${evalLine(x.eval)} <span class="info">(${x.eval.n_items})</span>` : `<span class="info">${esc(t('tr_no_holdout'))}</span>`}</td><td><button type="button" class="small" data-res="${esc(x.name)}">${esc(t('tr_result'))}</button> ${!x.shared && !x.also_shared ? `<button type="button" class="small" data-share="${esc(x.name)}" title="${esc(t('tr_share_tip'))}">${esc(t('tr_share'))}</button> ` : ''}<button type="button" class="small" data-del="${esc(x.name)}">${esc(t('delete'))}</button></td></tr>`).join('') + '</table>'
+      ms.map(x => `<tr class="${cur === 'local:' + x.name ? 'cur' : ''}"><td><b>${esc(x.name)}</b>${cur === 'local:' + x.name ? ` <span class="chip ai">${esc(t('tr_in_use'))}</span>` : ''}${x.shared || x.also_shared ? ` <span class="chip human" title="${esc(t('tr_shared_tip'))}">${esc(t('tr_shared'))}</span>` : ''}${x.init_from ? `<div class="info">${esc(t('tr_init_from'))}: ${esc((x.init_chain || [x.init_from]).join(' → '))}</div>` : ''}${x.sources && x.sources.length ? `<div class="info">${esc(t('tr_src_with'))}: ${esc([x.project || ''].concat(x.sources.map(y => y.name)).filter(Boolean).join(' + '))}</div>` : ''}</td><td>${esc(x.kind)}</td><td class="info">${esc((x.trained_at || '').slice(0, 16).replace('T', ' '))}</td><td class="info">${x.n_items || 0} ${esc(t('items'))} · ${x.n_crops || 0} ${esc(t('tr_crops'))} · ${(x.classes || []).length} ${esc(t('tr_species_u'))}</td><td>${x.eval ? `${evalLine(x.eval)} <span class="info">(${x.eval.n_items})</span>` : `<span class="info">${esc(t('tr_no_holdout'))}</span>`}</td><td><button type="button" class="small" data-res="${esc(x.name)}">${esc(t('tr_result'))}</button> ${!x.shared && !x.also_shared ? `<button type="button" class="small" data-share="${esc(x.name)}" title="${esc(t('tr_share_tip'))}">${esc(t('tr_share'))}</button> ` : ''}<button type="button" class="small" data-del="${esc(x.name)}">${esc(t('delete'))}</button></td></tr>`).join('') + '</table>'
       : `<div class="note">${esc(t('tr_none_models'))}</div>`;
     fillSelect(q('#trUse'), [['speciesnet', 'SpeciesNet' + (cur === 'speciesnet' ? ` (${t('tr_in_use')})` : '')]].concat(ms.map(x => ['local:' + x.name, `SpeciesNet + ${x.name} (${x.kind})`])), cur);
     const initNow = q('#trInit').value;
@@ -809,7 +853,9 @@ async function trainDialog(showName) {
       q('#trEnv').innerHTML = envHtml;
       q('#trPlan').innerHTML = `<span>${esc(t('st_verified'))} <b>${r.n_verified}</b></span><span>${esc(t('tr_n_ready'))} <b>${r.n_ready}</b> <span class="info">(${esc(t('tr_n_feat'))} ${r.n_features})</span></span><span>${esc(t('det_excluded'))} <b>${r.n_excluded}</b></span><span title="${esc(t('tr_w_hard_help'))}">${esc(t('tr_n_hard'))} <b>${r.n_hard}</b></span><span>${esc(t('tr_n_stations'))} <b>${r.stations.length}</b></span>`;
       q('#trSpecies').innerHTML = r.species.length ? `${esc(t('tr_species_counts'))}: ` + r.species.map(x => `${esc(spLabel(x.code))} ${x.n}`).join(' · ') : '';
-      q('#trStations').innerHTML = r.stations.map(x => `<label><input type="checkbox" data-st="${esc(x.station)}"> <span>${esc(x.station || '—')}</span> <span class="info">${x.n}</span></label>`).join('');
+      if (!srcList.length) srcList = (r.recent || []).map(x => ({ id: ++srcSeq, path: x.path, name: x.name, checked: false }));
+      renderSources();
+      renderStations();
       if (!q('#trName').value) {
         const ps = r.settings;
         q('#trHold').value = ps.train_holdout_frac; q('#trMinConf').value = ps.train_min_conf; q('#trWHard').value = ps.train_weight_hard; q('#trMinPer').value = ps.train_min_per_class;
@@ -838,6 +884,7 @@ async function trainDialog(showName) {
       train_epochs_b: parseInt(q('#trEpochs').value) || 5, train_batch_b: parseInt(q('#trBatch').value) || 16, train_unfreeze: parseFloat(q('#trUnfreeze').value), train_lr_b: parseFloat(q('#trLr').value),
       holdout_stations: [...m.querySelectorAll('#trStations input:checked')].map(c => c.dataset.st),
       init_from: q('#trKind').value === 'B' ? q('#trInit').value : '',
+      sources: srcChecked().map(x => x.path),
     };
     try {
       const j = await api('/api/train/start', body);
@@ -912,7 +959,7 @@ async function trainResultDialog(name) {
   const hist = ((r.train_record_all || r.train_record || {}).history || []);
   const m = showModal(`<h3>${esc(t('tr_result'))}: ${esc(r.name)} <span class="info">(${esc(t('tr_kind'))} ${esc(r.kind)} · ${esc((r.trained_at || '').slice(0, 16).replace('T', ' '))} · ${r.elapsed || 0} s)</span></h3>
     <div class="note">${esc(t('tr_result_help'))}</div>
-    <div class="info">${esc(t('tr_data'))}: ${r.n_items} ${esc(t('items'))} · ${r.n_crops} ${esc(t('tr_crops'))} · ${(r.classes || []).length} ${esc(t('tr_species_u'))}（${esc(counts)}）${dropped ? `<br>${esc(t('tr_dropped'))}: ${esc(dropped)}` : ''}${r.n_nofeat ? `<br>${esc(t('tr_nofeat'))}: ${r.n_nofeat}` : ''}${r.init_from ? `<br>${esc(t('tr_init_from'))}: SpeciesNet → ${esc((r.init_chain || [r.init_from]).join(' → '))}` : ''}</div>
+    <div class="info">${esc(t('tr_data'))}: ${r.n_items} ${esc(t('items'))} · ${r.n_crops} ${esc(t('tr_crops'))} · ${(r.classes || []).length} ${esc(t('tr_species_u'))}（${esc(counts)}）${dropped ? `<br>${esc(t('tr_dropped'))}: ${esc(dropped)}` : ''}${r.n_nofeat ? `<br>${esc(t('tr_nofeat'))}: ${r.n_nofeat}` : ''}${r.init_from ? `<br>${esc(t('tr_init_from'))}: SpeciesNet → ${esc((r.init_chain || [r.init_from]).join(' → '))}` : ''}${r.sources && r.sources.length ? `<br>${esc(t('tr_src_with'))}: ${esc([r.project || ''].concat(r.sources.map(y => `${y.name} (${y.n_items})`)).filter(Boolean).join(' + '))}` : ''}</div>
     ${ev ? block(t('tr_eval_title'), ev, ev.n_items, ev.stations) : `<div class="note">${esc(t('tr_no_holdout'))}</div>`}
     ${r.fit_all ? block(t('tr_fit_all'), r.fit_all, r.fit_all.after.n, null) : ''}
     ${hist.length ? `<details class="adv"><summary>${esc(t('tr_history'))}</summary><div class="info">${hist.map(h => `${h.epoch}: ${h.train_loss}${h.val_loss != null ? ' / ' + h.val_loss + (h.val_acc != null ? ' (' + (100 * h.val_acc).toFixed(0) + '%)' : '') : ''}`).join(' · ')}</div></details>` : ''}

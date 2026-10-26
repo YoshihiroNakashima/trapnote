@@ -438,7 +438,7 @@ class TrainJob(Job):
     """第 3 段階: 追加学習（ml レーン）。方式 A は特徴量から（CPU で可）、方式 B は本体の再学習（SpeciesNet を読み込む）"""
 
     def __init__(self, options: dict, name: str):
-        super().__init__("train", dict(kind=options.get("kind", "A"), name=name, init_from=options.get("init_from")), "追加学習")
+        super().__init__("train", dict(kind=options.get("kind", "A"), name=name, init_from=options.get("init_from"), sources=options.get("sources") or []), "追加学習")
         self.options = options
         self.name = name
         self.phase = ""
@@ -452,6 +452,7 @@ class TrainJob(Job):
         opts = train.train_settings(project, self.options)
         opts["holdout_stations"] = self.options.get("holdout_stations") or None
         kind = self.options.get("kind", "A")
+        sources = [str(x) for x in (self.options.get("sources") or [])] or None      # 材料に加えるほかのプロジェクト
 
         def prog(phase, a, b, msg):
             self.phase = phase
@@ -465,9 +466,9 @@ class TrainJob(Job):
             hub.load_classifier(s.get("speciesnet_model"), None, self.stop_flag.is_set)
             init = self.options.get("init_from") or None
             hub.set_local(project, f"local:{init}" if init else "speciesnet", s.get("speciesnet_model"))        # 元の重み（または出発点のモデル）で学習する
-            self.result = train.run_train_b(project, hub, opts, self.name, prog, self.stop_flag.is_set, init_from=init)
+            self.result = train.run_train_b(project, hub, opts, self.name, prog, self.stop_flag.is_set, init_from=init, sources=sources)
         else:
-            self.result = train.run_train_a(project, opts, self.name, prog, self.stop_flag.is_set)
+            self.result = train.run_train_a(project, opts, self.name, prog, self.stop_flag.is_set, sources=sources)
         r = self.result
         ev = r.get("eval")
         if ev and ev["before"]["n"]:

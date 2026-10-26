@@ -15,7 +15,7 @@ from aiohttp import web
 from . import APP_ID, APP_NAME, BUILD, BUILD_TIME, VERSION, detect, dialogs, export as export_mod, judge, media, merge as merge_mod, scan as scan_mod, timelapse, train, yolo
 from .config import DATA_DIR, STATIC_DIR, Settings, State
 from .jobs import ArchiveJob, DetectJob, Lane, MetaJob, ReclassifyJob, ScanJob, TrainJob, TranscodeJob, YoloExportJob, YoloImportJob
-from .paths import abs_of, norm
+from .paths import abs_of, key, norm
 from .pattern import names_in, preview as pattern_preview
 from .project import PROJECT_DIRNAME, Project, find_project_for_root, is_project_dir
 
@@ -272,19 +272,13 @@ class Session:
     def train_plan(self) -> dict:
         """追加学習の材料の数（確認済み・特徴量あり・学習から外す・地点ごと・種ごと）と、学習済みのモデル"""
         p = self.need()
-        db = p.db
-        n_verified = int(db.scalar("SELECT COUNT(*) FROM items WHERE status='verified' AND missing=0") or 0)
-        n_ready = int(db.scalar("SELECT COUNT(*) FROM items WHERE status='verified' AND missing=0 AND det_state=1 AND cls_state=1") or 0)
-        n_excl = int(db.scalar("SELECT COUNT(*) FROM items WHERE status='verified' AND missing=0 AND det_state=1 AND cls_state=1 AND train_exclude=1") or 0)
-        n_hard = int(db.scalar("SELECT COUNT(*) FROM items WHERE status='verified' AND missing=0 AND det_state=1 AND cls_state=1 AND (agree=3 OR recheck=1)") or 0)
-        fdir = p.cache_dir("features")
-        n_feat = len([f for f in os.listdir(fdir) if f.endswith(".npz")]) if os.path.isdir(fdir) else 0
-        stations = [dict(station=r["station"] or "", n=r["n"]) for r in db.q("SELECT station, COUNT(*) AS n FROM items WHERE status='verified' AND missing=0 AND det_state=1 AND cls_state=1 GROUP BY station ORDER BY station")]
-        species = [dict(code=r["species"], n=r["n"]) for r in db.q("SELECT j.species, COUNT(DISTINCT j.item_id) AS n FROM judgements j JOIN items i ON i.id=j.item_id WHERE i.status='verified' AND i.missing=0 AND i.det_state=1 AND i.cls_state=1 GROUP BY j.species ORDER BY n DESC")]
+        d = train.plan_counts(p)
         env = detect.env_status(self.settings, self.models_dir())
-        return dict(n_verified=n_verified, n_ready=n_ready, n_excluded=n_excl, n_hard=n_hard, n_features=n_feat, stations=stations, species=species,
-                    models=train.list_models(p), classifier=p.setting("classifier"), env=env,
-                    settings={k: p.setting(k) for k in train.TRAIN_DEFAULTS}, device=self.settings.get("device", "auto"))
+        # 材料に加えられる候補 = 最近開いたプロジェクト（いまのを除く）
+        recent = [dict(path=x, name=os.path.basename(os.path.dirname(x)) or x) for x in self.settings.get("recent_projects", []) if key(x) != key(p.dir)]
+        d.update(models=train.list_models(p), classifier=p.setting("classifier"), env=env, recent=recent,
+                 settings={k: p.setting(k) for k in train.TRAIN_DEFAULTS}, device=self.settings.get("device", "auto"))
+        return d
 
     def detections_of(self, item_id: int) -> dict:
         p = self.need()
@@ -846,11 +840,28 @@ def make_app(session: Session) -> web.Application:
     async def train_plan(request):
         return jr(await io(S.train_plan))
 
+    async def train_sources(request):
+        """材料に加える候補のプロジェクトの様子（確認済み・学習に使える・特徴量・地点・種）"""
+        p = S.need()
+        b = await _body(request)
+        paths = [str(x) for x in (b.get("paths") or []) if str(x).strip()][:20]
+        return jr(dict(sources=await io(lambda: [train.source_info(p, x) for x in paths])))
+
     async def train_start(request):
         p = S.need()
         b = await _body(request)
         if S.ml.status()["current"]:
             raise ApiError("検出か学習がもう動いています")
+        sources = []
+        for x in (b.get("sources") or [])[:20]:
+            info = await io(train.source_info, p, str(x))
+            if not info.get("ok"):
+                raise ApiError(info.get("error") or f"プロジェクトを開けません: {x}")
+            if info.get("same"):
+                continue
+            if info.get("mismatch"):
+                raise ApiError(f"{info['name']} は別の SpeciesNet（{info.get('speciesnet_model')}）の設定なので一緒に学習できません")
+            sources.append(str(x))
         kind = "B" if b.get("kind") == "B" else "A"
         env = detect.env_status(S.settings, S.models_dir())
         if kind == "B" and not env["ok"]:
@@ -876,7 +887,7 @@ def make_app(session: Session) -> web.Application:
             if S._hub is not None and S._hub.device is not None:
                 S._hub.unload()
                 S._hub.device = None
-        opts = dict(kind=kind, holdout_stations=[str(x) for x in (b.get("holdout_stations") or [])] or None)
+        opts = dict(kind=kind, holdout_stations=[str(x) for x in (b.get("holdout_stations") or [])] or None, sources=sources)
         if kind == "B" and b.get("init_from"):
             init = train.safe_model_name(str(b["init_from"]))
             if init == name:
@@ -1173,6 +1184,7 @@ def make_app(session: Session) -> web.Application:
     r.add_post("/api/project/cache/clear", cache_clear)
     r.add_get("/api/train/plan", train_plan)
     r.add_post("/api/train/start", train_start)
+    r.add_post("/api/train/sources", train_sources)
     r.add_post("/api/train/stop", train_stop)
     r.add_get("/api/train/models", train_models)
     r.add_post("/api/train/models/delete", train_models_delete)
