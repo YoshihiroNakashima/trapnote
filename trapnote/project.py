@@ -93,6 +93,8 @@ class Project:
         if root:
             self.set_root(root, save=False)
         self.root = self.resolve_root()
+        if self.root and key((self.data.get("roots") or {}).get(hostname()) or "") != key(self.root):
+            self.set_root(self.root, save=False)             # 移された場合などに roots もそろえる（下の save() で書く）
         os.makedirs(self.dir, exist_ok=True)
         for sub in ("cache", "cache/video", "cache/thumb", "cache/features", "models", "exports", "logs"):
             os.makedirs(os.path.join(self.dir, sub), exist_ok=True)
@@ -107,17 +109,21 @@ class Project:
 
     # ---------- ルート ----------
     def resolve_root(self) -> str | None:
-        """この PC のルート。roots[hostname] → 存在する roots のどれか → プロジェクトの親フォルダ（既定の置き方）"""
+        """この PC のルート。既定の置き方（<ルート>/TrapNote）なら親フォルダ（フォルダごと別のドライブにコピー・移動しても追いかける）
+        → roots[hostname] → 存在する roots のどれか"""
         roots = self.data.get("roots") or {}
+        parent = os.path.dirname(self.dir)
+        at_default = os.path.basename(self.dir) == PROJECT_DIRNAME and os.path.isdir(parent)
         r = roots.get(hostname())
+        if at_default and r and os.path.isdir(r) and key(r) != key(parent):
+            log.info("プロジェクト %s は %s から %s に移されたようなので、ルートを親フォルダにします", self.dir, r, parent)
+        if at_default:
+            return norm(parent)
         if r and os.path.isdir(r):
             return norm(r)
         for r in roots.values():
             if r and os.path.isdir(r):
                 return norm(r)
-        parent = os.path.dirname(self.dir)
-        if os.path.basename(self.dir) == PROJECT_DIRNAME and os.path.isdir(parent):
-            return norm(parent)
         return None
 
     def set_root(self, root: str, save: bool = True) -> None:
