@@ -608,12 +608,17 @@ def _run_train_a(project, opts, name, progress, stop, s, t0, col) -> dict:
             progress("eval", 1, 1, "")
     else:
         result.update(eval=None)
-    # 2) 全部の地点で学習し直して保存
+    # 2) 全部の地点で学習し直して保存（「検証用の地点は入れない」なら、1) で学習したものをそのまま保存）
     if stop and stop():
         raise RuntimeError("止めました")
-    ds_all = build_dataset(items, set(), opts)
-    head_all, rec_all = fit(ds_all["samples"], ds_all["classes"], "train_all")
-    result.update(classes=ds_all["classes"], counts=ds_all["counts"], dropped=ds_all["dropped"], n_items=ds_all["n_items"], n_crops=len(ds_all["samples"]), train_record_all=rec_all)
+    keep_out = bool(opts.get("train_final_without_holdout")) and bool(holdout)
+    if keep_out:
+        ds_all, head_all, rec_all = ds, head, rec
+    else:
+        ds_all = build_dataset(items, set(), opts)
+        head_all, rec_all = fit(ds_all["samples"], ds_all["classes"], "train_all")
+    result.update(classes=ds_all["classes"], counts=ds_all["counts"], dropped=ds_all["dropped"], n_items=ds_all["n_items"], n_crops=len(ds_all["samples"]), train_record_all=rec_all,
+                  final_without_holdout=keep_out)
     # 学習に使った全部（検証用の地点も含む）での一致率も参考に
     all_ids = list(items.keys())
     result["fit_all"] = dict(before=evaluate_items(items, all_ids, base_pred, s), after=evaluate_items(items, all_ids, lambda it: head_all.apply(it["feats"], it["codes"], it["pc"]), s))
@@ -1019,8 +1024,14 @@ def _run_train_b(project, hub, opts, name, progress, stop, init_from, s, t0, ini
             result.update(eval=None)
         if stop and stop():
             raise RuntimeError("止めました")
-        classes, state, rec_all = fit(ds_all, "train_all")
-        result.update(classes=classes, counts=ds_all["counts"], dropped=ds_all["dropped"], n_items=ds_all["n_items"], n_crops=len(ds_all["samples"]), train_record_all=rec_all)
+        keep_out = bool(opts.get("train_final_without_holdout")) and bool(holdout) and len(ds["classes"]) >= 2
+        if keep_out:                                   # 検証用の地点で学習したもの（いま本体に入っている重み）をそのまま保存する
+            rec_all = rec
+            ds_all = ds
+        else:
+            classes, state, rec_all = fit(ds_all, "train_all")
+        result.update(classes=classes, counts=ds_all["counts"], dropped=ds_all["dropped"], n_items=ds_all["n_items"], n_crops=len(ds_all["samples"]), train_record_all=rec_all,
+                      final_without_holdout=keep_out)
         # 全部（検証用の地点も含む）での一致率も参考に（枠の画像があるものだけ）
         all_ids = list(items.keys())
         ensure_crops(project, items, all_ids, lambda a, b, c: progress and progress("crops", a, b, c), stop)

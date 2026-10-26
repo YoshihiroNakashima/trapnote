@@ -880,6 +880,8 @@ def make_app(session: Session) -> web.Application:
                 ps[k] = int(b[k])
         if "train_use_empty" in b:
             ps["train_use_empty"] = bool(b["train_use_empty"])
+        if "train_final_without_holdout" in b:
+            ps["train_final_without_holdout"] = bool(b["train_final_without_holdout"])
         if ps:
             p.update_settings(ps)
         if b.get("device") in ("auto", "cuda", "mps", "cpu") and b["device"] != S.settings.get("device"):

@@ -42,6 +42,7 @@ PROJECT_DEFAULTS = {
     "train_base_mix": 0.3,             # 方式 A: 元の SpeciesNet の確率を混ぜる割合
     "train_min_per_class": 5,          # 学習に入れる種の最低の枠数
     "train_use_empty": True,           # 「動物なし」の動画の枠を「動物なし」として学習する
+    "train_final_without_holdout": False,   # 検証用の地点を保存するモデルの学習にも使わない（検証用の地点で学習したものをそのまま保存）
     "train_max_per_class": 20000,      # 種ごとの枠の上限
     "train_epochs_b": 5,               # 方式 B: エポック数
     "train_batch_b": 16,               # 方式 B: バッチ
