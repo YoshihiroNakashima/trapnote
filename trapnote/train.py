@@ -646,16 +646,50 @@ def crop_image(img, bbox) -> "PIL.Image.Image":
     return img.crop((left, top, right, bottom)).resize((CROP_SIZE, CROP_SIZE))
 
 
+CROP_BYTES_EST = 70 * 1024         # 枠の画像 1 枚のおおよその大きさ（空きの見積もりに）
+
+
+def _crop_ok(path: str) -> bool:
+    """枠の画像がある（ディスクがいっぱいで途中までしか書けなかった 0 バイトのものは「ない」扱い）"""
+    try:
+        return os.path.getsize(path) > 0
+    except OSError:
+        return False
+
+
+def _is_enospc(e: BaseException) -> bool:
+    return isinstance(e, OSError) and (getattr(e, "errno", None) == 28 or getattr(e, "winerror", None) == 112 or "space" in str(e).lower() or "空き領域" in str(e))
+
+
 def ensure_crops(project, items: dict, ids: list[int], progress=None, stop=None) -> int:
-    """ids の対象の枠を動画から切り出して cache/crops に置く（あるものは飛ばす）。返り値は作った枚数"""
+    """ids の対象の枠を動画から切り出して cache/crops に置く（あるものは飛ばす）。返り値は作った枚数。
+    始める前にドライブの空きを見積もり、足りなければ止める（ディスクがいっぱいのまま何千枚も失敗しないように）"""
     from .detect import read_frames, read_image
+    # まず足りない枚数を数えて、プロジェクト（ドライブ）ごとに空きを確かめる
+    need_of: dict = {}
+    per_proj: dict = {}
+    for iid in ids:
+        it = items[iid]
+        pr = it.get("proj") or project
+        need = [k for k in range(len(it["t"])) if not _crop_ok(crop_path(pr, it["rel_path"], k))]
+        if need:
+            need_of[iid] = need
+            per_proj[id(pr)] = (pr, per_proj.get(id(pr), (pr, 0))[1] + len(need))
+    for pr, n_need in per_proj.values():
+        d = pr.cache_dir("crops")
+        os.makedirs(d, exist_ok=True)
+        free = shutil.disk_usage(d).free
+        want = n_need * CROP_BYTES_EST + 256 * 1024 * 1024
+        if free < want:
+            raise RuntimeError(f"{source_label(pr)} のドライブの空きが足りません（枠の画像 {n_need} 枚に約 {want / 1e9:.1f} GB、空き {free / 1e9:.1f} GB）。"
+                               "不要なファイルやキャッシュ（設定 → キャッシュ）を消してからやり直してください")
     made = 0
     for n, iid in enumerate(ids):
         if stop and stop():
             break
         it = items[iid]
         pr = it.get("proj") or project                 # 材料に加えたプロジェクトの対象は、そのプロジェクトの動画と cache/crops
-        need = [k for k in range(len(it["t"])) if not os.path.isfile(crop_path(pr, it["rel_path"], k))]
+        need = need_of.get(iid)
         if progress:
             progress(n, len(ids), it["rel_path"])
         if not need:
@@ -672,13 +706,25 @@ def ensure_crops(project, items: dict, ids: list[int], progress=None, stop=None)
         if not frames:
             continue
         ts = np.array([t for t, _ in frames], dtype=np.float32)
-        os.makedirs(os.path.dirname(crop_path(pr, it["rel_path"], 0)), exist_ok=True)
+        try:
+            os.makedirs(os.path.dirname(crop_path(pr, it["rel_path"], 0)), exist_ok=True)
+        except OSError as e:
+            if _is_enospc(e):
+                raise RuntimeError("ドライブの空きがなくなりました（枠の画像を書けません）。不要なファイルやキャッシュ（設定 → キャッシュ）を消してからやり直してください") from e
+            raise
         for k in need:
             j = int(np.argmin(np.abs(ts - float(it["t"][k]))))
+            dst = crop_path(pr, it["rel_path"], k)
             try:
-                crop_image(frames[j][1], it["bbox"][k]).save(crop_path(pr, it["rel_path"], k), "JPEG", quality=90)
+                crop_image(frames[j][1], it["bbox"][k]).save(dst, "JPEG", quality=90)
                 made += 1
             except Exception as e:
+                try:
+                    os.remove(dst)                      # 途中までの壊れたファイルを残さない
+                except OSError:
+                    pass
+                if _is_enospc(e):
+                    raise RuntimeError("ドライブの空きがなくなりました（枠の画像を書けません）。不要なファイルやキャッシュ（設定 → キャッシュ）を消してからやり直してください") from e
                 log.warning("枠の保存に失敗 %s #%d: %s", it["rel_path"], k, e)
     return made
 
@@ -823,9 +869,23 @@ def finetune(model, device: str, samples: list, paths: dict, n_classes: int, opt
     best = (float("inf"), None, 0)
     bad, patience = 0, 2
 
+    bad_files: set = set()
+
     def batch_tensor(lst, augment):
-        arr = np.stack([_load_crop_tensor(paths[(iid, kk)], augment, rng) for iid, kk, _, _ in lst])
-        return torch.from_numpy(arr).to(device)
+        """枠の画像を読んで [B, 480, 480, 3] に。読めない画像（壊れたファイルなど）は飛ばす（返り値は (x, 読めた分の lst)）"""
+        arrs, kept = [], []
+        for smp in lst:
+            pth = paths[(smp[0], smp[1])]
+            try:
+                arrs.append(_load_crop_tensor(pth, augment, rng))
+                kept.append(smp)
+            except Exception as e:
+                if pth not in bad_files:
+                    bad_files.add(pth)
+                    log.warning("枠の画像を読めません %s: %s", pth, e)
+        if not arrs:
+            return None, []
+        return torch.from_numpy(np.stack(arrs)).to(device), kept
 
     def val_loss():
         if not val:
@@ -833,8 +893,9 @@ def finetune(model, device: str, samples: list, paths: dict, n_classes: int, opt
         tot = correct = n = 0
         with torch.no_grad():
             for i in range(0, len(val), bs):
-                lst = val[i:i + bs]
-                x = batch_tensor(lst, False)
+                x, lst = batch_tensor(val[i:i + bs], False)
+                if x is None:
+                    continue
                 y = torch.tensor([c for _, _, c, _ in lst], device=device)
                 with torch.autocast(device_type="cuda", enabled=use_amp):
                     z = model(x).float()
@@ -844,6 +905,8 @@ def finetune(model, device: str, samples: list, paths: dict, n_classes: int, opt
         return tot / max(n, 1), correct / max(n, 1)
 
     steps = 0
+    if progress:
+        progress(0, epochs, "準備中")
     for ep in range(epochs):
         if stop and stop():
             break
@@ -853,8 +916,9 @@ def finetune(model, device: str, samples: list, paths: dict, n_classes: int, opt
         for i in range(0, len(order), bs):
             if stop and stop():
                 break
-            lst = order[i:i + bs]
-            x = batch_tensor(lst, True)
+            x, lst = batch_tensor(order[i:i + bs], True)
+            if x is None:
+                continue
             y = torch.tensor([c for _, _, c, _ in lst], device=device)
             w = torch.tensor([wt for _, _, _, wt in lst], dtype=torch.float32, device=device) * cw[y]
             opt.zero_grad(set_to_none=True)
@@ -867,7 +931,7 @@ def finetune(model, device: str, samples: list, paths: dict, n_classes: int, opt
                 loss.backward(); opt.step()
             tot += float(loss.detach()) * len(lst); n += len(lst)
             steps += 1
-            if progress and steps % 5 == 0:
+            if progress and (steps <= 10 or steps % 5 == 0):          # 最初はこまめに（動いていることが分かるように）
                 progress(ep + 1, epochs, f"{i + len(lst)} / {len(order)}  loss {tot / max(n, 1):.3f}")
         vl, va = val_loss()
         h = dict(epoch=ep + 1, train_loss=round(tot / max(n, 1), 4), val_loss=round(vl, 4) if vl is not None else None, val_acc=round(va, 4) if va is not None else None)
@@ -895,15 +959,29 @@ def finetune(model, device: str, samples: list, paths: dict, n_classes: int, opt
 
 
 def classify_crops(model, device: str, paths: list[str], bs: int = 16) -> np.ndarray:
+    """枠の画像 → 種の確率 [n, K]。読めない画像の行はゼロ（どの種にもならない）"""
     import torch
     out = []
     with torch.no_grad():
         for i in range(0, len(paths), bs):
-            arr = np.stack([_load_crop_tensor(p, False, random.Random(0)) for p in paths[i:i + bs]])
-            x = torch.from_numpy(arr).to(device)
-            z = model(x).float().cpu()
-            out.append(torch.softmax(z, dim=-1).numpy())
-    return np.concatenate(out, axis=0) if out else np.zeros((0, 0), dtype=np.float32)
+            arrs, ok = [], []
+            for j, p in enumerate(paths[i:i + bs]):
+                try:
+                    arrs.append(_load_crop_tensor(p, False, random.Random(0)))
+                    ok.append(j)
+                except Exception as e:
+                    log.warning("枠の画像を読めません %s: %s", p, e)
+            if not arrs:
+                out.append(None)
+                continue
+            x = torch.from_numpy(np.stack(arrs)).to(device)
+            z = torch.softmax(model(x).float().cpu(), dim=-1).numpy()
+            full = np.zeros((len(paths[i:i + bs]), z.shape[1]), dtype=np.float32)
+            full[ok] = z
+            out.append(full)
+    k = next((o.shape[1] for o in out if o is not None), 0)
+    out = [o if o is not None else np.zeros((bs, k), dtype=np.float32) for o in out]
+    return np.concatenate(out, axis=0)[:len(paths)] if out else np.zeros((0, 0), dtype=np.float32)
 
 
 def apply_finetuned(model, state: dict) -> None:
@@ -1123,7 +1201,7 @@ def reclassify_item(project, hub, item: dict, s: dict) -> dict | None:
         it = dict(rel_path=item["rel_path"], t=t, bbox=bbox)
         ensure_crops(project, {item["id"]: it}, [item["id"]])
         pths = [crop_path(project, item["rel_path"], k) for k in range(len(t))]
-        if not all(os.path.isfile(p) for p in pths):
+        if not all(_crop_ok(p) for p in pths):
             return None
         codes2, pc2 = list(hub.local["classes"]), classify_crops(hub.classifier.model, hub.ensure_device(), pths, int(hub.settings.get("batch_size") or 8))
     elif hub.head is not None:
