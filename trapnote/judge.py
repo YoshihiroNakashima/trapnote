@@ -267,23 +267,22 @@ def facets(db: Database) -> dict:
     stations = [r[0] for r in db.q("SELECT DISTINCT station FROM items WHERE station IS NOT NULL AND station != '' ORDER BY station")]
     seasons = [r[0] for r in db.q("SELECT DISTINCT season FROM items WHERE season IS NOT NULL AND season != '' ORDER BY season")]
     assignees = [r[0] for r in db.q("SELECT DISTINCT assignee FROM items WHERE assignee IS NOT NULL AND assignee != '' ORDER BY assignee")]
-    counts = {r[0]: r[1] for r in db.q("SELECT status, COUNT(*) FROM items WHERE missing=0 GROUP BY status")}
-    total = int(db.scalar("SELECT COUNT(*) FROM items WHERE missing=0") or 0)
+    # 件数はまとめて 1 回の走査で数える（数十万件のプロジェクトでも 1 秒以内に）
+    one = db.q1("SELECT COUNT(*), SUM(status='new'), SUM(status='auto'), SUM(status='verified'), SUM(meta_state=0), SUM(favorite=1), "
+                "SUM(datetime_corrected IS NOT NULL), SUM(det_state=1), SUM(flag='low'), SUM(agree=1), SUM(agree=2), SUM(agree=3), "
+                "SUM(auto_json IS NOT NULL), SUM(recheck=1), SUM(train_exclude=1) FROM items NOT INDEXED WHERE missing=0")   # 索引経由より表の走査が速い
+    v = [int(x or 0) for x in one]
+    total = v[0]
+    counts = {k: n for k, n in (("new", v[1]), ("auto", v[2]), ("verified", v[3])) if n}
+    meta_pending, favorites, corrected, det_done, low = v[4], v[5], v[6], v[7], v[8]
+    agree = {1: v[9], 2: v[10], 3: v[11]}
+    auto_n, recheck_n, excluded = v[12], v[13], v[14]
     missing = int(db.scalar("SELECT COUNT(*) FROM items WHERE missing=1") or 0)
-    meta_pending = int(db.scalar("SELECT COUNT(*) FROM items WHERE meta_state=0 AND missing=0") or 0)
     sp_counts = {r[0]: r[1] for r in db.q("SELECT species, COUNT(DISTINCT item_id) FROM judgements GROUP BY species")}
     folders = [dict(folder=r[0], n=r[1], verified=r[2], favorite=r[3]) for r in
-               db.q("SELECT folder, COUNT(*), SUM(CASE WHEN status='verified' THEN 1 ELSE 0 END), SUM(favorite) FROM items WHERE missing=0 GROUP BY folder ORDER BY folder")]
-    favorites = int(db.scalar("SELECT COUNT(*) FROM items WHERE favorite=1 AND missing=0") or 0)
-    corrected = int(db.scalar("SELECT COUNT(*) FROM items WHERE datetime_corrected IS NOT NULL AND missing=0") or 0)
-    det_done = int(db.scalar("SELECT COUNT(*) FROM items WHERE det_state=1 AND missing=0") or 0)
-    low = int(db.scalar("SELECT COUNT(*) FROM items WHERE flag='low' AND missing=0") or 0)
-    agree = {int(r[0]): r[1] for r in db.q("SELECT agree, COUNT(*) FROM items WHERE agree IS NOT NULL AND missing=0 GROUP BY agree")}
-    auto_n = int(db.scalar("SELECT COUNT(*) FROM items WHERE auto_json IS NOT NULL AND missing=0") or 0)
-    recheck_n = int(db.scalar("SELECT COUNT(*) FROM items WHERE recheck=1 AND missing=0") or 0)
-    excluded = int(db.scalar("SELECT COUNT(*) FROM items WHERE train_exclude=1 AND missing=0") or 0)
+               db.q("SELECT folder, COUNT(*), SUM(status='verified'), SUM(favorite) FROM items WHERE missing=0 GROUP BY folder ORDER BY folder")]
     by_station = [dict(station=r[0], total=r[1], verified=r[2]) for r in
-                  db.q("SELECT COALESCE(station,''), COUNT(*), SUM(CASE WHEN status='verified' THEN 1 ELSE 0 END) FROM items WHERE missing=0 GROUP BY station ORDER BY station")]
+                  db.q("SELECT COALESCE(station,''), COUNT(*), SUM(status='verified') FROM items WHERE missing=0 GROUP BY station ORDER BY station")]
     return dict(stations=stations, seasons=seasons, assignees=assignees, counts=counts, total=total, missing=missing,
                 meta_pending=meta_pending, species_counts=sp_counts, by_station=by_station, folders=folders, favorites=favorites, corrected=corrected,
                 det_done=det_done, low=low, agree=dict(match=agree.get(1, 0), partial=agree.get(2, 0), mismatch=agree.get(3, 0), auto=auto_n, rechecked=recheck_n), excluded=excluded)
@@ -523,7 +522,7 @@ def set_exclude(db: Database, item_id: int, on: bool) -> None:
     db.x("UPDATE items SET train_exclude=?, updated_at=? WHERE id=?", (1 if on else 0, now_iso(), item_id))
 
 
-def list_ids(db: Database, f: dict, sort: str, desc: bool, limit: int = 200000) -> list[int]:
+def list_ids(db: Database, f: dict, sort: str, desc: bool, limit: int = 2000000) -> list[int]:
     """いまの絞り込み・並びでの id の列（全部選択・範囲選択用）"""
     where, p = build_where(f)
     _, order = order_sql(sort, desc)

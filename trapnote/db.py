@@ -193,6 +193,9 @@ class Database:
             c.execute("CREATE INDEX IF NOT EXISTS idx_items_det ON items(det_state)")
             c.execute("CREATE INDEX IF NOT EXISTS idx_items_flag ON items(flag)")
             c.execute("CREATE INDEX IF NOT EXISTS idx_items_agree ON items(agree)")
+            # フォルダ・地点ごとの件数（facets）を索引だけで数えるための複合索引（数十万件でも 1 秒以内に）
+            c.execute("CREATE INDEX IF NOT EXISTS idx_items_folder_cov ON items(missing, folder, status, favorite)")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_items_station_cov ON items(missing, station, status)")
 
     def migrate(self, from_ver: int) -> None:
         """版が上がったときの移行"""
