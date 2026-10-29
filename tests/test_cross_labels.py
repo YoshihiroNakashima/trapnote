@@ -109,6 +109,12 @@ def test_label_map_on_csv(tmp_path):
         r = cross.remap_catalog(p)
         assert r["n_changed"] == len(rows) // len(LABELS)
         assert cross.catalog_counts(p, {"species": "unknown"})["by_status"] == {"auto": len(rows) // len(LABELS)}
+        # v61 以前に作ったカタログ（labels が空）は「古い形式」で作り直しが要る（当て直しでは変わらない）
+        with p.db.tx() as c:
+            c.execute("UPDATE catalog SET labels=NULL")
+        assert cross.catalog_status(p)["reasons"] == ["old"]
+        cross.build_catalog(p)
+        assert not cross.catalog_status(p)["stale"]
         # 参照先が増えたら作り直し。プロジェクトも CSV の行もない調査回は、設定 catalog_scan_folders のときだけフォルダを見て載せる
         other = tmp_path / "nas2" / "PRM_N"
         (other / "N250101" / "BSN0001").mkdir(parents=True)

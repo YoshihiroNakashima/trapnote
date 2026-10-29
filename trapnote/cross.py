@@ -439,6 +439,8 @@ def catalog_status(project) -> dict:
     reasons = []
     if sorted(cat.get("sources") or []) != sorted(s["name"] for s in project.sources()):
         reasons.append("sources")
+    if project.db.scalar("SELECT 1 FROM catalog WHERE species IS NOT NULL AND labels IS NULL LIMIT 1"):
+        reasons.append("old")                    # v61 以前に作ったカタログ（表記の列がない）。作り直すと以後は当て直しだけで済む
     if (cat.get("map_sig") or "") != map_sig(project):
         reasons.append("labels")
     return dict(built=True, stale=bool(reasons), reasons=reasons, n=cat.get("n") or 0, built_at=cat.get("built_at"), by_source=cat.get("by_source") or {})

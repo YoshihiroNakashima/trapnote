@@ -599,12 +599,9 @@ class CatalogBuildJob(Job):
         def prog(a, b, msg):
             self.done, self.total, self.current = a, b, msg or ""
         mode = self.mode
-        if mode == "auto":
+        if mode == "auto":                       # 対応表（か種リスト）しか変わっていなければ当て直し。参照先が変わった・古い形式・まだない → 作り直し
             st = cross.catalog_status(project)
-            mode = "remap" if (st["built"] and st["n"] and st["reasons"] == ["labels"]) else ("none" if (st["built"] and not st["stale"]) else "full")
-        if mode == "none":
-            self.message = "カタログは最新です"
-            return
+            mode = "remap" if (st["built"] and st["n"] and all(r == "labels" for r in st["reasons"])) else "full"
         if mode == "remap":
             self.label = "カタログの対応の当て直し"
             self.message = "表記の組ごとに種を当て直しています"

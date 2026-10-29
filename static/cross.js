@@ -64,7 +64,7 @@ async function crossBuild(m, mode, scanFolders) {
   const cs = (m._info && m._info.catalog_status) || {};
   const body = { mode: mode || (crOnlyLabels(cs) ? 'auto' : 'full') };
   if (scanFolders !== undefined) body.scan_folders = scanFolders;
-  try { const j = await api('/api/cross/catalog/build', body); m._wasRunning = 'catalog'; m._after = 'pick'; crossOnJobs(j); } catch (e) { toast(e.message, 'error'); }
+  try { const j = await api('/api/cross/catalog/build', body); crossTrack(m, j, 'pick'); } catch (e) { toast(e.message, 'error'); }
 }
 
 function crossRenderTab(m) {
@@ -194,7 +194,7 @@ async function crossTabLabels(m, body) {
       if (res.species) { S.species = res.species; rebuildSpMap(); if (typeof renderSpeciesPanel === 'function') renderSpeciesPanel(); }
       toast(`${t('saved')} (${res.n})`);
       crossModalEl = null;
-      if (rebuild) { await crossDialog('build'); const mm = crossModalEl; if (mm) { mm._wasRunning = 'catalog'; mm._after = 'pick'; crossOnJobs(res.jobs); } }
+      if (rebuild) { await crossDialog('build'); const mm = crossModalEl; if (mm) crossTrack(mm, res.jobs, 'pick'); }
       else crossDialog('labels');
     } catch (e) { toast(e.message, 'error'); }
   };
@@ -279,7 +279,7 @@ function crossTabPick(m, body) {
     const ok = await confirmModal(t('cross_title'), `${esc(t('cross_import_filtered_q'))}: ${n}`, t('cross_do_import'));
     await crossDialog('pick');
     if (!ok) return;
-    try { const j = await api('/api/cross/import', { mode: 'catalog_sample', filters: CR.f, params: { unit: 'all' }, batch: b }); const mm = crossModalEl; if (mm) { mm._wasRunning = 'import'; mm._after = 'pick'; } crossOnJobs(j); } catch (e) { toast(e.message, 'error'); }
+    try { const j = await api('/api/cross/import', { mode: 'catalog_sample', filters: CR.f, params: { unit: 'all' }, batch: b }); const mm = crossModalEl; if (mm) { crossTrack(mm, j, 'pick'); } } catch (e) { toast(e.message, 'error'); }
   };
   q('#cfExport').onclick = async () => { readF(); try { const r = await api('/api/cross/catalog/export', { filters: CR.f }); toast(`${t('cross_list_done')}: ${r.path} (${r.n})`); } catch (e) { toast(e.message, 'error'); } };
   // ランダムに選ぶ
@@ -302,7 +302,7 @@ function crossTabPick(m, body) {
     const b = batchOrWarn(); if (!b) return; readF();
     try { const r = await api('/api/cross/catalog/sample', { filters: CR.f, params: sampleParams() }); showSample(r);
       if (!r.n) { toast(t('cr_nothing'), 'error'); return; }
-      const j = await api('/api/cross/import', { mode: 'catalog_sample', filters: CR.f, params: sampleParams(), batch: b }); m._wasRunning = 'import'; m._after = 'pick'; crossOnJobs(j); } catch (e) { toast(e.message, 'error'); }
+      const j = await api('/api/cross/import', { mode: 'catalog_sample', filters: CR.f, params: sampleParams(), batch: b }); crossTrack(m, j, 'pick'); } catch (e) { toast(e.message, 'error'); }
   };
   crossLoadCatalog(m);
 }
@@ -375,26 +375,41 @@ function crossTabSync(m, body) {
     const ok = await confirmModal(t('cross_title'), `<div>${esc(dir === 'push' ? t('cross_push_q') : t('cross_pull_q'))}</div>`, dir === 'push' ? t('cross_push') : t('cross_pull'));
     await crossDialog('sync');
     if (!ok) return;
-    try { const j = await api('/api/cross/sync', { direction: dir, overwrite: ow }); S._bgWasRunning = true; const mm = crossModalEl; if (mm) { mm._wasRunning = 'sync'; mm._after = 'sync'; } crossOnJobs(j); } catch (e) { toast(e.message, 'error'); }
+    try { const j = await api('/api/cross/sync', { direction: dir, overwrite: ow }); S._bgWasRunning = true; const mm = crossModalEl; if (mm) { crossTrack(mm, j, 'sync'); } } catch (e) { toast(e.message, 'error'); }
   };
   q('#crPush').onclick = () => doSync('push');
   q('#crPull').onclick = () => doSync('pull');
   q('#crCopy').onclick = async () => {
     const out = q('#crCopyDir').value.trim(); if (!out) { toast(t('cross_need_dir'), 'error'); return; }
-    try { const j = await api('/api/cross/copy', { out_dir: out, filters: Object.assign({}, S.filter) }); m._wasRunning = 'copy'; m._after = 'sync'; crossOnJobs(j); } catch (e) { toast(e.message, 'error'); }
+    try { const j = await api('/api/cross/copy', { out_dir: out, filters: Object.assign({}, S.filter) }); crossTrack(m, j, 'sync'); } catch (e) { toast(e.message, 'error'); }
   };
   q('#crList').onclick = async () => { try { const r = await api('/api/cross/export_list', { filters: Object.assign({}, S.filter) }); toast(`${t('cross_list_done')}: ${r.path} (${r.n})`); } catch (e) { toast(e.message, 'error'); } };
 }
 
 // ---------- 裏の処理の表示 ----------
+const crMine = j => j && (j.kind === 'cross_import' || j.kind === 'cross_sync' || j.kind === 'cross_copy' || j.kind === 'cross_catalog' || j.kind === 'cross_labels');
+
+// 処理を入れた直後に呼ぶ: 入れた処理の id を控え、終わったら after の段で窓を開き直す（入れた処理が既に終わっていれば次の表示で開き直る）
+function crossTrack(m, jobs, after) {
+  m._after = after;
+  m._wasRunning = m._wasRunning || 'submitted';
+  const bg = (jobs && jobs.bg) || {};
+  const j = (crMine(bg.current) ? bg.current : null) || (bg.queued || []).find(crMine);
+  if (j && j.id != null) m._jobId = j.id;
+  crossOnJobs(jobs);
+  const st = m.querySelector('#crStatus');
+  if (st && !st.innerHTML && document.body.contains(m)) st.innerHTML = `<div><b>${esc(t('jb_queued'))}</b></div>`;   // 入れた直後でまだ状態が来ていないときも、押した手応えを出す
+}
+
 function crossOnJobs(jobs) {
   const m = crossModalEl;
   if (!m || !document.body.contains(m) || !jobs || !jobs.bg) return;
-  const mine = j => j && (j.kind === 'cross_import' || j.kind === 'cross_sync' || j.kind === 'cross_copy' || j.kind === 'cross_catalog' || j.kind === 'cross_labels');
+  const mine = crMine;
   const cur = jobs.bg.current, rec = (jobs.bg.recent || []).find(mine);
   const queued = (jobs.bg.queued || []).some(mine);
   const st = m.querySelector('#crStatus');
   if (m._recId === undefined) m._recId = rec ? rec.id : null;      // 窓を開いたときの最後の処理（これより新しい処理が終わったときだけ「終わった」と見なす）
+  const finished = !cur && !queued && m._wasRunning && rec && (m._jobId != null ? (jobs.bg.recent || []).some(x => x.id === m._jobId) : rec.id !== m._recId);
   if (cur && mine(cur)) {
     const pct = cur.total ? Math.round(100 * cur.done / cur.total) : 0;
     const count = cur.kind === 'cross_labels' ? `${pct}%` : `${cur.done}${cur.total ? ' / ' + cur.total + ` (${pct}%)` : ''}`;
@@ -403,7 +418,7 @@ function crossOnJobs(jobs) {
   } else if (queued) {
     st.innerHTML = `<div><b>${esc(t('jb_queued'))}</b></div>`;
     m._wasRunning = m._wasRunning || 'queued';
-  } else if (!cur && m._wasRunning && rec && rec.id !== m._recId) {   // 待ち → 実行中 の切り替わりの一瞬（どちらにも見えない）では終わったと見なさない
+  } else if (finished) {                       // 待ち → 実行中 の切り替わりの一瞬（どちらにも見えない）では終わったと見なさない
     m._wasRunning = false;
     const after = m._after || CR.tab;
     crossModalEl = null;
