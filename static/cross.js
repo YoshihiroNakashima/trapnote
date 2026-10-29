@@ -71,12 +71,12 @@ function crossTabSources(m, body) {
   q('#crSrcUp').onclick = () => { const v = q('#crSrcPath').value.trim().replace(/[\\/]+$/, ''); const i = Math.max(v.lastIndexOf('/'), v.lastIndexOf('\\')); if (i > 1) q('#crSrcPath').value = v.slice(0, i); };
   q('#crSrcAdd').onclick = async () => {
     const pth = q('#crSrcPath').value.trim(); if (!pth) return;
-    try { const r = await api('/api/cross/sources/add', { path: pth, name: q('#crSrcName').value.trim(), labels_csv: q('#crSrcLabels').value.trim() }); setSnapshot(r.state); toast(`${t('cross_added')}: ${r.name}`); crossModalEl = null; crossDialog('sources'); } catch (e) { toast(e.message, 'error'); }
+    try { const r = await api('/api/cross/sources/add', { path: pth, name: q('#crSrcName').value.trim(), labels_csv: q('#crSrcLabels').value.trim() }); setSnapshot(r.state); toast(`${t('cross_added')}: ${r.name}${r.ignored_cross ? ` · ${t('cross_ignored_cross')}: ${r.ignored_cross}` : ''}`); crossModalEl = null; crossDialog('sources'); } catch (e) { toast(e.message, 'error'); }
   };
   q('#crSrcAddUnder').onclick = async () => {
     const pth = q('#crSrcPath').value.trim(); if (!pth) return;
     try { const r = await api('/api/cross/sources/add_under', { path: pth, labels_csv: q('#crSrcLabels').value.trim() }); setSnapshot(r.state);
-      toast(`${t('cross_added')}: ${r.added.length}${r.skipped.length ? ` (${t('cross_already')} ${r.skipped.length})` : ''}${r.errors.length ? ` · ${r.errors[0]}` : ''}`); crossModalEl = null; crossDialog('sources'); } catch (e) { toast(e.message, 'error'); }
+      toast(`${t('cross_added')}: ${r.added.length}${r.skipped.length ? ` (${t('cross_already')} ${r.skipped.length})` : ''}${r.errors.length ? ` · ${r.errors[0]}` : ''}${r.ignored_cross ? ` · ${t('cross_ignored_cross')}: ${r.ignored_cross}` : ''}`); crossModalEl = null; crossDialog('sources'); } catch (e) { toast(e.message, 'error'); }
   };
   m.querySelectorAll('[data-lab]').forEach(b => { b.onclick = async () => {
     const pth = q('#crSrcLabels').value.trim() || await pickPath('csv');

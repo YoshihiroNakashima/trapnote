@@ -13,7 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 from aiohttp import web
 
 from . import APP_ID, APP_NAME, BUILD, BUILD_TIME, VERSION, cross, detect, dialogs, export as export_mod, judge, media, merge as merge_mod, scan as scan_mod, timelapse, train, yolo
-from .config import DATA_DIR, STATIC_DIR, Settings, State
+from .config import APP_DIR, DATA_DIR, STATIC_DIR, Settings, State
 from .jobs import ArchiveJob, CatalogBuildJob, CrossCopyJob, CrossImportJob, CrossSyncJob, DetectJob, Lane, MetaJob, ReclassifyJob, ScanJob, TrainJob, TranscodeJob, YoloExportJob, YoloImportJob
 from .paths import key, norm
 from .pattern import names_in, preview as pattern_preview
@@ -58,6 +58,8 @@ class Session:
         path = norm(path)
         if os.path.isfile(path) and os.path.basename(path).lower() == "project.json":
             path = os.path.dirname(path)
+        if create and kind == "cross" and os.path.dirname(path.rstrip("/")) in ("", path.rstrip("/")):   # ドライブの直下（H:/）だと TrapNote フォルダ = アプリのフォルダになりかねない
+            raise ApiError(f"ドライブの直下には横断プロジェクトを作れません。置き場のフォルダを指定してください（例: {path.rstrip('/')}/Studies/gold。なければ作ります）")
         if not os.path.isdir(path):
             if kind == "cross" and create:                # 横断プロジェクトの置き場は作ってよい（動画のフォルダではない）
                 os.makedirs(path, exist_ok=True)
@@ -73,6 +75,8 @@ class Session:
                 pdir, root = norm(os.path.join(path, PROJECT_DIRNAME)), path
             else:
                 return dict(needs_create=True, path=path)
+        if create and not is_project_dir(pdir) and key(pdir) == key(str(APP_DIR)):
+            raise ApiError("アプリのフォルダ（TrapNote）にはプロジェクトを作れません。別のフォルダを指定してください")
         self.close_project()
         try:
             self.project = Project(pdir, root=root, create=create, kind=kind)

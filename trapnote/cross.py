@@ -48,12 +48,23 @@ def source_by_name(project, name: str) -> dict | None:
     return None
 
 
-def _is_project_path(path: str) -> bool:
-    from .project import find_project_for_root, is_project_dir
+def _project_at(path: str) -> tuple[str | None, str | None]:
+    """path にあるプロジェクト（path 自体が TrapNote フォルダ、または <path>/TrapNote）→ (プロジェクトのフォルダ, kind)。なければ (None, None)"""
+    from .project import PROJECT_JSON, find_project_for_root, is_project_dir, read_json
     path = norm(path)
     if os.path.isfile(path) and os.path.basename(path).lower() == "project.json":
         path = os.path.dirname(path)
-    return is_project_dir(path) or bool(os.path.isdir(path) and find_project_for_root(path))
+    pdir = path if is_project_dir(path) else (find_project_for_root(path) if os.path.isdir(path) else None)
+    if not pdir:
+        return None, None
+    data = read_json(os.path.join(pdir, PROJECT_JSON), None) or {}
+    return norm(pdir), (data.get("kind") if isinstance(data, dict) else None) or "folder"
+
+
+def _is_project_path(path: str) -> bool:
+    """調査回のプロジェクト（横断プロジェクトではない）があるか。フォルダの下に横断プロジェクトの TrapNote があっても、そのフォルダは親フォルダとして扱う"""
+    pdir, kind = _project_at(path)
+    return bool(pdir) and kind != "cross"
 
 
 def add_source(project, path: str, name: str | None = None, labels_csv: str | None = None) -> dict:
@@ -83,11 +94,13 @@ def add_source(project, path: str, name: str | None = None, labels_csv: str | No
             src.close()
     if not os.path.isdir(path):
         raise FileNotFoundError(f"フォルダがありません: {path}")
-    if key(path) == key(project.root or "") or key(path) == key(project.dir):
-        raise ValueError("自分自身は参照先にできません")
+    if norm(path).lower().rstrip("/") + "/" == norm(project.dir).lower().rstrip("/") + "/" or norm(path).lower().startswith(norm(project.dir).lower().rstrip("/") + "/"):
+        raise ValueError("横断プロジェクトの TrapNote フォルダは参照先にできません（動画の親フォルダを指定してください）")
     for s in project.sources():
         if s.get("root") and key(s["root"]) == key(path):
             return dict(name=s["name"], root=s["root"], kind="tree", added=False)
+    pdir, pkind = _project_at(path)
+    ignored = pdir if (pkind == "cross" and key(pdir) != key(project.dir)) else None     # 親フォルダの下に別の横断プロジェクトがあっても無視する
     nm = _unique_name(project, (name or "").strip(), path)
     entry = dict(name=nm, kind="tree", root=path, added_at=now_iso())
     if labels_csv:
@@ -95,7 +108,7 @@ def add_source(project, path: str, name: str | None = None, labels_csv: str | No
     project.data.setdefault("sources", []).append(entry)
     project.forget_source_roots()
     project.save()
-    return dict(name=nm, root=path, kind="tree", added=True)
+    return dict(name=nm, root=path, kind="tree", added=True, ignored_cross=ignored)
 
 
 def add_sources_under(project, parent: str, labels_csv: str | None = None) -> dict:
@@ -110,14 +123,17 @@ def add_sources_under(project, parent: str, labels_csv: str | None = None) -> di
     subs = _tree_seasons(parent)
     r = add_source(project, parent, None, labels_csv)
     n_proj = sum(1 for n in subs if _is_project_path(os.path.join(parent, n)))
-    return dict(added=[r["name"]] if r.get("added") else [], skipped=[] if r.get("added") else [r["name"]], errors=[], kind="tree", n_sub=len(subs), n_project_seasons=n_proj)
+    return dict(added=[r["name"]] if r.get("added") else [], skipped=[] if r.get("added") else [r["name"]], errors=[], kind="tree", n_sub=len(subs), n_project_seasons=n_proj,
+                ignored_cross=r.get("ignored_cross"))
 
 
 def tree_season_project(root: str, season: str) -> str | None:
-    """調査回フォルダに TrapNote のプロジェクトがあればそのフォルダ（<root>/<season>/TrapNote）"""
-    from .project import find_project_for_root
+    """調査回フォルダに TrapNote のプロジェクト（横断ではないもの）があればそのフォルダ（<root>/<season>/TrapNote）"""
     d = os.path.join(root, season)
-    return find_project_for_root(d) if os.path.isdir(d) else None
+    if not os.path.isdir(d):
+        return None
+    pdir, kind = _project_at(d)
+    return pdir if pdir and kind != "cross" else None
 
 
 def _tree_rows(project, s: dict, seasons: list[str] | None = None, progress=None, stop=None) -> tuple[list[dict], list[str]]:
