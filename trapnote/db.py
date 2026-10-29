@@ -136,12 +136,14 @@ CREATE TABLE IF NOT EXISTS catalog (                      -- 横断プロジェ�
   season TEXT, station TEXT, name TEXT NOT NULL,
   datetime TEXT,
   status TEXT,                           -- verified / auto / new（参照先での状態。親フォルダ参照は種名があれば auto）
-  species TEXT,                          -- 人の判定の種コード（; 区切り。なければ NULL）
+  species TEXT,                          -- 人の判定の種コード（; 区切り。なければ NULL。種名の対応表を当てたもの）
   ai TEXT,                               -- AI の判定の種コード（; 区切り）
   agree INTEGER, det_state INTEGER, duration REAL, size INTEGER,
   item_id INTEGER,                       -- 取り込み済みなら横断側の items.id
+  labels TEXT,                           -- 対応表を当てる前の表記（種名の CSV の値、または調査回プロジェクトの種コード。; 区切り）。対応表を変えたときにここから当て直す
   UNIQUE(source, rel)
 );
+CREATE INDEX IF NOT EXISTS idx_cat_labels ON catalog(labels);
 CREATE INDEX IF NOT EXISTS idx_cat_season ON catalog(season);
 CREATE INDEX IF NOT EXISTS idx_cat_station ON catalog(station);
 CREATE INDEX IF NOT EXISTS idx_cat_species ON catalog(species);
@@ -269,6 +271,11 @@ class Database:
             for col, typ in (("src_dir", "TEXT"), ("src_id", "INTEGER"), ("src_rel", "TEXT"), ("batch", "TEXT"), ("imported_at", "TEXT"), ("src_updated_at", "TEXT"), ("src_sig", "TEXT")):
                 if col not in cols:
                     c.execute(f"ALTER TABLE items ADD COLUMN {col} {typ}")
+        if from_ver < 11:
+            ccols = {r["name"] for r in c.execute("PRAGMA table_info(catalog)")}
+            if "labels" not in ccols:                       # 横断: カタログに対応表を当てる前の表記（古いカタログは作り直すと入る）
+                c.execute("ALTER TABLE catalog ADD COLUMN labels TEXT")
+                c.execute("CREATE INDEX IF NOT EXISTS idx_cat_labels ON catalog(labels)")
 
     # ---------- 小道具 ----------
     def get_meta(self, k: str):

@@ -57,6 +57,7 @@ PROJECT_DEFAULTS = {
     "archive_original": "keep",        # 元のファイル: keep（残す）/ move（別のフォルダへ移す）/ delete（検算に通ったら消す）
     "archive_move_to": "",             # move のときの移し先（この下に相対パスで置く）
     "z_is_utc": False,                 # 末尾 Z の日時（動画の creation_time、CSV の DateTime）を UTC とみなして時差を変換するか。既定はカメラの時刻そのまま
+    "catalog_scan_folders": False,     # 横断: カタログを作るとき、プロジェクトも種名の CSV の行もない調査回はフォルダを見て動画を載せる（NAS では遅い）
 }
 
 

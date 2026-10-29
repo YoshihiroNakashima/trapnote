@@ -90,17 +90,36 @@ def test_label_map_on_csv(tmp_path):
         cnt = cross.catalog_counts(p, {})
         assert cnt["by_species"]["bird"] == len(rows) // len(LABELS) and cnt["by_species"]["unknown"] == len(rows) // len(LABELS)
         assert "(none)" in cnt["by_species"]        # AngleChange は判定なし
-        # 対応表を変えたらカタログは作り直しが要る
+        # 対応表を変えたら「対応の当て直し」が要る（作り直さずに labels 列から当て直す。作り直したのと同じになる）
         cross.set_label_map(p, {"Kiji": "bird", "hiyodori": "bird", "AngleChange": ""})
-        assert cross.catalog_status(p)["stale"] and "labels" in cross.catalog_status(p)["reasons"]
-        cross.build_catalog(p)
+        assert cross.catalog_status(p)["stale"] and cross.catalog_status(p)["reasons"] == ["labels"]
+        r = cross.remap_catalog(p)
+        assert r["n_changed"] == len(rows) // len(LABELS) and r["n_combos"] == len(LABELS) - 1       # Deer は 2 回出るので表記の組は 7
         assert not cross.catalog_status(p)["stale"]
+        after_remap = {(x["rel"], x["species"], x["status"]) for x in cross.catalog_rows(p, {}, limit=10000)["rows"]}
         assert cross.catalog_counts(p, {})["by_species"]["bird"] == 2 * (len(rows) // len(LABELS))
-        # 参照先が増えたら作り直し
+        cross.build_catalog(p)
+        after_build = {(x["rel"], x["species"], x["status"]) for x in cross.catalog_rows(p, {}, limit=10000)["rows"]}
+        assert after_remap == after_build
+        # 「使わない」を外すと判定なし → 種名あり に戻る（status も当て直す）
+        cross.set_label_map(p, {"Kiji": "bird", "hiyodori": "bird"})
+        r = cross.remap_catalog(p)
+        assert r["n_changed"] == 0                          # AngleChange は自動でも当たらないので変わらない
+        cross.set_label_map(p, {"Kiji": "bird", "hiyodori": "bird", "AngleChange": "unknown"})
+        r = cross.remap_catalog(p)
+        assert r["n_changed"] == len(rows) // len(LABELS)
+        assert cross.catalog_counts(p, {"species": "unknown"})["by_status"] == {"auto": len(rows) // len(LABELS)}
+        # 参照先が増えたら作り直し。プロジェクトも CSV の行もない調査回は、設定 catalog_scan_folders のときだけフォルダを見て載せる
         other = tmp_path / "nas2" / "PRM_N"
         (other / "N250101" / "BSN0001").mkdir(parents=True)
+        (other / "N250101" / "BSN0001" / "IMG_0001.AVI").write_bytes(b"")
         cross.add_sources_under(p, str(other))
         assert "sources" in cross.catalog_status(p)["reasons"]
+        cross.build_catalog(p)
+        assert cross.catalog_counts(p, {"source": "nas2_PRM_N"})["total"] == 0
+        p.update_settings(dict(catalog_scan_folders=True))
+        cross.build_catalog(p)
+        assert cross.catalog_counts(p, {"source": "nas2_PRM_N"})["total"] == 1 and not cross.catalog_status(p)["stale"]
     finally:
         p.close()
 
@@ -189,11 +208,13 @@ def test_label_map_on_project_codes(tmp_path):
         cand = cross.label_candidates(p)
         by = {d["label"]: d for d in cand["rows"]}
         assert by["kiji"]["kind"] == "code" and by["kiji"]["name_ja"] == "キジ" and by["kiji"]["auto"] == "bird" and by["kiji"]["n"] == 2
-        # kiji → 鳥類 と決めてカタログを作り直す
+        # kiji → 鳥類 と決めて当て直す（調査回プロジェクトの種コードも labels 列から）
         cross.set_label_map(p, {"kiji": "bird"})
-        cross.build_catalog(p)
+        assert cross.remap_catalog(p)["n_changed"] == 2
         cnt = cross.catalog_counts(p, {})
-        assert "kiji" not in cnt["by_species"] and cnt["by_species"]["bird"] == 2
+        assert "kiji" not in cnt["by_species"] and cnt["by_species"]["bird"] == 2 and cnt["by_species"]["deer"] == 2
+        row = cross.catalog_rows(p, {"species": "bird"}, limit=10)["rows"][0]
+        assert row["status"] == "verified"
         # 取り込み: 判定は対応表を当てた形（bird）で入り、書き戻し・再取得の比較でも「同じ」になる
         rows_r = cross.catalog_rows(p, {"species": "bird"}, limit=100)
         cids = [r["id"] for r in rows_r["rows"]]
@@ -211,3 +232,16 @@ def test_label_map_on_project_codes(tmp_path):
         assert cross.sync_plan(p, "push")["n_update"] == 1
     finally:
         p.close()
+
+
+def test_label_columns():
+    """種名 CSV の列は見出しで決める: 別名の完全一致 → 別名を含む見出し"""
+    cols, idx = cross.label_columns(["Season", "Station", "File", "Species", "DateTime"])
+    assert cols == {"season": "Season", "station": "Station", "file": "File", "species": "Species", "datetime": "DateTime"}
+    cols, _ = cross.label_columns(["season_name", "site", "video_file", "species_name", "date_time"])
+    assert cols == {"season": "season_name", "station": "site", "file": "video_file", "species": "species_name", "datetime": "date_time"}
+    cols, _ = cross.label_columns(["調査回", "地点", "ファイル名", "種名1", "日時"])
+    assert cols["species"] == "種名1" and cols["file"] == "ファイル名"
+    cols, _ = cross.label_columns(["Season", "Station", "Name", "Species"])        # Name はファイル（species_name に取られない）
+    assert cols["file"] == "Name" and cols["species"] == "Species"
+    assert cross.label_columns(["a", "b", "c"])[0] == {}

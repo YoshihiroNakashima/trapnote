@@ -138,8 +138,8 @@ def tree_season_project(root: str, season: str) -> str | None:
     return pdir if pdir and kind != "cross" else None
 
 
-def _human_codes(project, src, lm: dict, code_names: dict | None = None, source: str = "") -> dict[int, list]:
-    """参照先プロジェクトの人の判定 {item_id: [種コード]}（対応表を当てたもの）。code_names に、横断の種リストにないコードの名前と本数を控える"""
+def _human_codes(project, src, lm: dict, code_names: dict | None = None, source: str = "") -> tuple[dict[int, list], dict[int, list]]:
+    """参照先プロジェクトの人の判定 → ({item_id: [種コード]}（対応表を当てたもの）, {item_id: [元の種コード]})。code_names に、横断の種リストにないコードの名前と本数を控える"""
     hum: dict[int, list] = defaultdict(list)
     raw_counts: Counter = Counter()
     for j in src.db.q("SELECT j.item_id, j.species, j.origin, i.status FROM judgements j JOIN items i ON i.id=j.item_id WHERE j.species != 'area' AND i.missing=0"):
@@ -154,9 +154,10 @@ def _human_codes(project, src, lm: dict, code_names: dict | None = None, source:
                 continue
             d = code_names.setdefault(code, dict(ja=(sb.get(code) or {}).get("name_ja") or "", en=(sb.get(code) or {}).get("name_en") or "", n=0, source=source))
             d["n"] += n
+    raw = dict(hum)
     if lm:
         hum = {k: map_codes(lm, v) for k, v in hum.items()}
-    return hum
+    return hum, raw
 
 
 def _tree_rows(project, s: dict, seasons: list[str] | None = None, progress=None, stop=None, code_names: dict | None = None) -> tuple[list[dict], list[str]]:
@@ -169,6 +170,7 @@ def _tree_rows(project, s: dict, seasons: list[str] | None = None, progress=None
     want = [se for se in all_seasons if not seasons or se in set(seasons)]
     lab = _labels(project, s, (lambda a, b, msg: progress(0, len(want), f"種名の CSV: {msg}")) if progress else None, stop)
     lm = label_map(project)
+    scan_folders = bool(project.setting("catalog_scan_folders"))
     by_season: dict[str, list[dict]] = defaultdict(list)
     for r in lab["rows"].values():
         by_season[r["season"]].append(r)
@@ -189,7 +191,7 @@ def _tree_rows(project, s: dict, seasons: list[str] | None = None, progress=None
         if src is not None:
             proj_seasons.append(se)
             try:
-                hum = _human_codes(project, src, lm, code_names, f"{s['name']}/{se}")
+                hum, hum_raw = _human_codes(project, src, lm, code_names, f"{s['name']}/{se}")
                 for r in src.db.q("SELECT id, rel_path, station, name, COALESCE(datetime_corrected, datetime) AS dt, status, auto_json, agree, det_state, duration, size FROM items WHERE missing=0"):
                     ai = None
                     if r["auto_json"]:
@@ -198,14 +200,16 @@ def _tree_rows(project, s: dict, seasons: list[str] | None = None, progress=None
                         except Exception:
                             ai = None
                     out.append(dict(season=se, station=r["station"] or "", file=r["name"], rel=f"{se}/{r['rel_path']}", species=set(hum.get(r["id"], [])), dt=r["dt"] or "",
-                                    status=r["status"], ai=ai, agree=r["agree"], det_state=r["det_state"], duration=r["duration"], size=r["size"], src_dir=src.dir, src_id=r["id"], src_rel=r["rel_path"]))
+                                    status=r["status"], ai=ai, agree=r["agree"], det_state=r["det_state"], duration=r["duration"], size=r["size"], src_dir=src.dir, src_id=r["id"], src_rel=r["rel_path"],
+                                    labels=";".join(sorted(set(hum_raw.get(r["id"], [])))) or None))
             finally:
                 src.close()
         elif by_season.get(se):
             for r in by_season.get(se, []):
                 out.append(dict(season=se, station=r["station"], file=r["file"], rel=f"{se}/{r['station']}/{r['file']}", species=set(r["species"]), dt=r["dt"] or "",
-                                status="auto" if r["species"] else "new", ai=None, agree=None, det_state=0, duration=None, size=None, src_dir=None, src_id=None, src_rel=None))
-        else:                                   # プロジェクトも種名の CSV の行もない調査回: フォルダを見て動画を並べる（種名なし。新しい調査回など）
+                                status="auto" if r["species"] else "new", ai=None, agree=None, det_state=0, duration=None, size=None, src_dir=None, src_id=None, src_rel=None,
+                                labels=";".join(r.raw) or None))
+        elif scan_folders:                     # プロジェクトも種名の CSV の行もない調査回: フォルダを見て動画を並べる（種名なし。新しい調査回など。NAS では遅いので設定で）
             for st in _tree_stations(root, se):
                 if stop and stop():
                     break
@@ -213,7 +217,7 @@ def _tree_rows(project, s: dict, seasons: list[str] | None = None, progress=None
                     progress(i, len(want), f"{s['name']}/{se}/{st}")
                 for fn in _tree_station_files(root, se, st):
                     out.append(dict(season=se, station=st, file=fn, rel=f"{se}/{st}/{fn}", species=set(), dt="", status="new", ai=None, agree=None, det_state=0,
-                                    duration=None, size=None, src_dir=None, src_id=None, src_rel=None))
+                                    duration=None, size=None, src_dir=None, src_id=None, src_rel=None, labels=None))
     return out, proj_seasons
 
 
@@ -465,12 +469,42 @@ def label_files(s: dict) -> list[tuple[str, str]]:
     return out
 
 
+LABEL_CONTAINS = {"species": ("species", "種"), "file": ("file", "ファイル"), "season": ("season", "調査回"), "station": ("station", "地点"), "datetime": ("datetime", "日時", "timestamp")}
+
+
+def label_columns(header: list[str]) -> tuple[dict[str, str], dict[str, int]]:
+    """種名 CSV の見出しから列を決める → (役割 → 見出し, 役割 → 列番号)。大文字小文字は問わない。
+    1. 別名との完全一致（LABEL_ALIAS: Species / 種 / 種名 / label、File / FileName / Name / ファイル名 …）
+    2. 見つからない役割は、別名を含む見出し（Species_name、種名1、Video_File など。まだ使っていない列から）"""
+    head = {(h or "").strip().lower(): i for i, h in enumerate(header)}
+    cols: dict[str, str] = {}
+    idx: dict[str, int] = {}
+    for k, names in LABEL_ALIAS.items():
+        for n in names:
+            if n in head:
+                cols[k] = header[head[n]]
+                idx[k] = head[n]
+                break
+    for k, parts in LABEL_CONTAINS.items():
+        if k in idx:
+            continue
+        for h, i in head.items():
+            if i in idx.values() or not h:
+                continue
+            if any(pt in h for pt in parts):
+                cols[k] = header[i]
+                idx[k] = i
+                break
+    return cols, idx
+
+
 class LabelRow:
     """種名 CSV の 1 行（動画 1 本）。dict のように r["season"] で引ける。数十万行あるので __slots__ で小さく"""
-    __slots__ = ("season", "station", "file", "species", "dt")
+    __slots__ = ("season", "station", "file", "species", "dt", "raw")
 
     def __init__(self, season: str, station: str, file: str, species: tuple = (), dt: str = ""):
         self.season, self.station, self.file, self.species, self.dt = season, station, file, species, dt
+        self.raw = species                      # 対応表を当てる前の表記の tuple（_apply_map が species を種コードにしたあとも残す）
 
     def __getitem__(self, k):
         return getattr(self, k)
@@ -486,6 +520,7 @@ class LabelRow:
 
     def __setstate__(self, st):
         self.season, self.station, self.file, self.species, self.dt = st
+        self.raw = self.species
 
 
 class _Counting:
@@ -524,15 +559,7 @@ def _parse_label_file(project, path: str, season_default: str, rows: dict, label
         header = next(rd)
     except StopIteration:
         return dict(path=path, n=0, cols={}, error="空の CSV")
-    head = {(h or "").strip().lower(): i for i, h in enumerate(header)}
-    cols: dict[str, str] = {}
-    idx: dict[str, int] = {}
-    for k, names in LABEL_ALIAS.items():
-        for n in names:
-            if n in head:
-                cols[k] = header[head[n]]
-                idx[k] = head[n]
-                break
+    cols, idx = label_columns(header)
     if "file" not in idx or "species" not in idx:
         return dict(path=path, n=0, cols=cols, error=f"File と Species の列がありません（見出し: {', '.join(h for h in header if h)[:120]}）")
     z = bool(project.setting("z_is_utc"))
@@ -587,7 +614,8 @@ def _apply_map(project, raw: dict) -> dict:
     sp_counts: Counter = Counter()
     for d in raw["rows"].values():
         codes: list[str] = []
-        for lab in d.species:
+        d.raw = d.species                        # 読んだ直後（parse / pickle）は species に表記の tuple が入っている
+        for lab in d.raw:
             c = code_of.get(lab)
             if c:
                 if c not in codes:
@@ -1180,7 +1208,7 @@ def build_catalog(project, progress=None, stop=None) -> dict:
             trows, _ = _tree_rows(project, s, None, lambda a, b, msg: progress and progress(a, b, msg), stop, code_names)
             for r in trows:
                 rows.append((name, r["src_id"], r["rel"], r["season"], r["station"], r["file"], r["dt"] or None, r["status"],
-                             ";".join(sorted(r["species"])) or None, r["ai"], r["agree"], r["det_state"] or 0, r["duration"], r["size"]))
+                             ";".join(sorted(r["species"])) or None, r["ai"], r["agree"], r["det_state"] or 0, r["duration"], r["size"], r.get("labels")))
         else:
             try:
                 src = open_source(s["dir"])
@@ -1188,7 +1216,7 @@ def build_catalog(project, progress=None, stop=None) -> dict:
                 log.warning("参照先 %s を開けません: %s", name, e)
                 continue
             try:
-                hum = _human_codes(project, src, lm, code_names, name)
+                hum, hum_raw = _human_codes(project, src, lm, code_names, name)
                 for r in src.db.q("SELECT id, rel_path, season, station, name, COALESCE(datetime_corrected, datetime) AS dt, status, auto_json, agree, det_state, duration, size FROM items WHERE missing=0"):
                     ai = None
                     if r["auto_json"]:
@@ -1197,14 +1225,15 @@ def build_catalog(project, progress=None, stop=None) -> dict:
                         except Exception:
                             ai = None
                     rows.append((name, r["id"], r["rel_path"], r["season"] or name, r["station"], r["name"], r["dt"], r["status"],
-                                 ";".join(sorted(set(hum.get(r["id"], [])))) or None, ai, r["agree"], r["det_state"], r["duration"], r["size"]))
+                                 ";".join(sorted(set(hum.get(r["id"], [])))) or None, ai, r["agree"], r["det_state"], r["duration"], r["size"],
+                                 ";".join(sorted(set(hum_raw.get(r["id"], [])))) or None))
             finally:
                 src.close()
         for i0 in range(0, len(rows), 5000):
             if stop and stop():
                 break
             with db.tx() as c:
-                c.executemany("INSERT OR IGNORE INTO catalog(source, src_id, rel, season, station, name, datetime, status, species, ai, agree, det_state, duration, size) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows[i0:i0 + 5000])
+                c.executemany("INSERT OR IGNORE INTO catalog(source, src_id, rel, season, station, name, datetime, status, species, ai, agree, det_state, duration, size, labels) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows[i0:i0 + 5000])
             if progress:
                 progress(i0 + len(rows[i0:i0 + 5000]), len(rows), name)
         by_src[name] = len(rows)
@@ -1215,6 +1244,45 @@ def build_catalog(project, progress=None, stop=None) -> dict:
                                    code_names=code_names)
     project.save()
     return dict(n=n, by_source=by_src, code_names=code_names)
+
+
+def remap_catalog(project, progress=None, stop=None) -> dict:
+    """対応表（か種リスト）を変えたあと、カタログを作り直さずに species だけ当て直す（labels 列 = 元の表記から。表記の組ごとに UPDATE するので数十万行でも数秒）。
+    参照先が変わったときは build_catalog が要る。返り値 dict(n_changed, n_combos)"""
+    db = project.db
+    lm = label_map(project)
+    combos = [(r[0], int(r[1])) for r in db.q("SELECT DISTINCT labels, (src_id IS NOT NULL) FROM catalog WHERE labels IS NOT NULL")]
+    n_changed = 0
+    for i, (raw, proj) in enumerate(combos):
+        if stop and stop():
+            break
+        parts = [x for x in raw.split(";") if x]
+        if proj:
+            codes = sorted(map_codes(lm, parts))
+        else:
+            codes = []
+            for lab in parts:
+                c = resolve_label(project, lab, lm)
+                if c and c not in codes:
+                    codes.append(c)
+            if "empty" in codes and len(codes) > 1:
+                codes = [c for c in codes if c != "empty"]
+            codes.sort()
+        sp = ";".join(codes) or None
+        if progress:
+            progress(i, len(combos), raw[:60])
+        with db.tx() as c:
+            if proj:
+                cur = c.execute("UPDATE catalog SET species=? WHERE labels=? AND src_id IS NOT NULL AND species IS NOT ?", (sp, raw, sp))
+            else:
+                cur = c.execute("UPDATE catalog SET species=?, status=? WHERE labels=? AND src_id IS NULL AND species IS NOT ?", (sp, "auto" if sp else "new", raw, sp))
+            n_changed += cur.rowcount
+    if not (stop and stop()):
+        cat = project.data.get("catalog") or {}
+        cat["map_sig"] = map_sig(project)
+        project.data["catalog"] = cat
+        project.save()
+    return dict(n_changed=n_changed, n_combos=len(combos))
 
 
 def _catalog_mark_imported(project) -> None:
@@ -1302,14 +1370,45 @@ def catalog_rows(project, f: dict, sort: str = "rel", desc: bool = False, offset
 
 
 SAMPLE_UNITS = ("all", "video", "species", "station", "season", "station_season")
+_UNIT_KEY = {"station": "COALESCE(station, '')", "season": "COALESCE(season, '')", "station_season": "COALESCE(season, '') || '/' || COALESCE(station, '')"}
 
 
-def _species_counts(rows: list[dict]) -> dict[str, int]:
+def _species_counts_sql(db, where: str, p: list) -> dict[str, int]:
     c: Counter = Counter()
-    for r in rows:
-        for code in (r["species"] or "(none)").split(";"):
-            c[code] += 1
+    for r in db.q(f"SELECT species, COUNT(*) FROM catalog WHERE {where} GROUP BY species", p):
+        for code in (r[0] or "(none)").split(";"):
+            c[code] += r[1]
     return dict(c)
+
+
+def _dt_ts(s: str) -> float | None:
+    """"YYYY/MM/DD HH:MM:SS"（- 区切り、T 区切りも）→ 秒。数十万行でも速いように文字の切り出しだけで"""
+    if not s or len(s) < 16:
+        return None
+    try:
+        y, mo, d, h, mi = int(s[0:4]), int(s[5:7]), int(s[8:10]), int(s[11:13]), int(s[14:16])
+        sec = int(s[17:19]) if len(s) >= 19 and s[16] == ":" else 0
+        return datetime(y, mo, d).timestamp() + h * 3600 + mi * 60 + sec
+    except (ValueError, TypeError):
+        return _parse_dt(s)
+
+
+def _thin_rows(rows: list[tuple], gap_min: float) -> list[tuple]:
+    """rows = (id, source, season, station, datetime, species)。同じ地点で gap_min 分以内に続く動画は 1 本だけ（時刻のないものはそのまま）"""
+    if gap_min <= 0:
+        return rows
+    out, last = [], {}
+    for r in sorted(rows, key=lambda x: (x[3] or "", x[4] or "", x[0])):
+        ts = _dt_ts(r[4])
+        if ts is None:
+            out.append(r)
+            continue
+        prev = last.get(r[3])
+        if prev is not None and ts - prev < gap_min * 60:
+            continue
+        last[r[3]] = ts
+        out.append(r)
+    return out
 
 
 def catalog_sample(project, f: dict, params: dict) -> dict:
@@ -1323,62 +1422,69 @@ def catalog_sample(project, f: dict, params: dict) -> dict:
     乱数の種 seed で同じ結果が再現できる。返り値 dict(ids, n, counts={code: n}, available={code: n}（種ごと）, units=[(名前, 本数)], n_units_available)"""
     db = project.db
     where, p = catalog_where(dict(f, imported="0"))
-    rows = [dict(r) for r in db.q(f"SELECT id, source, season, station, datetime, species FROM catalog WHERE {where}", p)]
     unit = params.get("unit") or ("species" if params.get("n_per_species") else "all")
     if unit not in SAMPLE_UNITS:
         raise ValueError(f"選び方が分かりません: {unit}")
     n_want = int(params.get("n") or params.get("n_per_species") or 0)
     if unit == "all" or (n_want <= 0 and unit != "species"):
-        return dict(ids=[r["id"] for r in rows], counts=_species_counts(rows), available={}, n=len(rows), units=[], n_units_available=0, unit="all")
+        ids = [r[0] for r in db.q(f"SELECT id FROM catalog WHERE {where}", p)]
+        return dict(ids=ids, counts=_species_counts_sql(db, where, p), available={}, n=len(ids), units=[], n_units_available=0, unit="all")
     cap = int(params.get("cap") or 0)
     gap_min = float(params.get("gap_min") or 0)
     seed = int(params.get("seed") or 1)
     rng = random.Random(seed)
-    if unit == "video":
-        cands = _thin([dict(r, dt=r["datetime"] or "") for r in rows], gap_min)
-        cands.sort(key=lambda r: r["id"])
-        rng.shuffle(cands)
-        picked = cands[:n_want]
-        return dict(ids=[r["id"] for r in picked], counts=_species_counts(picked), available=_species_counts(cands), n=len(picked), units=[], n_units_available=len(cands), unit=unit)
-    if unit in ("station", "season", "station_season"):
-        keyf = {"station": (lambda r: r["station"] or ""), "season": (lambda r: r["season"] or ""), "station_season": (lambda r: f"{r['season'] or ''}/{r['station'] or ''}")}[unit]
-        groups: dict[str, list[dict]] = defaultdict(list)
-        for r in rows:
-            groups[keyf(r)].append(r)
+    if unit in _UNIT_KEY:                                   # 地点・調査回・その組: 数は SQL で数え、選んだ単位の行だけ読む
+        kx = _UNIT_KEY[unit]
+        groups = {r[0]: r[1] for r in db.q(f"SELECT {kx} AS k, COUNT(*) FROM catalog WHERE {where} GROUP BY k", p)}
         keys = sorted(k for k in groups if k and k != "/")
         chosen = sorted(rng.sample(keys, min(n_want, len(keys))))
-        picked = [r for k in chosen for r in groups[k]]
-        return dict(ids=[r["id"] for r in picked], counts=_species_counts(picked), available={}, n=len(picked), units=[(k, len(groups[k])) for k in chosen], n_units_available=len(keys), unit=unit)
+        ids: list[int] = []
+        counts: Counter = Counter()
+        for i0 in range(0, len(chosen), 500):
+            part = chosen[i0:i0 + 500]
+            qs = ",".join("?" * len(part))
+            ids += [r[0] for r in db.q(f"SELECT id FROM catalog WHERE {where} AND {kx} IN ({qs})", [*p, *part])]
+            for r in db.q(f"SELECT species, COUNT(*) FROM catalog WHERE {where} AND {kx} IN ({qs}) GROUP BY species", [*p, *part]):
+                for code in (r[0] or "(none)").split(";"):
+                    counts[code] += r[1]
+        return dict(ids=ids, counts=dict(counts), available={}, n=len(ids), units=[(k, groups[k]) for k in chosen], n_units_available=len(keys), unit=unit)
+    rows = [tuple(r) for r in db.q(f"SELECT id, source, season, station, datetime, species FROM catalog WHERE {where}" + (" AND species IS NOT NULL" if unit == "species" else ""), p)]
+    if unit == "video":
+        cands = _thin_rows(rows, gap_min)
+        cands.sort(key=lambda r: r[0])
+        rng.shuffle(cands)
+        picked = cands[:n_want]
+        cnt = lambda rs: dict(Counter(code for r in rs for code in (r[5] or "(none)").split(";")))
+        return dict(ids=[r[0] for r in picked], counts=cnt(picked), available=cnt(cands), n=len(picked), units=[], n_units_available=len(cands), unit=unit)
     # unit == species
     n_per = n_want
     want_sp = set(params.get("species") or [])
-    pool: dict[str, list[dict]] = defaultdict(list)
-    thinned = _thin([dict(r, dt=r["datetime"] or "") for r in rows if r["species"]], gap_min)
-    for r in thinned:
-        for code in r["species"].split(";"):
+    pool: dict[str, list[tuple]] = defaultdict(list)
+    for r in _thin_rows(rows, gap_min):
+        for code in r[5].split(";"):
             if not want_sp or code in want_sp:
                 pool[code].append(r)
-    ids: list[int] = []
+    ids = []
     seen: set[int] = set()
-    counts: dict[str, int] = {}
+    counts2: dict[str, int] = {}
     for code in sorted(pool):
         cands = list(pool[code])
-        cands.sort(key=lambda r: r["id"])
+        cands.sort(key=lambda r: r[0])
         rng.shuffle(cands)
         per_cell: dict[tuple, int] = defaultdict(int)
         n_sp = 0
         for r in cands:
             if n_per and n_sp >= n_per:
                 break
-            cell = (r["source"], r["station"], r["season"])
+            cell = (r[1], r[3], r[2])
             if cap and per_cell[cell] >= cap:
                 continue
-            if r["id"] in seen:
+            if r[0] in seen:
                 continue
             per_cell[cell] += 1
-            seen.add(r["id"]); ids.append(r["id"]); n_sp += 1
-        counts[code] = n_sp
-    return dict(ids=ids, counts=counts, available={k: len(v) for k, v in pool.items()}, n=len(ids), units=[], n_units_available=len(pool), unit=unit)
+            seen.add(r[0]); ids.append(r[0]); n_sp += 1
+        counts2[code] = n_sp
+    return dict(ids=ids, counts=counts2, available={k: len(v) for k, v in pool.items()}, n=len(ids), units=[], n_units_available=len(pool), unit=unit)
 
 
 def catalog_import(project, ids: list[int], batch: str, record: dict | None = None, progress=None, stop=None) -> dict:

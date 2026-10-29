@@ -8,9 +8,8 @@
 
 let crossModalEl = null;
 const CR_F0 = { source: '', season: '', station: '', species: '', status: '', imported: '', text: '', exclude_stations: '', single_only: false, csv_text: '' };
-const CR = { tab: '', f: Object.assign({}, CR_F0), sort: 'rel', desc: false, page: 0, checked: new Set(), counts: null,
+const CR = { tab: '', f: Object.assign({}, CR_F0), counts: null,
   smp: { unit: 'station', n: 20, cap: 5, gap: 10, seed: 1 }, labelQ: '' };
-const CR_PAGE = 200;
 const CR_TABS = ['sources', 'labels', 'build', 'pick', 'sync'];
 
 async function crossDialog(tab) {
@@ -26,7 +25,7 @@ async function crossDialog(tab) {
   const stepStatus = {
     sources: info.sources.length ? `${info.sources.length} ${t('items')}` : t('cr_none_yet'),
     labels: info.n_label_map ? `${info.n_label_map} ${t('cr_n_rules')}` : t('cr_auto_only'),
-    build: !cs.built ? t('cr_not_built') : (cs.stale ? `${info.n_catalog} · ${t('cr_rebuild_needed')}` : `${info.n_catalog} ${t('items')}`),
+    build: !cs.built ? t('cr_not_built') : (cs.stale ? `${info.n_catalog} · ${crStaleWord(cs)}` : `${info.n_catalog} ${t('items')}`),
     pick: `${t('cross_items_n')} ${info.n_items}`,
     sync: info.n_sync ? `${info.n_sync} ${t('items')}` : '',
   };
@@ -37,7 +36,7 @@ async function crossDialog(tab) {
     <div id="crBody"></div>
     <div id="crStatus"></div>
     <div class="modal-actions cr-foot"><span class="info" id="crFootInfo">${esc(crCatalogLine(info))}</span>
-      <button type="button" id="crBuildFoot" class="${info.sources.length && (!cs.built || cs.stale) ? 'primary' : ''}" ${info.sources.length ? '' : 'disabled'} title="${esc(t('cr_build_tip'))}">${esc(cs.built ? t('cross_build_again') : t('cross_build'))}</button>
+      <button type="button" id="crBuildFoot" class="${info.sources.length && (!cs.built || cs.stale) ? 'primary' : ''}" ${info.sources.length ? '' : 'disabled'} title="${esc(t('cr_build_tip'))}">${esc(crBuildLabel(cs))}</button>
       <button id="mCancel">${esc(t('close'))}</button></div>`);
   crossModalEl = m; m._info = info;
   m.querySelector('#mCancel').onclick = () => { crossModalEl = null; closeModal(); };
@@ -47,17 +46,25 @@ async function crossDialog(tab) {
   crossOnJobs(S.snap && S.snap.jobs);
 }
 
+// 対応表（か種リスト）だけが変わったときは、作り直さずに表記から種を当て直すだけ（数秒）。参照先が変わったときは作り直し
+function crOnlyLabels(cs) { return !!(cs.built && cs.stale && (cs.reasons || []).every(r => r === 'labels')); }
+function crStaleWord(cs) { return crOnlyLabels(cs) ? t('cr_remap_needed') : t('cr_rebuild_needed'); }
+function crStaleText(cs) { return `${crStaleWord(cs)}（${(cs.reasons || []).map(r => t('cr_stale_' + r)).join('・')}）`; }
+function crBuildLabel(cs) { return crOnlyLabels(cs) ? t('cr_remap') : (cs.built ? t('cross_build_again') : t('cross_build')); }
+
 function crCatalogLine(info) {
   const cs = info.catalog_status || {};
   if (!info.sources.length) return t('cr_foot_no_sources');
   if (!cs.built) return t('cr_foot_not_built');
   const when = (cs.built_at || '').slice(0, 16).replace('T', ' ');
-  const stale = cs.stale ? ' · ' + t('cr_rebuild_needed') + '（' + (cs.reasons || []).map(r => t('cr_stale_' + r)).join('・') + '）' : '';
-  return `${t('cross_catalog_n')} ${info.n_catalog} ${t('items')} · ${when}${stale}`;
+  return `${t('cross_catalog_n')} ${info.n_catalog} ${t('items')} · ${when}${cs.stale ? ' · ' + crStaleText(cs) : ''}`;
 }
 
-async function crossBuild(m) {
-  try { const j = await api('/api/cross/catalog/build', {}); m._wasRunning = 'catalog'; m._after = 'pick'; crossOnJobs(j); } catch (e) { toast(e.message, 'error'); }
+async function crossBuild(m, mode, scanFolders) {
+  const cs = (m._info && m._info.catalog_status) || {};
+  const body = { mode: mode || (crOnlyLabels(cs) ? 'auto' : 'full') };
+  if (scanFolders !== undefined) body.scan_folders = scanFolders;
+  try { const j = await api('/api/cross/catalog/build', body); m._wasRunning = 'catalog'; m._after = 'pick'; crossOnJobs(j); } catch (e) { toast(e.message, 'error'); }
 }
 
 function crossRenderTab(m) {
@@ -81,7 +88,8 @@ function crossTabSources(m, body) {
     if (l.pending) return `<span class="warn" title="${esc(files.map(f => f.path).join('\n'))}">${esc(t('cross_labels_reading'))} ${files.length} ${esc(l.auto ? t('cross_labels_auto') : t('cross_labels_given'))} · ${(l.size / 1048576).toFixed(l.size > 10485760 ? 0 : 1)} MB ${esc(t('cross_labels_reading_help'))}</span>`;
     const un = (l.unmapped || []).map(([v, n]) => `${v} (${n})`).join(', ');
     const bad = files.filter(f => f.error);
-    return `<span class="info" title="${esc(files.map(f => `${f.path} (${f.error || f.n})`).join('\n'))}">${esc(t('cross_labels'))} ${files.length} ${esc(l.auto ? t('cross_labels_auto') : t('cross_labels_given'))} · ${l.n_here ?? l.n ?? 0} ${esc(t('items'))}${bad.length ? ` <span class="ng">${esc(t('cross_labels_bad'))} ${bad.length}</span>` : ''}${l.n_unmapped ? ` <a href="#" class="ng" data-golabels="1" title="${esc(un)}">${esc(t('cross_unmapped'))} ${l.n_unmapped_labels || ''} → ${esc(t('cr_tab_labels'))}</a>` : ''}</span>`;
+    const colsTxt = l.cols && Object.keys(l.cols).length ? `${t('cr_cols')}: ${Object.entries(l.cols).map(([k, v]) => `${k} = ${v}`).join(', ')}` : '';
+    return `<span class="info" title="${esc(files.map(f => `${f.path} (${f.error || f.n})`).join('\n') + (colsTxt ? '\n' + colsTxt : ''))}">${esc(t('cross_labels'))} ${files.length} ${esc(l.auto ? t('cross_labels_auto') : t('cross_labels_given'))} · ${l.n_here ?? l.n ?? 0} ${esc(t('items'))}${colsTxt ? ` <span class="info">(${esc(colsTxt)})</span>` : ''}${bad.length ? ` <span class="ng">${esc(t('cross_labels_bad'))} ${bad.length}</span>` : ''}${l.n_unmapped ? ` <a href="#" class="ng" data-golabels="1" title="${esc(un)}">${esc(t('cross_unmapped'))} ${l.n_unmapped_labels || ''} → ${esc(t('cr_tab_labels'))}</a>` : ''}</span>`;
   };
   const rows = srcs.map(s => `<tr><td><b>${esc(s.name)}</b> <span class="chip ${s.kind === 'tree' ? 'human' : 'ai'}">${esc(s.kind === 'tree' ? t('cross_kind_tree') : t('cross_kind_project'))}</span>${s.ok ? '' : ` <span class="ng">✗</span>`}</td>
     <td class="info" title="${esc(s.dir || s.root || '')}">${esc(s.ok ? (s.root || '') : (s.error || ''))}${s.ok && !s.available ? ` <span class="ng">${esc(t('cross_unavailable'))}</span>` : ''}${s.kind === 'tree' && s.seasons ? `<div>${esc(t('cross_seasons'))} ${s.seasons.length}${(s.project_seasons || []).length ? ` (${esc(t('cross_proj_seasons'))} ${s.project_seasons.length})` : ''} · ${labInfo(s)}</div>` : ''}</td>
@@ -198,12 +206,17 @@ async function crossTabLabels(m, body) {
 function crossTabBuild(m, body) {
   const info = m._info, cs = info.catalog_status || {};
   const by = Object.entries(cs.by_source || {}).map(([k, v]) => `${esc(k)} <b>${v}</b>`).join(' · ');
+  const scan = !!((info.project.settings || {}).catalog_scan_folders);
   body.innerHTML = `<div class="note">${esc(t('cr_build_help'))}</div>
-    <div class="callout ${!info.sources.length ? '' : (!cs.built || cs.stale ? 'warn' : 'ok')}">${!info.sources.length ? esc(t('cr_foot_no_sources')) : (!cs.built ? esc(t('cr_build_now')) : (cs.stale ? `${esc(t('cr_rebuild_needed'))}（${esc((cs.reasons || []).map(x => t('cr_stale_' + x)).join('・'))}）` : esc(t('cr_built_ok'))))}</div>
+    <div class="callout ${!info.sources.length ? '' : (!cs.built || cs.stale ? 'warn' : 'ok')}">${!info.sources.length ? esc(t('cr_foot_no_sources')) : (!cs.built ? esc(t('cr_build_now')) : (cs.stale ? `${esc(crStaleText(cs))}${crOnlyLabels(cs) ? ' ' + esc(t('cr_remap_fast')) : ''}` : esc(t('cr_built_ok'))))}</div>
     ${cs.built ? `<div class="dt-counts"><span>${esc(t('cross_catalog_n'))} <b>${info.n_catalog}</b></span><span>${esc(t('tr_trained_at'))} <b>${esc((cs.built_at || '').slice(0, 16).replace('T', ' '))}</b></span>${by ? `<span>${by}</span>` : ''}<span>${esc(t('cross_items_n'))} <b>${info.n_items}</b></span></div>` : ''}
-    <div class="cr-actions"><button type="button" class="primary" id="crBuildBig" ${info.sources.length ? '' : 'disabled'}>${esc(cs.built ? t('cross_build_again') : t('cross_build'))}</button><span class="info">${esc(t('cr_build_time'))}</span></div>
+    <label class="chk" style="display:block;margin:6px 0"><input type="checkbox" id="crScan" ${scan ? 'checked' : ''}> ${esc(t('cr_scan_folders'))}</label>
+    <div class="cr-actions"><button type="button" class="primary" id="crBuildBig" ${info.sources.length ? '' : 'disabled'}>${esc(crBuildLabel(cs))}</button>${crOnlyLabels(cs) ? `<button type="button" id="crBuildFull">${esc(t('cross_build_again'))}</button>` : ''}<span class="info">${esc(t('cr_build_time'))}</span></div>
     <div class="note">${esc(t('cr_build_when'))}</div>`;
-  m.querySelector('#crBuildBig').onclick = () => crossBuild(m);
+  const q = sel => m.querySelector(sel);
+  q('#crBuildBig').onclick = () => crossBuild(m, undefined, q('#crScan').checked);
+  if (q('#crBuildFull')) q('#crBuildFull').onclick = () => crossBuild(m, 'full', q('#crScan').checked);
+  q('#crScan').onchange = async () => { try { await api('/api/project/settings', { catalog_scan_folders: q('#crScan').checked }); if (m._info) m._info.project.settings.catalog_scan_folders = q('#crScan').checked; } catch (e) { toast(e.message, 'error'); } };
 }
 
 // ---------- 4. 動画を選んで取り込む ----------
@@ -214,7 +227,7 @@ function crossTabPick(m, body) {
   const sm = CR.smp;
   const unitOpts = [['station', t('cr_unit_station')], ['season', t('cr_unit_season')], ['station_season', t('cr_unit_station_season')], ['video', t('cr_unit_video')], ['species', t('cr_unit_species')]];
   body.innerHTML = `<div class="note">${esc(t('cr_pick_help'))}</div>
-    ${cs.stale ? `<div class="callout warn">${esc(t('cr_rebuild_needed'))}（${esc((cs.reasons || []).map(x => t('cr_stale_' + x)).join('・'))}）: ${esc(t('cr_pick_stale'))}</div>` : ''}
+    ${cs.stale ? `<div class="callout warn">${esc(crStaleText(cs))}: ${esc(t('cr_pick_stale'))}</div>` : ''}
     <h4>${esc(t('cr_filter_h'))} <span class="info">${esc(t('cr_filter_sub'))}</span></h4>
     <div class="cr-filters">
       <select id="cfSource"><option value="">${esc(t('cross_all_sources'))}</option>${srcs.map(s => `<option value="${esc(s.name)}" ${CR.f.source === s.name ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select>
@@ -244,25 +257,20 @@ function crossTabPick(m, body) {
       <span title="${esc(t('cr_seed_help'))}">${esc(t('cross_seed'))} <input type="number" id="cfSeed" value="${sm.seed}" min="0" style="width:60px"></span>
       <button type="button" class="small" id="cfSampleCount">${esc(t('cross_count'))}</button><button type="button" class="primary small" id="cfSampleImport">${esc(t('cr_random_import'))}</button></div>
     <div id="cfSampleOut" class="cr-sample-out"></div>
-    <h4>${esc(t('cr_table_h'))}</h4>
-    <div class="note">${esc(t('cr_table_help'))}</div>
+    <h4>${esc(t('cr_all_h'))}</h4>
+    <div class="note">${esc(t('cr_all_help'))}</div>
     <div class="cr-actions">
-      <button type="button" class="primary small" id="cfImportChecked">${esc(t('cross_import_checked'))} (<span id="cfNChecked">0</span>)</button>
       <button type="button" class="small" id="cfImportAll">${esc(t('cross_import_filtered'))} (<span id="cfNAll">0</span>)</button>
       <button type="button" class="small" id="cfExport">${esc(t('cross_export_catalog'))}</button>
     </div>
-    <div id="cfTable"></div>`;
+    <div id="cfLoad"></div>`;
   const q = sel => m.querySelector(sel);
-  const readF = () => { CR.f = { source: q('#cfSource').value, season: q('#cfSeason').value, station: q('#cfStation').value.trim(), species: q('#cfSpecies').value, status: q('#cfStatus').value, imported: q('#cfImported').value, text: q('#cfText').value.trim(), exclude_stations: q('#cfExclude').value.trim(), single_only: q('#cfSingle').checked, csv_text: q('#cfCsv').value }; CR.page = 0; CR.checked.clear(); };
+  const readF = () => { CR.f = { source: q('#cfSource').value, season: q('#cfSeason').value, station: q('#cfStation').value.trim(), species: q('#cfSpecies').value, status: q('#cfStatus').value, imported: q('#cfImported').value, text: q('#cfText').value.trim(), exclude_stations: q('#cfExclude').value.trim(), single_only: q('#cfSingle').checked, csv_text: q('#cfCsv').value }; };
   q('#cfApply').onclick = () => { readF(); crossLoadCatalog(m); };
-  q('#cfClear').onclick = () => { CR.f = Object.assign({}, CR_F0); CR.page = 0; CR.checked.clear(); crossRenderTab(m); };
+  q('#cfClear').onclick = () => { CR.f = Object.assign({}, CR_F0); crossRenderTab(m); };
   ['#cfStation', '#cfText'].forEach(sel => q(sel).addEventListener('keydown', e => { if (e.key === 'Enter') { readF(); crossLoadCatalog(m); } }));
   const batchOrWarn = () => { const b = q('#cfBatch').value.trim(); CR.batch = b; if (!b) { toast(t('cross_need_batch'), 'error'); q('#cfBatch').focus(); } return b; };
   q('#cfBatch').onchange = () => { CR.batch = q('#cfBatch').value.trim(); };
-  q('#cfImportChecked').onclick = async () => {
-    const b = batchOrWarn(); if (!b || !CR.checked.size) return;
-    try { const j = await api('/api/cross/import', { mode: 'catalog', ids: [...CR.checked], batch: b }); m._wasRunning = 'import'; m._after = 'pick'; crossOnJobs(j); } catch (e) { toast(e.message, 'error'); }
-  };
   q('#cfImportAll').onclick = async () => {
     const b = batchOrWarn(); if (!b) return;
     readF();
@@ -301,12 +309,14 @@ function crossTabPick(m, body) {
 
 async function crossLoadCatalog(m) {
   const q = sel => m.querySelector(sel);
-  if (!q('#cfTable')) return;
-  let cnt, rows;
+  if (!q('#cfSummary')) return;
+  let cnt;
+  q('#cfLoad').innerHTML = `<span class="info">${esc(t('loading'))}</span>`;
   try {
-    [cnt, rows] = await Promise.all([api('/api/cross/catalog/counts', { filters: CR.f }), api('/api/cross/catalog/rows', { filters: CR.f, sort: CR.sort, desc: CR.desc, offset: CR.page * CR_PAGE, limit: CR_PAGE })]);
-  } catch (e) { q('#cfTable').innerHTML = `<div class="ng">${esc(e.message)}</div>`; return; }
-  if (!m.isConnected || !q('#cfTable')) return;
+    cnt = await api('/api/cross/catalog/counts', { filters: CR.f });
+  } catch (e) { if (q('#cfLoad')) q('#cfLoad').innerHTML = `<div class="ng">${esc(e.message)}</div>`; return; }
+  if (!m.isConnected || !q('#cfSummary')) return;
+  q('#cfLoad').innerHTML = '';
   CR.counts = cnt;
   // 絞り込みの候補（調査回・種）は集計から
   const seasonSel = q('#cfSeason');
@@ -321,23 +331,6 @@ async function crossLoadCatalog(m) {
   // 種 × 調査回
   const seasons = cnt.seasons, sp = sortCodes(Object.keys(cnt.pivot).filter(c => c !== '(none)')).concat(cnt.pivot['(none)'] ? ['(none)'] : []);
   q('#cfPivot').innerHTML = sp.length ? `<table class="tbl matrix"><tr><th>${esc(t('species'))} \\ ${esc(t('cross_seasons'))}</th>${seasons.map(s => `<th>${esc(s || '—')}</th>`).join('')}<th>${esc(t('ag_n'))}</th></tr>${sp.map(c => `<tr><td><b>${esc(c === '(none)' ? t('sp_none') : spLabel(c))}</b></td>${seasons.map(s => `<td>${cnt.pivot[c][s] || ''}</td>`).join('')}<td><b>${cnt.by_species[c]}</b></td></tr>`).join('')}</table>` : '';
-  // 行
-  const hdr = (k, label) => `<th class="clickable" data-sort="${k}">${esc(label)}${CR.sort === k ? (CR.desc ? ' ▼' : ' ▲') : ''}</th>`;
-  const stName = s => s === 'verified' ? t('st_verified') : (s === 'auto' ? t('cross_st_labelled') : t('st_new'));
-  const sps = v => (v || '').split(';').filter(Boolean).map(spLabel).join(', ');
-  const pages = Math.max(1, Math.ceil(rows.total / CR_PAGE));
-  q('#cfTable').innerHTML = `<div class="cr-pager"><span class="info">${rows.total} ${esc(t('items'))} · ${CR.page + 1} / ${pages}</span><button type="button" class="small" id="cfPrev" ${CR.page ? '' : 'disabled'}>‹</button><button type="button" class="small" id="cfNext" ${CR.page + 1 < pages ? '' : 'disabled'}>›</button>
-      <label class="chk"><input type="checkbox" id="cfCheckPage"> ${esc(t('cross_check_page'))}</label><span class="info">${esc(t('cross_check_help'))}</span></div>
-    <div style="max-height:40vh;overflow:auto"><table class="tbl cr-table"><tr><th></th>${hdr('rel', t('cross_src_name'))}${hdr('season', t('filter_season_s'))}${hdr('station', t('filter_station_s'))}<th>${esc(t('cross_col_file'))}</th>${hdr('datetime', t('cross_col_dt'))}${hdr('status', t('cross_col_status'))}${hdr('species', t('species'))}<th>AI</th><th>${esc(t('cross_imp_short'))}</th></tr>
-    ${rows.rows.map(r => `<tr class="${r.item_id ? 'cur' : ''}"><td><input type="checkbox" data-cid="${r.id}" ${CR.checked.has(r.id) ? 'checked' : ''} ${r.item_id ? 'disabled' : ''}></td><td>${esc(r.source)}</td><td>${esc(r.season || '')}</td><td>${esc(r.station || '')}</td><td class="info" title="${esc(r.rel)}">${esc(r.name)}</td><td class="info">${esc((r.datetime || '').slice(0, 16))}</td><td>${esc(stName(r.status))}</td><td>${esc(sps(r.species))}</td><td class="info">${esc(sps(r.ai))}${r.agree === 3 ? ' <span class="ng">≠</span>' : ''}</td><td>${r.item_id ? `<a href="#" data-open="${r.item_id}">${esc(t('cross_imp_yes'))}</a>` : ''}</td></tr>`).join('')}</table></div>`;
-  q('#cfPrev').onclick = () => { CR.page--; crossLoadCatalog(m); };
-  q('#cfNext').onclick = () => { CR.page++; crossLoadCatalog(m); };
-  m.querySelectorAll('[data-sort]').forEach(h => { h.onclick = () => { if (CR.sort === h.dataset.sort) CR.desc = !CR.desc; else { CR.sort = h.dataset.sort; CR.desc = false; } CR.page = 0; crossLoadCatalog(m); }; });
-  const upd = () => { q('#cfNChecked').textContent = CR.checked.size; };
-  m.querySelectorAll('[data-cid]').forEach(c => { c.onchange = () => { const id = parseInt(c.dataset.cid); if (c.checked) CR.checked.add(id); else CR.checked.delete(id); upd(); }; });
-  q('#cfCheckPage').onchange = () => { m.querySelectorAll('[data-cid]:not(:disabled)').forEach(c => { c.checked = q('#cfCheckPage').checked; const id = parseInt(c.dataset.cid); if (c.checked) CR.checked.add(id); else CR.checked.delete(id); }); upd(); };
-  m.querySelectorAll('[data-open]').forEach(a => { a.onclick = e => { e.preventDefault(); crossModalEl = null; closeModal(); openItem(parseInt(a.dataset.open)).catch(() => {}); }; });
-  upd();
 }
 
 // ---------- 5. 書き戻し・書き出し ----------
@@ -401,6 +394,7 @@ function crossOnJobs(jobs) {
   const cur = jobs.bg.current, rec = (jobs.bg.recent || []).find(mine);
   const queued = (jobs.bg.queued || []).some(mine);
   const st = m.querySelector('#crStatus');
+  if (m._recId === undefined) m._recId = rec ? rec.id : null;      // 窓を開いたときの最後の処理（これより新しい処理が終わったときだけ「終わった」と見なす）
   if (cur && mine(cur)) {
     const pct = cur.total ? Math.round(100 * cur.done / cur.total) : 0;
     const count = cur.kind === 'cross_labels' ? `${pct}%` : `${cur.done}${cur.total ? ' / ' + cur.total + ` (${pct}%)` : ''}`;
@@ -409,7 +403,7 @@ function crossOnJobs(jobs) {
   } else if (queued) {
     st.innerHTML = `<div><b>${esc(t('jb_queued'))}</b></div>`;
     m._wasRunning = m._wasRunning || 'queued';
-  } else if (!cur && m._wasRunning) {
+  } else if (!cur && m._wasRunning && rec && rec.id !== m._recId) {   // 待ち → 実行中 の切り替わりの一瞬（どちらにも見えない）では終わったと見なさない
     m._wasRunning = false;
     const after = m._after || CR.tab;
     crossModalEl = null;

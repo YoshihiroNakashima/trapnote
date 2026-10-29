@@ -583,10 +583,11 @@ class CrossImportJob(Job):
 
 
 class CatalogBuildJob(Job):
-    """横断プロジェクト: カタログ（参照先の全動画の目録）を作り直す"""
+    """横断プロジェクト: カタログ（参照先の全動画の目録）を作り直す。mode: full（全部作り直す）/ remap（対応表だけ当て直す）/ auto（対応表か種リストしか変わっていなければ remap、それ以外は full）"""
 
-    def __init__(self):
-        super().__init__("cross_catalog", {}, "カタログの作成")
+    def __init__(self, mode: str = "full"):
+        super().__init__("cross_catalog", dict(mode=mode), "カタログの作成")
+        self.mode = mode
         self.result: dict | None = None
 
     def run(self, ctx) -> None:
@@ -597,6 +598,21 @@ class CatalogBuildJob(Job):
 
         def prog(a, b, msg):
             self.done, self.total, self.current = a, b, msg or ""
+        mode = self.mode
+        if mode == "auto":
+            st = cross.catalog_status(project)
+            mode = "remap" if (st["built"] and st["n"] and st["reasons"] == ["labels"]) else ("none" if (st["built"] and not st["stale"]) else "full")
+        if mode == "none":
+            self.message = "カタログは最新です"
+            return
+        if mode == "remap":
+            self.label = "カタログの対応の当て直し"
+            self.message = "表記の組ごとに種を当て直しています"
+            r = cross.remap_catalog(project, prog, self.stop_flag.is_set)
+            self.result = r
+            self.done = self.total = max(r["n_combos"], 1)
+            self.message = f"対応を当て直しました（変わった行 {r['n_changed']:,}）"
+            return
         self.message = "参照先を読んでいます"
         r = cross.build_catalog(project, prog, self.stop_flag.is_set)
         self.result = r

@@ -1103,7 +1103,7 @@ def make_app(session: Session) -> web.Application:
         except ValueError as e:
             raise ApiError(str(e))
         if b.get("rebuild") and p.sources():
-            S.bg.submit(CatalogBuildJob(), front=True)
+            S.bg.submit(CatalogBuildJob("auto"), front=True)
         return jr(dict(r, jobs=S.jobs_status(), species=p.species.to_dict(), state=await io(S.snapshot)))
 
     async def cross_source_add(request):
@@ -1158,8 +1158,13 @@ def make_app(session: Session) -> web.Application:
         return jr(dict(r, state=await io(S.snapshot)))
 
     async def cross_catalog_build(request):
-        need_cross()
-        S.bg.submit(CatalogBuildJob(), front=True)
+        """mode: auto（対応表だけ変わっていれば当て直し、それ以外は作り直し）/ full / remap。scan_folders を渡せば設定 catalog_scan_folders を更新してから"""
+        p = need_cross()
+        b = await _body(request)
+        if "scan_folders" in b:
+            p.update_settings(dict(catalog_scan_folders=bool(b.get("scan_folders"))))
+        mode = str(b.get("mode") or "full")
+        S.bg.submit(CatalogBuildJob(mode if mode in ("auto", "full", "remap") else "full"), front=True)
         return jr(S.jobs_status())
 
     async def cross_catalog_counts(request):
