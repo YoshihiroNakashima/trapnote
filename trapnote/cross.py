@@ -160,22 +160,19 @@ def _human_codes(project, src, lm: dict, code_names: dict | None = None, source:
     return hum, raw
 
 
-def _tree_rows(project, s: dict, seasons: list[str] | None = None, progress=None, stop=None, code_names: dict | None = None) -> tuple[list[dict], list[str]]:
-    """親フォルダ参照の全動画の行。調査回フォルダにプロジェクトがあればその items と判定（src_dir / src_id 付き）、なければ種名の CSV の行。
-    行: dict(season, station, file, rel=<season>/<station>/<file>, species(set), dt, status, ai, agree, det_state, duration, size, src_dir, src_id, src_rel)"""
+def _tree_rows_by_season(project, s: dict, seasons: list[str] | None = None, progress=None, stop=None, code_names: dict | None = None):
+    """親フォルダ参照の全動画の行を調査回ごとに yield する（(調査回, 行の list, プロジェクトのフォルダ or None)。120 万本を一度にメモリに持たないため）。
+    調査回フォルダにプロジェクトがあればその items と判定（src_dir / src_id 付き）、なければ種名の CSV の行。
+    行: dict(season, station, file, rel=<season>/<station>/<file>, species(set), dt, status, ai, agree, det_state, duration, size, src_dir, src_id, src_rel, labels)"""
     root = norm(s.get("root") or "")
     if not root or not os.path.isdir(root):
-        return [], []
+        return
     all_seasons = _tree_seasons(root)
     want = [se for se in all_seasons if not seasons or se in set(seasons)]
     lab = _labels(project, s, (lambda a, b, msg: progress(0, len(want), f"種名の CSV: {msg}")) if progress else None, stop)
     lm = label_map(project)
     scan_folders = bool(project.setting("catalog_scan_folders"))
-    by_season: dict[str, list[dict]] = defaultdict(list)
-    for r in lab["rows"].values():
-        by_season[r["season"]].append(r)
-    out: list[dict] = []
-    proj_seasons: list[str] = []
+    by_season = lab["by_season"]
     for i, se in enumerate(want):
         if stop and stop():
             break
@@ -188,8 +185,8 @@ def _tree_rows(project, s: dict, seasons: list[str] | None = None, progress=None
                 src = open_source(pdir)
             except Exception as e:
                 log.warning("調査回のプロジェクト %s を開けません: %s", pdir, e)
+        out: list[dict] = []
         if src is not None:
-            proj_seasons.append(se)
             try:
                 hum, hum_raw = _human_codes(project, src, lm, code_names, f"{s['name']}/{se}")
                 for r in src.db.q("SELECT id, rel_path, station, name, COALESCE(datetime_corrected, datetime) AS dt, status, auto_json, agree, det_state, duration, size FROM items WHERE missing=0"):
@@ -204,7 +201,9 @@ def _tree_rows(project, s: dict, seasons: list[str] | None = None, progress=None
                                     labels=";".join(sorted(set(hum_raw.get(r["id"], [])))) or None))
             finally:
                 src.close()
-        elif by_season.get(se):
+            yield se, out, pdir
+            continue
+        if by_season.get(se):
             for r in by_season.get(se, []):
                 out.append(dict(season=se, station=r["station"], file=r["file"], rel=f"{se}/{r['station']}/{r['file']}", species=set(r["species"]), dt=r["dt"] or "",
                                 status="auto" if r["species"] else "new", ai=None, agree=None, det_state=0, duration=None, size=None, src_dir=None, src_id=None, src_rel=None,
@@ -218,6 +217,73 @@ def _tree_rows(project, s: dict, seasons: list[str] | None = None, progress=None
                 for fn in _tree_station_files(root, se, st):
                     out.append(dict(season=se, station=st, file=fn, rel=f"{se}/{st}/{fn}", species=set(), dt="", status="new", ai=None, agree=None, det_state=0,
                                     duration=None, size=None, src_dir=None, src_id=None, src_rel=None, labels=None))
+        yield se, out, None
+
+
+def _cat_rows_by_season(project, s: dict, progress=None, stop=None, code_names: dict | None = None):
+    """build_catalog 用: 親フォルダ参照の行をカタログの tuple（CAT_INSERT の順）で調査回ごとに yield する。
+    種名の CSV の行は LabelRow から直接 tuple を作る（dict を経由すると 120 万行で 10 秒余計にかかる）"""
+    root = norm(s.get("root") or "")
+    name = s["name"]
+    if not root or not os.path.isdir(root):
+        return
+    want = _tree_seasons(root)
+    lab = _labels(project, s, (lambda a, b, msg: progress(0, len(want), f"種名の CSV: {msg}")) if progress else None, stop)
+    lm = label_map(project)
+    scan_folders = bool(project.setting("catalog_scan_folders"))
+    by_season = lab["by_season"]
+    for i, se in enumerate(want):
+        if stop and stop():
+            break
+        if progress:
+            progress(i, len(want), f"{name}/{se}")
+        pdir = tree_season_project(root, se)
+        src = None
+        if pdir:
+            try:
+                src = open_source(pdir)
+            except Exception as e:
+                log.warning("調査回のプロジェクト %s を開けません: %s", pdir, e)
+        out: list[tuple] = []
+        if src is not None:
+            try:
+                hum, hum_raw = _human_codes(project, src, lm, code_names, f"{name}/{se}")
+                for r in src.db.q("SELECT id, rel_path, station, name, COALESCE(datetime_corrected, datetime) AS dt, status, auto_json, agree, det_state, duration, size FROM items WHERE missing=0"):
+                    ai = None
+                    if r["auto_json"]:
+                        try:
+                            ai = ";".join(x["species"] for x in (json.loads(r["auto_json"]).get("species") or [])) or None
+                        except Exception:
+                            ai = None
+                    out.append((name, r["id"], f"{se}/{r['rel_path']}", se, r["station"] or "", r["name"], r["dt"] or None, r["status"],
+                                ";".join(sorted(set(hum.get(r["id"], [])))) or None, ai, r["agree"], r["det_state"] or 0, r["duration"], r["size"],
+                                ";".join(sorted(set(hum_raw.get(r["id"], [])))) or None))
+            finally:
+                src.close()
+        elif by_season.get(se):
+            for d in by_season[se]:
+                sp = d.species                                   # 対応表を当てた種コードの tuple（並べ替え済み）
+                st = d.station
+                out.append((name, None, f"{se}/{st}/{d.file}", se, st, d.file, d.dt or None, "auto" if sp else "new", ";".join(sp) or None, None, None, 0, None, None, ";".join(d.raw) or None))
+        elif scan_folders:
+            for st in _tree_stations(root, se):
+                if stop and stop():
+                    break
+                if progress:
+                    progress(i, len(want), f"{name}/{se}/{st}")
+                for fn in _tree_station_files(root, se, st):
+                    out.append((name, None, f"{se}/{st}/{fn}", se, st, fn, None, "new", None, None, None, 0, None, None, None))
+        yield se, out
+
+
+def _tree_rows(project, s: dict, seasons: list[str] | None = None, progress=None, stop=None, code_names: dict | None = None) -> tuple[list[dict], list[str]]:
+    """_tree_rows_by_season を全部つないだもの（抽出など、全部を一度に見るとき用）→ (行, プロジェクトのある調査回)"""
+    out: list[dict] = []
+    proj_seasons: list[str] = []
+    for se, rows, pdir in _tree_rows_by_season(project, s, seasons, progress, stop, code_names):
+        out.extend(rows)
+        if pdir:
+            proj_seasons.append(se)
     return out, proj_seasons
 
 
@@ -371,7 +437,9 @@ def set_label_map(project, mapping: dict) -> dict:
     if changed:
         save_csv(sl.path, sl.rows)
     project.save()
-    _LABELS.clear()
+    msig = map_sig(project)
+    for name, (sig, _old, out) in list(_LABELS.items()):      # 読んであるものには、読み直さずに対応だけ当て直す（120 万行で 1 秒）
+        _LABELS[name] = (sig, msig, _apply_map(project, out, reapply=True))
     return dict(ok=True, n=len(lm))
 
 
@@ -606,31 +674,64 @@ def _parse_label_file(project, path: str, season_default: str, rows: dict, label
     return dict(path=path, n=n, cols=cols, error=None)
 
 
-def _apply_map(project, raw: dict) -> dict:
+def _apply_map(project, raw: dict, reapply: bool = False) -> dict:
     """生の表記で読んだもの（rows の species は表記の tuple）に、対応表と自動の当たりを当てて species を種コードの tuple にする（rows はその場で書き換える）。
-    返り値 dict(rows, labels={表記: 本数}, code_of={表記: コード or None}, unmapped=[(表記, n)], species=[(code, n)], files, cols)"""
+    表記の組ごとに一度だけ対応を決め、行ごとの仕事は辞書引きだけにする（120 万行で 2〜3 秒）。
+    返り値 dict(rows, labels={表記: 本数}, code_of={表記: コード or None}, unmapped=[(表記, n)], species=[(code, n)], files, cols,
+                by_season={調査回: [LabelRow]}, season_stats={調査回: dict(n, n_human, species=Counter)})"""
     lm = label_map(project)
     code_of = {lab: resolve_label(project, lab, lm) for lab in raw["labels"]}
-    intern: dict = {}
+    tup_of: dict[tuple, tuple] = {}                  # 表記の組 → 種コードの組
+    unm_of: dict[tuple, tuple] = {}                  # 表記の組 → 対応しない表記
+    by_season: dict[str, list] = defaultdict(list)
+    pair_counts: Counter = Counter()                 # (調査回, 種コードの組) → 本数
+    for d in raw["rows"].values():
+        if reapply:                                  # 一度当てたものに当て直す（対応表を変えたとき。raw に表記の tuple が残っている）
+            rw = d.raw
+        else:
+            rw = d.species                           # 読んだ直後（parse / pickle）は species に表記の tuple が入っている
+            d.raw = rw
+        tup = tup_of.get(rw)
+        if tup is None:
+            codes: list[str] = []
+            unm: list[str] = []
+            for lab in rw:
+                c = code_of.get(lab)
+                if c:
+                    if c not in codes:
+                        codes.append(c)
+                else:
+                    unm.append(lab)
+            if "empty" in codes and len(codes) > 1:
+                codes = [c for c in codes if c != "empty"]
+            tup = tuple(sorted(codes))
+            tup = tup_of.setdefault(rw, tup)
+            unm_of[rw] = tuple(unm)
+        d.species = tup
+        by_season[d.season].append(d)
+        pair_counts[(d.season, tup)] += 1
     unmapped: Counter = Counter()
     sp_counts: Counter = Counter()
+    season_stats: dict[str, dict] = {}
+    for (se, tup), n in pair_counts.items():
+        st = season_stats.get(se)
+        if st is None:
+            st = season_stats[se] = dict(n=0, n_human=0, species=Counter())
+        st["n"] += n
+        if tup:
+            st["n_human"] += n
+            for c in tup:
+                st["species"][c] += n
+                sp_counts[c] += n
+    raw_counts: Counter = Counter()
     for d in raw["rows"].values():
-        codes: list[str] = []
-        d.raw = d.species                        # 読んだ直後（parse / pickle）は species に表記の tuple が入っている
-        for lab in d.raw:
-            c = code_of.get(lab)
-            if c:
-                if c not in codes:
-                    codes.append(c)
-            else:
-                unmapped[lab] += 1
-        if "empty" in codes and len(codes) > 1:
-            codes = [c for c in codes if c != "empty"]
-        tup = tuple(sorted(codes))
-        d.species = intern.setdefault(tup, tup)
-        for c in tup:
-            sp_counts[c] += 1
-    return dict(rows=raw["rows"], labels=raw["labels"], code_of=code_of, unmapped=unmapped.most_common(), species=sp_counts.most_common(), files=raw["files"], cols=raw["cols"])
+        if unm_of.get(d.raw):
+            raw_counts[d.raw] += 1
+    for rw, n in raw_counts.items():
+        for lab in unm_of[rw]:
+            unmapped[lab] += n
+    return dict(rows=raw["rows"], labels=raw["labels"], code_of=code_of, unmapped=unmapped.most_common(), species=sp_counts.most_common(), files=raw["files"], cols=raw["cols"],
+                by_season=dict(by_season), season_stats=season_stats)
 
 
 def _labels_sig(project, files: list[tuple[str, str]]) -> tuple:
@@ -795,17 +896,19 @@ def tree_summary(project, s: dict, wait: bool = False) -> dict:
         try:
             lab = _labels(project, s)
             here = set(seasons) - set(proj_seasons)                                     # プロジェクトのある調査回は CSV ではなくプロジェクトの判定を使う
-            rows_here = [r for r in lab["rows"].values() if r["season"] in here]        # この親フォルダにある調査回の分だけ数える
             sp: Counter = Counter()
-            for r in rows_here:
-                for c in r["species"]:
-                    sp[c] += 1
-            d["labels"] = dict(n=len(lab["rows"]), n_here=len(rows_here), unmapped=lab["unmapped"][:20], n_unmapped=sum(n for _, n in lab["unmapped"]), n_unmapped_labels=len(lab["unmapped"]), n_labels=len(lab["labels"]), cols=lab["cols"],
+            n_here = n_human = 0
+            for se, st in lab["season_stats"].items():                                   # この親フォルダにある調査回の分だけ数える（調査回ごとの集計は読んだときに作ってある）
+                if se in here:
+                    n_here += st["n"]
+                    n_human += st["n_human"]
+                    sp.update(st["species"])
+            d["labels"] = dict(n=len(lab["rows"]), n_here=n_here, unmapped=lab["unmapped"][:20], n_unmapped=sum(n for _, n in lab["unmapped"]), n_unmapped_labels=len(lab["unmapped"]), n_labels=len(lab["labels"]), cols=lab["cols"],
                                files=[dict(path=f["path"], n=f["n"], error=f["error"]) for f in lab["files"]], auto=not s.get("labels_csv"),
-                               seasons=sorted({r["season"] for r in lab["rows"].values() if r["season"]}))
+                               seasons=sorted(se for se in lab["season_stats"] if se))
             d["species"] = [dict(code=c, n=n) for c, n in sp.most_common()]
-            d["n_human"] = sum(1 for r in rows_here if r["species"])
-            d["n_items"] = len(rows_here)
+            d["n_human"] = n_human
+            d["n_items"] = n_here
         except Exception as e:
             d["labels"] = dict(error=str(e))
     return d
@@ -1190,55 +1293,88 @@ def _import_tree_rows(project, name: str, rows: list[dict], batch: str, now: str
 
 
 # ---------- カタログ（参照先の全動画の目録。ここから取り込む対象を選ぶ） ----------
+CAT_INDEXES = {"idx_cat_season": "season", "idx_cat_station": "station", "idx_cat_species": "species", "idx_cat_status": "status", "idx_cat_item": "item_id", "idx_cat_labels": "labels"}
+CAT_INSERT = "INSERT OR IGNORE INTO catalog(source, src_id, rel, season, station, name, datetime, status, species, ai, agree, det_state, duration, size, labels) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+
+
 def build_catalog(project, progress=None, stop=None) -> dict:
-    """参照先の全動画の目録を作り直す（メディアは持たない）。プロジェクト参照は items と判定から、親フォルダ参照は種名の CSV から"""
+    """参照先の全動画の目録を作り直す（メディアは持たない）。プロジェクト参照は items と判定から、親フォルダ参照は種名の CSV から。
+    速さのため: 調査回ごとに流し込む（全部をメモリに持たない）、索引は落として最後に作り直す（索引を保ちながらの挿入は HDD では桁違いに遅い）、
+    1 回のトランザクションで 5 万行、キャッシュを大きくする"""
     db = project.db
     by_src: dict[str, int] = {}
     code_names: dict[str, dict] = {}
     lm = label_map(project)
     msig = map_sig(project)
+    conn = db.conn()
     with db.tx() as c:
         c.execute("DELETE FROM catalog")
-    for s in project.sources():
-        if stop and stop():
-            break
-        name = s["name"]
-        if progress:
-            progress(0, 0, name)
-        rows: list[tuple] = []
-        if s.get("kind") == "tree":
-            trows, _ = _tree_rows(project, s, None, lambda a, b, msg: progress and progress(a, b, msg), stop, code_names)
-            for r in trows:
-                rows.append((name, r["src_id"], r["rel"], r["season"], r["station"], r["file"], r["dt"] or None, r["status"],
-                             ";".join(sorted(r["species"])) or None, r["ai"], r["agree"], r["det_state"] or 0, r["duration"], r["size"], r.get("labels")))
-        else:
-            try:
-                src = open_source(s["dir"])
-            except Exception as e:
-                log.warning("参照先 %s を開けません: %s", name, e)
-                continue
-            try:
-                hum, hum_raw = _human_codes(project, src, lm, code_names, name)
-                for r in src.db.q("SELECT id, rel_path, season, station, name, COALESCE(datetime_corrected, datetime) AS dt, status, auto_json, agree, det_state, duration, size FROM items WHERE missing=0"):
-                    ai = None
-                    if r["auto_json"]:
-                        try:
-                            ai = ";".join(x["species"] for x in (json.loads(r["auto_json"]).get("species") or [])) or None
-                        except Exception:
-                            ai = None
-                    rows.append((name, r["id"], r["rel_path"], r["season"] or name, r["station"], r["name"], r["dt"], r["status"],
-                                 ";".join(sorted(set(hum.get(r["id"], [])))) or None, ai, r["agree"], r["det_state"], r["duration"], r["size"],
-                                 ";".join(sorted(set(hum_raw.get(r["id"], [])))) or None))
-            finally:
-                src.close()
-        for i0 in range(0, len(rows), 5000):
+        for ix in CAT_INDEXES:
+            c.execute(f"DROP INDEX IF EXISTS {ix}")
+    conn.execute("PRAGMA cache_size=-262144")
+    buf: list[tuple] = []
+    n_all = 0
+
+    def flush(force: bool = False):
+        nonlocal buf, n_all
+        if not buf or (len(buf) < 50000 and not force):
+            return
+        with db.tx() as c:
+            c.executemany(CAT_INSERT, buf)
+        n_all += len(buf)
+        buf = []
+    try:
+        for s in project.sources():
             if stop and stop():
                 break
-            with db.tx() as c:
-                c.executemany("INSERT OR IGNORE INTO catalog(source, src_id, rel, season, station, name, datetime, status, species, ai, agree, det_state, duration, size, labels) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows[i0:i0 + 5000])
+            name = s["name"]
+            n_src = 0
             if progress:
-                progress(i0 + len(rows[i0:i0 + 5000]), len(rows), name)
-        by_src[name] = len(rows)
+                progress(0, 0, name)
+            if s.get("kind") == "tree":
+                for se, rows in _cat_rows_by_season(project, s, lambda a, b, msg: progress and progress(a, b, msg), stop, code_names):
+                    if stop and stop():
+                        break
+                    buf.extend(rows)
+                    n_src += len(rows)
+                    flush()
+                    if progress:
+                        progress(n_all + len(buf), 0, f"{name}/{se}: {n_all + len(buf):,} 本")
+            else:
+                try:
+                    src = open_source(s["dir"])
+                except Exception as e:
+                    log.warning("参照先 %s を開けません: %s", name, e)
+                    continue
+                try:
+                    hum, hum_raw = _human_codes(project, src, lm, code_names, name)
+                    for r in src.db.q("SELECT id, rel_path, season, station, name, COALESCE(datetime_corrected, datetime) AS dt, status, auto_json, agree, det_state, duration, size FROM items WHERE missing=0"):
+                        ai = None
+                        if r["auto_json"]:
+                            try:
+                                ai = ";".join(x["species"] for x in (json.loads(r["auto_json"]).get("species") or [])) or None
+                            except Exception:
+                                ai = None
+                        buf.append((name, r["id"], r["rel_path"], r["season"] or name, r["station"], r["name"], r["dt"], r["status"],
+                                    ";".join(sorted(set(hum.get(r["id"], [])))) or None, ai, r["agree"], r["det_state"], r["duration"], r["size"],
+                                    ";".join(sorted(set(hum_raw.get(r["id"], [])))) or None))
+                        n_src += 1
+                        if len(buf) >= 50000:
+                            flush()
+                            if progress:
+                                progress(n_all, 0, f"{name}: {n_all:,} 本")
+                finally:
+                    src.close()
+            flush(True)
+            by_src[name] = n_src
+    finally:
+        flush(True)
+        if progress:
+            progress(n_all, n_all, "索引を作っています")
+        with db.tx() as c:
+            for ix, cols in CAT_INDEXES.items():
+                c.execute(f"CREATE INDEX IF NOT EXISTS {ix} ON catalog({cols})")
+        conn.execute("PRAGMA cache_size=-65536")
     _catalog_mark_imported(project)
     n = int(db.scalar("SELECT COUNT(*) FROM catalog") or 0)
     done = not (stop and stop())
@@ -1255,6 +1391,9 @@ def remap_catalog(project, progress=None, stop=None) -> dict:
     lm = label_map(project)
     combos = [(r[0], int(r[1])) for r in db.q("SELECT DISTINCT labels, (src_id IS NOT NULL) FROM catalog WHERE labels IS NOT NULL")]
     n_changed = 0
+    with db.tx() as c:                       # 書き換える列の索引は落としておき、最後に作り直す（HDD では索引を保ちながらの更新が遅い）
+        c.execute("DROP INDEX IF EXISTS idx_cat_species")
+        c.execute("DROP INDEX IF EXISTS idx_cat_status")
     for i, (raw, proj) in enumerate(combos):
         if stop and stop():
             break
@@ -1279,6 +1418,9 @@ def remap_catalog(project, progress=None, stop=None) -> dict:
             else:
                 cur = c.execute("UPDATE catalog SET species=?, status=? WHERE labels=? AND src_id IS NULL AND species IS NOT ?", (sp, "auto" if sp else "new", raw, sp))
             n_changed += cur.rowcount
+    with db.tx() as c:
+        c.execute("CREATE INDEX IF NOT EXISTS idx_cat_species ON catalog(species)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_cat_status ON catalog(status)")
     if not (stop and stop()):
         cat = project.data.get("catalog") or {}
         cat["map_sig"] = map_sig(project)
@@ -1288,10 +1430,14 @@ def remap_catalog(project, progress=None, stop=None) -> dict:
 
 
 def _catalog_mark_imported(project) -> None:
-    """取り込み済みの対象に横断側の items.id を付ける（rel_path = 名前/rel で照合）"""
+    """取り込み済みの対象に横断側の items.id を付ける（rel_path = 名前/rel で照合）。全行を書き換えず、消えた対象の印を外し、まだ印のない対象だけ付ける"""
     db = project.db
     with db.tx() as c:
-        c.execute("UPDATE catalog SET item_id=(SELECT i.id FROM items i WHERE i.rel_path = catalog.source || '/' || catalog.rel)")
+        c.execute("UPDATE catalog SET item_id=NULL WHERE item_id IS NOT NULL AND item_id NOT IN (SELECT id FROM items)")
+        rows = c.execute("SELECT id, rel_path FROM items WHERE id NOT IN (SELECT item_id FROM catalog WHERE item_id IS NOT NULL)").fetchall()
+        for iid, rel_path in rows:
+            name, _, rel = rel_path.partition("/")
+            c.execute("UPDATE catalog SET item_id=? WHERE source=? AND rel=?", (iid, name, rel))
 
 
 def catalog_where(f: dict) -> tuple[str, list]:
