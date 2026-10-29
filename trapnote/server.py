@@ -1071,10 +1071,19 @@ def make_app(session: Session) -> web.Application:
         p = need_cross()
         b = await _body(request)
         try:
-            r = await io(cross.add_source, p, str(b.get("path") or ""))
+            r = await io(cross.add_source, p, str(b.get("path") or ""), (str(b.get("name") or "").strip() or None), (str(b.get("labels_csv") or "").strip() or None))
         except (ValueError, FileNotFoundError) as e:
             raise ApiError(str(e))
         return jr(dict(r, state=await io(S.snapshot)))
+
+    async def cross_source_labels(request):
+        p = need_cross()
+        b = await _body(request)
+        try:
+            r = await io(cross.set_source_labels, p, str(b.get("name") or ""), (str(b.get("labels_csv") or "").strip() or None))
+        except (ValueError, FileNotFoundError) as e:
+            raise ApiError(str(e))
+        return jr(r)
 
     async def cross_source_remove(request):
         p = need_cross()
@@ -1257,6 +1266,7 @@ def make_app(session: Session) -> web.Application:
     r.add_get("/api/cross/info", cross_info)
     r.add_post("/api/cross/sources/add", cross_source_add)
     r.add_post("/api/cross/sources/remove", cross_source_remove)
+    r.add_post("/api/cross/sources/labels", cross_source_labels)
     r.add_post("/api/cross/plan", cross_plan)
     r.add_post("/api/cross/import", cross_import)
     r.add_post("/api/cross/sync/plan", cross_sync_plan)

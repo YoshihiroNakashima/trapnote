@@ -162,7 +162,11 @@ class Project:
         root = None
         for s in self.sources():
             if s.get("name") == name:
-                root = resolve_root_of(s["dir"])
+                if s.get("kind") == "tree":                # 親フォルダ（NAS の PRM_N など）を直接参照
+                    r = norm(s.get("root") or "")
+                    root = r if r and os.path.isdir(r) else None
+                else:
+                    root = resolve_root_of(s["dir"])
                 break
         self._src_roots[name] = root
         return root
@@ -220,7 +224,7 @@ class Project:
 
     def to_dict(self) -> dict:
         return dict(dir=self.dir, name=self.name, root=self.root, roots=self.data.get("roots", {}), kind=self.kind,
-                    sources=[dict(name=s.get("name"), dir=s.get("dir"), root=self.source_root(s.get("name"))) for s in self.sources()] if self.is_cross else [],
+                    sources=[dict(name=s.get("name"), kind=s.get("kind") or "project", dir=s.get("dir"), root=self.source_root(s.get("name"))) for s in self.sources()] if self.is_cross else [],
                     settings=self.data.get("settings", {}), created_at=self.data.get("created_at"),
                     updated_at=self.data.get("updated_at"), is_default_place=(key(os.path.dirname(self.dir)) == key(self.root or "")))
 
