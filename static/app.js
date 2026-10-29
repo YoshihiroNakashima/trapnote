@@ -336,6 +336,15 @@ function renderWindow(force) {
   const rows = [];
   for (let i = first; i < last; i++) rows.push(rowHtml(rowAt(i), i));
   ul.innerHTML = `<li class="spacer" style="height:${first * h}px"></li>` + rows.join('') + `<li class="spacer" style="height:${Math.max(0, n - last) * h}px"></li>`;
+  if (!n && S.project) {                    // 0 件のときは理由と次の一手を出す（絞り込みで 0 件、横断でまだ取り込んでいない）
+    const active = activeFilterNames();
+    const cross = S.project.kind === 'cross';
+    const allN = ((S.facets || {}).counts || {}); const total = (allN.new || 0) + (allN.auto || 0) + (allN.verified || 0);
+    ul.innerHTML = `<li class="empty">${active.length ? `${esc(t('empty_filtered'))}<div class="info">${esc(active.join(' · '))}</div><button type="button" class="small" id="emptyClear">${esc(t('empty_clear'))}</button>`
+      : (cross && !total ? `${esc(t('empty_cross'))}<button type="button" class="small" id="emptyCross">${esc(t('cross'))}</button>` : esc(t('empty_none')))}</li>`;
+    const b = ul.querySelector('#emptyClear'); if (b) b.onclick = clearFilters;
+    const c = ul.querySelector('#emptyCross'); if (c) c.onclick = () => crossDialog();
+  }
 }
 function renderItemPos() {   // いまの一覧（フォルダ・絞り込み）の中で何番目か
   const el = $('#itemPos'); if (!el) return;
