@@ -9,7 +9,7 @@
 let crossModalEl = null;
 const CR_F0 = { source: '', season: '', station: '', species: '', status: '', imported: '', text: '', exclude_stations: '', single_only: false, csv_text: '' };
 const CR = { tab: '', f: Object.assign({}, CR_F0), counts: null,
-  smp: { unit: 'station', n: 20, cap: 5, gap: 10, seed: 1 }, labelQ: '' };
+  smp: { unit: 'station', n: 20, cap: 5, gap: 10, seed: 1, per_unit: 0, total: 3000, max_avail: 0 }, labelQ: '' };
 const CR_TABS = ['sources', 'labels', 'build', 'pick', 'sync'];
 
 async function crossDialog(tab) {
@@ -255,6 +255,9 @@ function crossTabPick(m, body) {
     <div class="note">${esc(t('cr_random_help'))}</div>
     <div class="cr-actions"><span>${esc(t('cr_unit'))} <select id="cfUnit">${unitOpts.map(([v, l]) => `<option value="${v}" ${sm.unit === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></span>
       <span>${esc(t('cr_n'))} <input type="number" id="cfN" value="${sm.n}" min="1" step="1" style="width:70px"></span>
+      <span id="cfPerUnitWrap" title="${esc(t('cr_per_unit_help'))}">${esc(t('cr_per_unit'))} <input type="number" id="cfPerUnit" value="${sm.per_unit}" min="0" style="width:70px"></span>
+      <span id="cfTotalWrap" title="${esc(t('cr_total_help'))}">${esc(t('cr_total'))} <input type="number" id="cfTotal" value="${sm.total}" min="0" style="width:70px"></span>
+      <span id="cfMaxAvailWrap" title="${esc(t('cr_max_avail_help'))}">${esc(t('cr_max_avail'))} <input type="number" id="cfMaxAvail" value="${sm.max_avail}" min="0" style="width:70px"></span>
       <span id="cfCapWrap" title="${esc(t('cross_cap_help'))}">${esc(t('cross_cap'))} <input type="number" id="cfCap" value="${sm.cap}" min="0" style="width:60px"></span>
       <span id="cfGapWrap" title="${esc(t('cross_gap_help'))}">${esc(t('cross_gap'))} <input type="number" id="cfGap" value="${sm.gap}" min="0" style="width:60px"> ${esc(t('cross_min'))}</span>
       <span title="${esc(t('cr_seed_help'))}">${esc(t('cross_seed'))} <input type="number" id="cfSeed" value="${sm.seed}" min="0" style="width:60px"></span>
@@ -286,15 +289,20 @@ function crossTabPick(m, body) {
   };
   q('#cfExport').onclick = async () => { readF(); try { const r = await api('/api/cross/catalog/export', { filters: CR.f }); toast(`${t('cross_list_done')}: ${r.path} (${r.n})`); } catch (e) { toast(e.message, 'error'); } };
   // ランダムに選ぶ
-  const unitUi = () => { const u = q('#cfUnit').value; CR.smp.unit = u; q('#cfCapWrap').classList.toggle('hidden', u !== 'species'); q('#cfGapWrap').classList.toggle('hidden', u !== 'species' && u !== 'video'); };
+  const unitUi = () => { const u = q('#cfUnit').value; CR.smp.unit = u; const grp = ['station', 'season', 'station_season'].includes(u);
+    q('#cfCapWrap').classList.toggle('hidden', u !== 'species'); q('#cfMaxAvailWrap').classList.toggle('hidden', u !== 'species'); q('#cfGapWrap').classList.toggle('hidden', u !== 'species' && u !== 'video');
+    q('#cfPerUnitWrap').classList.toggle('hidden', !grp); q('#cfTotalWrap').classList.toggle('hidden', !grp); };
   q('#cfUnit').onchange = unitUi; unitUi();
-  const sampleParams = () => { CR.smp = { unit: q('#cfUnit').value, n: parseInt(q('#cfN').value) || 0, cap: parseInt(q('#cfCap').value) || 0, gap: parseFloat(q('#cfGap').value) || 0, seed: parseInt(q('#cfSeed').value) || 1 };
-    return { unit: CR.smp.unit, n: CR.smp.n, cap: CR.smp.cap, gap_min: CR.smp.gap, seed: CR.smp.seed, species: CR.f.species && !['none', 'any'].includes(CR.f.species) ? [CR.f.species] : [] }; };
+  const sampleParams = () => { CR.smp = { unit: q('#cfUnit').value, n: parseInt(q('#cfN').value) || 0, cap: parseInt(q('#cfCap').value) || 0, gap: parseFloat(q('#cfGap').value) || 0, seed: parseInt(q('#cfSeed').value) || 1,
+      per_unit: parseInt(q('#cfPerUnit').value) || 0, total: parseInt(q('#cfTotal').value) || 0, max_avail: parseInt(q('#cfMaxAvail').value) || 0 };
+    return { unit: CR.smp.unit, n: CR.smp.n, cap: CR.smp.cap, gap_min: CR.smp.gap, seed: CR.smp.seed, per_unit: CR.smp.per_unit, total: CR.smp.total, max_avail: CR.smp.max_avail, species: CR.f.species && !['none', 'any'].includes(CR.f.species) ? [CR.f.species] : [] }; };
   const showSample = r => {
     const unitName = { station: t('filter_station_s'), season: t('filter_season_s'), station_season: t('cr_unit_station_season_s') }[r.unit];
     let html = `<div><b>${esc(t('cross_will_import'))} ${r.n} ${esc(t('items'))}</b>`;
-    if (r.units && r.units.length) html += ` · ${esc(unitName)} ${r.units.length} / ${r.n_units_available}: <span class="info">${esc(r.units.map(([k, n]) => `${k} (${n})`).join(', '))}</span>`;
-    else if (r.unit === 'video') html += ` <span class="info">/ ${r.n_units_available}</span>`;
+    if (r.units && r.units.length) {
+      const pool = {}; (r.units_pool || []).forEach(([k, n]) => { pool[k] = n; });
+      html += ` · ${esc(unitName)} ${r.units.length} / ${r.n_units_available}${r.n_pool && r.n_pool !== r.n ? ` · ${esc(t('cr_pool_of_units'))} ${r.n_pool} → ${r.n}` : ''}: <span class="info">${esc(r.units.map(([k, n]) => `${k} (${n}${pool[k] && pool[k] !== n ? ` / ${pool[k]}` : ''})`).join(', '))}</span>`;
+    } else if (r.unit === 'video') html += ` <span class="info">/ ${r.n_units_available}</span>`;
     html += '</div>';
     const cnt = Object.entries(r.counts || {});
     if (cnt.length) html += `<div class="info">${esc(t('species'))}: ${cnt.map(([k, v]) => `${esc(k === '(none)' ? t('sp_none') : spLabel(k))} ${v}${r.available && r.available[k] != null ? ` <span class="info">/ ${r.available[k]}</span>` : ''}`).join(' · ')}</div>`;

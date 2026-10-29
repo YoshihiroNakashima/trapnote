@@ -1566,7 +1566,9 @@ def catalog_sample(project, f: dict, params: dict) -> dict:
       station         地点を n か所選び、その地点の動画を全部（gold の地点など。参照先・調査回をまたいで同じ地点名は 1 か所）
       season          調査回を n 回選び、その調査回の動画を全部
       station_season  地点 × 調査回の組を n 組選び、その動画を全部
-    乱数の種 seed で同じ結果が再現できる。返り値 dict(ids, n, counts={code: n}, available={code: n}（種ごと）, units=[(名前, 本数)], n_units_available)"""
+      （station / season / station_season は per_unit = 単位ごとの上限、total = 合計の上限で、選んだ単位の中から乱数で間引ける。gold の「地点 20・合計 3,000 本」など）
+      （species は max_avail = 既存の本数がこれ以下の種だけ、で稀な種の補いができる）
+    乱数の種 seed で同じ結果が再現できる。返り値 dict(ids, n, counts={code: n}, available={code: n}（種ごと）, units=[(名前, 選んだ本数)], units_pool=[(名前, 母数)], n_pool, n_units_available)"""
     db = project.db
     where, p = catalog_where(dict(f, imported="0"))
     unit = params.get("unit") or ("species" if params.get("n_per_species") else "all")
@@ -1582,19 +1584,37 @@ def catalog_sample(project, f: dict, params: dict) -> dict:
     rng = random.Random(seed)
     if unit in _UNIT_KEY:                                   # 地点・調査回・その組: 数は SQL で数え、選んだ単位の行だけ読む
         kx = _UNIT_KEY[unit]
+        per_unit = int(params.get("per_unit") or 0)         # 単位ごとの上限（0 で全部）
+        total = int(params.get("total") or 0)               # 合計の上限（0 で上限なし。超えれば選んだ単位の動画から乱数で間引く）
         groups = {r[0]: r[1] for r in db.q(f"SELECT {kx} AS k, COUNT(*) FROM catalog WHERE {where} GROUP BY k", p)}
         keys = sorted(k for k in groups if k and k != "/")
         chosen = sorted(rng.sample(keys, min(n_want, len(keys))))
-        ids: list[int] = []
-        counts: Counter = Counter()
+        by_unit: dict[str, list[tuple]] = defaultdict(list)
         for i0 in range(0, len(chosen), 500):
             part = chosen[i0:i0 + 500]
             qs = ",".join("?" * len(part))
-            ids += [r[0] for r in db.q(f"SELECT id FROM catalog WHERE {where} AND {kx} IN ({qs})", [*p, *part])]
-            for r in db.q(f"SELECT species, COUNT(*) FROM catalog WHERE {where} AND {kx} IN ({qs}) GROUP BY species", [*p, *part]):
-                for code in (r[0] or "(none)").split(";"):
-                    counts[code] += r[1]
-        return dict(ids=ids, counts=dict(counts), available={}, n=len(ids), units=[(k, groups[k]) for k in chosen], n_units_available=len(keys), unit=unit)
+            for r in db.q(f"SELECT id, {kx} AS k, species FROM catalog WHERE {where} AND {kx} IN ({qs}) ORDER BY id", [*p, *part]):
+                by_unit[r[1]].append((r[0], r[2]))
+        n_pool = sum(len(v) for v in by_unit.values())
+        picked: list[tuple] = []
+        for k in chosen:
+            rows_k = by_unit.get(k, [])
+            if per_unit and len(rows_k) > per_unit:
+                rows_k = sorted(rng.sample(rows_k, per_unit))
+            picked.extend(rows_k)
+        if total and len(picked) > total:
+            picked = sorted(rng.sample(picked, total))
+        units = Counter(k for k in chosen)
+        sel_by_unit: Counter = Counter()
+        counts: Counter = Counter()
+        pid = {r[0] for r in picked}
+        for k, rows_k in by_unit.items():
+            sel_by_unit[k] = sum(1 for r in rows_k if r[0] in pid)
+        for _id, sp in picked:
+            for code in (sp or "(none)").split(";"):
+                counts[code] += 1
+        return dict(ids=[r[0] for r in picked], counts=dict(counts), available={}, n=len(picked), units=[(k, sel_by_unit[k]) for k in chosen],
+                    units_pool=[(k, groups[k]) for k in chosen], n_pool=n_pool, n_units_available=len(keys), unit=unit)
     rows = [tuple(r) for r in db.q(f"SELECT id, source, season, station, datetime, species FROM catalog WHERE {where}" + (" AND species IS NOT NULL" if unit == "species" else ""), p)]
     if unit == "video":
         cands = _thin_rows(rows, gap_min)
@@ -1606,11 +1626,14 @@ def catalog_sample(project, f: dict, params: dict) -> dict:
     # unit == species
     n_per = n_want
     want_sp = set(params.get("species") or [])
+    max_avail = int(params.get("max_avail") or 0)         # 既存の本数がこれ以下の種だけ（稀な種の補い用。0 で全部の種）
     pool: dict[str, list[tuple]] = defaultdict(list)
     for r in _thin_rows(rows, gap_min):
         for code in r[5].split(";"):
             if not want_sp or code in want_sp:
                 pool[code].append(r)
+    if max_avail:
+        pool = defaultdict(list, {c: v for c, v in pool.items() if len(v) <= max_avail})
     ids = []
     seen: set[int] = set()
     counts2: dict[str, int] = {}

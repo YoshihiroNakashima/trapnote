@@ -159,6 +159,17 @@ def test_sample_units(tmp_path):
         # 地点 × 調査回を 3 組
         r = cross.catalog_sample(p, {}, dict(unit="station_season", n=3, seed=1))
         assert len(r["units"]) == 3 and r["n"] == 24 and r["n_units_available"] == 6 and all("/" in u[0] for u in r["units"])
+        # 地点 3 か所、各地点 5 本まで・合計 12 本まで（gold の「地点 20・合計 3,000 本」の形）
+        r = cross.catalog_sample(p, {}, dict(unit="station", n=3, per_unit=5, total=12, seed=1))
+        assert len(r["units"]) == 3 and r["n"] == 12 and all(n <= 5 for _, n in r["units"]) and sum(n for _, n in r["units"]) == 12
+        assert r["n_pool"] == sum(n for _, n in r["units_pool"]) and r["n_pool"] > 12
+        r2 = cross.catalog_sample(p, {}, dict(unit="station", n=3, per_unit=5, total=12, seed=1))
+        assert r2["ids"] == r["ids"]
+        r = cross.catalog_sample(p, {}, dict(unit="season", n=1, total=10, seed=1))
+        assert r["n"] == 10 and r["units"][0][1] == 10 and r["units_pool"][0][1] == 24
+        # 稀な種だけ: 既存の本数が 7 本以下の種
+        r = cross.catalog_sample(p, {}, dict(unit="species", n=100, max_avail=7, seed=1))
+        assert r["available"] and all(v <= 7 for v in r["available"].values()) and "deer" not in r["counts"]
         # 絞り込みの中から（調査回で絞ると地点は 3 か所）
         r = cross.catalog_sample(p, {"season": "N240128"}, dict(unit="station", n=10, seed=1))
         assert r["n_units_available"] == 3 and len(r["units"]) == 3 and r["n"] == 24
