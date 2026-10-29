@@ -415,8 +415,9 @@ function crossOnJobs(jobs) {
     const count = cur.kind === 'cross_labels' ? `${pct}%` : `${cur.done}${cur.total ? ' / ' + cur.total + ` (${pct}%)` : ''}`;
     st.innerHTML = `<div><b>${esc(cur.label)}</b>: ${count}</div>${cur.total ? `<div class="prog"><div style="width:${pct}%"></div></div>` : ''}<div class="info">${esc(cur.current || '')}${cur.current && cur.message ? ' · ' : ''}${esc(cur.message || '')}</div>`;
     m._wasRunning = m._wasRunning || cur.kind;
-  } else if (queued) {
-    st.innerHTML = `<div><b>${esc(t('jb_queued'))}</b></div>`;
+  } else if (queued) {                         // 自分の処理は列にある: いま何が動いているかも出す（メタデータの取得や走査の後ろで待っていることがある）
+    const pct = cur && cur.total ? ` ${cur.done} / ${cur.total} (${Math.round(100 * cur.done / cur.total)}%)` : (cur && cur.done ? ` ${cur.done}` : '');
+    st.innerHTML = `<div><b>${esc(t('jb_queued'))}</b>${cur ? ` · ${esc(t('cr_now_running'))}: ${esc(cur.label)}${pct} <span class="info">${esc(cur.current || cur.message || '')}</span> · ${esc(t('cr_starts_after'))}` : ''}</div>`;
     m._wasRunning = m._wasRunning || 'queued';
   } else if (finished) {                       // 待ち → 実行中 の切り替わりの一瞬（どちらにも見えない）では終わったと見なさない
     m._wasRunning = false;

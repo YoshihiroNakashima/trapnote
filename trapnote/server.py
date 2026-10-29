@@ -1103,7 +1103,10 @@ def make_app(session: Session) -> web.Application:
         except ValueError as e:
             raise ApiError(str(e))
         if b.get("rebuild") and p.sources():
+            yielded = S.bg.yield_current(("meta",))
             S.bg.submit(CatalogBuildJob("auto"), front=True)
+            if yielded:
+                S.bg.submit(MetaJob())
         return jr(dict(r, jobs=S.jobs_status(), species=p.species.to_dict(), state=await io(S.snapshot)))
 
     async def cross_source_add(request):
@@ -1145,7 +1148,10 @@ def make_app(session: Session) -> web.Application:
         p = need_cross()
         b = await _body(request)
         spec = dict(mode=b.get("mode") or "select", params=b.get("params") or {}, ids=b.get("ids") or [], filters=b.get("filters") or {})
+        yielded = S.bg.yield_current(("meta",))
         S.bg.submit(CrossImportJob(spec, str(b.get("batch") or "").strip()), front=True)
+        if yielded:
+            S.bg.submit(MetaJob())
         return jr(S.jobs_status())
 
     async def cross_sources_add_under(request):
@@ -1164,7 +1170,10 @@ def make_app(session: Session) -> web.Application:
         if "scan_folders" in b:
             p.update_settings(dict(catalog_scan_folders=bool(b.get("scan_folders"))))
         mode = str(b.get("mode") or "full")
+        yielded = S.bg.yield_current(("meta",))             # メタデータの取得中なら順番を譲ってもらう（あとで続きをする）
         S.bg.submit(CatalogBuildJob(mode if mode in ("auto", "full", "remap") else "full"), front=True)
+        if yielded:
+            S.bg.submit(MetaJob())
         return jr(S.jobs_status())
 
     async def cross_catalog_counts(request):

@@ -108,6 +108,16 @@ class Lane:
         except Exception as e:
             log.debug("ジョブの記録の失敗: %s", e)
 
+    def yield_current(self, kinds) -> bool:
+        """いま実行中の処理が kinds（"meta" など、あとでやり直せるもの）なら止めて、次の処理に順番を譲る。止めたら True（呼ぶ側が同じ処理を列の最後に入れ直す）"""
+        with self.cv:
+            j = self.current
+            if j is not None and j.kind in kinds and not j.stop_flag.is_set():
+                j.stop_flag.set()
+                j.message = "別の処理に順番を譲りました（あとで続きをします）"
+                return True
+        return False
+
     def stop_all(self) -> None:
         with self.cv:
             for j in self.queue:
@@ -183,15 +193,18 @@ class MetaJob(Job):
                             c.execute("UPDATE items SET datetime_corrected=? WHERE id=?", (media.shift_dt(base, off[0]), iid))
             pending = []
 
+        step = max(1, self.workers) * 4                      # ex.map は全部を先に投げてしまい「止める」が効かないので、少しずつ投げる
         with ThreadPoolExecutor(max(1, self.workers), thread_name_prefix="meta") as ex:
-            for iid, m, err in ex.map(one, rows):
+            for i0 in range(0, len(rows), step):
                 if self.stop_flag.is_set():
                     break
-                pending.append((iid, m, err))
-                if err:
-                    self.failed += 1
-                else:
-                    self.done += 1
+                for iid, m, err in ex.map(one, rows[i0:i0 + step]):
+                    pending.append((iid, m, err))
+                    if err:
+                        self.failed += 1
+                    else:
+                        self.done += 1
+                    self.current = rows[i0]["rel_path"] if i0 < len(rows) else ""
                 if len(pending) >= 50 or time.time() - last_flush > 2.0:
                     flush()
                     last_flush = time.time()
