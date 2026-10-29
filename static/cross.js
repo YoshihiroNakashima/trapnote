@@ -269,7 +269,11 @@ function crossTabPick(m, body) {
       <button type="button" class="small" id="cfImportAll">${esc(t('cross_import_filtered'))} (<span id="cfNAll">0</span>)</button>
       <button type="button" class="small" id="cfExport">${esc(t('cross_export_catalog'))}</button>
     </div>
-    <div id="cfLoad"></div>`;
+    <div id="cfLoad"></div>
+    ${info.n_items ? `<h4>${esc(t('cr_remove_h'))}</h4>
+    <div class="note">${esc(t('cr_remove_help'))}</div>
+    <div class="cr-actions"><select id="cfRmBatch">${(info.batches || []).map(b => `<option value="${esc(b.batch)}">${esc(b.batch || t('cr_no_batch'))} (${b.n})</option>`).join('')}<option value="__all__">${esc(t('cr_all_items'))} (${info.n_items})</option></select>
+      <button type="button" class="small danger-outline" id="cfRemove">${esc(t('cr_remove_btn'))}</button></div>` : ''}`;
   const q = sel => m.querySelector(sel);
   const readF = () => { CR.f = { source: q('#cfSource').value, season: q('#cfSeason').value, station: q('#cfStation').value.trim(), species: q('#cfSpecies').value, status: q('#cfStatus').value, imported: q('#cfImported').value, text: q('#cfText').value.trim(), exclude_stations: q('#cfExclude').value.trim(), single_only: q('#cfSingle').checked, csv_text: q('#cfCsv').value }; };
   q('#cfApply').onclick = () => { readF(); crossLoadCatalog(m); };
@@ -288,6 +292,16 @@ function crossTabPick(m, body) {
     try { const j = await api('/api/cross/import', { mode: 'catalog_sample', filters: CR.f, params: { unit: 'all' }, batch: b }); const mm = crossModalEl; if (mm) { crossTrack(mm, j, 'pick'); } } catch (e) { toast(e.message, 'error'); }
   };
   q('#cfExport').onclick = async () => { readF(); try { const r = await api('/api/cross/catalog/export', { filters: CR.f }); toast(`${t('cross_list_done')}: ${r.path} (${r.n})`); } catch (e) { toast(e.message, 'error'); } };
+  if (q('#cfRemove')) q('#cfRemove').onclick = async () => {
+    const v = q('#cfRmBatch').value;
+    const all = v === '__all__';
+    const n = all ? info.n_items : ((info.batches || []).find(b => b.batch === v) || {}).n;
+    crossModalEl = null;
+    const ok = await confirmModal(t('cr_remove_h'), `<div>${esc(all ? t('cr_all_items') : (v || t('cr_no_batch')))}: ${n} ${esc(t('items'))}</div><div class="note">${esc(t('cr_remove_q'))}</div>`, t('cr_remove_btn'), true);
+    await crossDialog('pick');
+    if (!ok) return;
+    try { const j = await api('/api/cross/items/remove', all ? { all: true } : { batch: v }); const mm = crossModalEl; if (mm) crossTrack(mm, j, 'pick'); } catch (e) { toast(e.message, 'error'); }
+  };
   // ランダムに選ぶ
   const unitUi = () => { const u = q('#cfUnit').value; CR.smp.unit = u; const grp = ['station', 'season', 'station_season'].includes(u);
     q('#cfCapWrap').classList.toggle('hidden', u !== 'species'); q('#cfMaxAvailWrap').classList.toggle('hidden', u !== 'species'); q('#cfGapWrap').classList.toggle('hidden', u !== 'species' && u !== 'video');
@@ -398,7 +412,7 @@ function crossTabSync(m, body) {
 }
 
 // ---------- 裏の処理の表示 ----------
-const crMine = j => j && (j.kind === 'cross_import' || j.kind === 'cross_sync' || j.kind === 'cross_copy' || j.kind === 'cross_catalog' || j.kind === 'cross_labels');
+const crMine = j => j && (j.kind === 'cross_import' || j.kind === 'cross_sync' || j.kind === 'cross_copy' || j.kind === 'cross_catalog' || j.kind === 'cross_labels' || j.kind === 'cross_remove');
 
 // 処理を入れた直後に呼ぶ: 入れた処理の id を控え、終わったら after の段で窓を開き直す（入れた処理が既に終わっていれば次の表示で開き直る）
 // 横断の処理は cross レーン（種名 CSV・カタログ。プロジェクトを閉じても続く）と bg レーン（取り込み・書き戻し・コピー）に分かれる → 1 つにまとめて見る
@@ -418,9 +432,9 @@ function crossTrack(m, jobs, after) {
   const L = crLanes(jobs);
   const j = L.cur || L.queued[0];
   if (j && j.id != null) m._jobId = j.id;
-  crossOnJobs(jobs);
   const st = m.querySelector('#crStatus');
-  if (st && !st.innerHTML && document.body.contains(m)) st.innerHTML = `<div><b>${esc(t('jb_queued'))}</b></div>`;   // 入れた直後でまだ状態が来ていないときも、押した手応えを出す
+  if (st) st.innerHTML = `<div><b>${esc(t('jb_queued'))}</b></div>`;   // 前の結果の表示を消し、押した手応えを出す（状態が来れば進み具合に変わる）
+  crossOnJobs(jobs);
 }
 
 function crossOnJobs(jobs) {

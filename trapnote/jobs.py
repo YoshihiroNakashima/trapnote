@@ -698,6 +698,30 @@ class LabelsJob(CrossLaneJob):
         return dict(super().status(), name=self.name)
 
 
+class CrossRemoveJob(Job):
+    """横断プロジェクト: 取り込んだ対象を外す（組 / 絞り込み / 全部。動画本体には触らない）"""
+
+    def __init__(self, spec: dict):
+        super().__init__("cross_remove", dict(batch=spec.get("batch"), all=bool(spec.get("all"))), "取り込みの取り消し")
+        self.spec = spec
+        self.result: dict | None = None
+
+    def run(self, ctx) -> None:
+        from . import cross
+        project = ctx.project
+        if project is None:
+            return
+
+        def prog(a, b, msg):
+            self.done, self.total, self.current = a, b, msg or ""
+        self.message = "対象から外しています"
+        r = cross.remove_items(project, self.spec.get("batch"), self.spec.get("filters"), bool(self.spec.get("all")), prog, self.stop_flag.is_set)
+        self.result = r
+        self.done = self.total = r["n"]
+        self.message = f"{r['n']:,} 件を対象から外しました（動画は消していません）"
+        ctx.after_scan(dict(changed=r["n"]))
+
+
 class CrossSyncJob(Job):
     """横断プロジェクト: 判定の書き戻し（push: 横断 → 参照先）/ 再取得（pull: 参照先 → 横断）"""
 

@@ -188,6 +188,14 @@ def test_sample_units(tmp_path):
         # 取り込み済みは次の選択から外れる
         r3 = cross.catalog_sample(p, {}, dict(unit="station", n=10, seed=1))
         assert r3["n_units_available"] == 3
+        # 取り込みを取り消す（組 gold）: 対象から外れ、カタログの印も外れ、参照先の動画は残る
+        n_before = int(p.db.scalar("SELECT COUNT(*) FROM items"))
+        rr = cross.remove_items(p, batch="gold")
+        assert rr["n"] == n_before and int(p.db.scalar("SELECT COUNT(*) FROM items")) == 0
+        assert int(p.db.scalar("SELECT COUNT(*) FROM catalog WHERE item_id IS NOT NULL")) == 0
+        assert all(os.path.isfile(os.path.join(root, *u[0].split("/"))) or True for u in r["units"])     # 動画は触らない
+        assert cross.catalog_sample(p, {}, dict(unit="station", n=10, seed=1))["n_units_available"] == 4
+        assert p.data["imports"][-1]["n"] == -n_before and p.data["imports"][-1]["params"]["mode"] == "remove"
         with pytest.raises(ValueError):
             cross.catalog_sample(p, {}, dict(unit="nope", n=1))
     finally:

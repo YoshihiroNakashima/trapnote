@@ -408,7 +408,8 @@ async function bulkAction(action, ids) {
 }
 async function deleteItems(ids) {
   if (!ids.length) return;
-  const ok = await confirmModal(t('del_title'), `<div>${ids.length} ${t('items')}</div><div class="note">${esc(t('del_help'))}</div>`, t('del_n'), true);
+  const cross = S.project && S.project.kind === 'cross';
+  const ok = await confirmModal(t(cross ? 'del_title_cross' : 'del_title'), `<div>${ids.length} ${t('items')}</div><div class="note">${esc(t(cross ? 'del_help_cross' : 'del_help'))}</div>`, t(cross ? 'del_n_cross' : 'del_n'), true);
   if (!ok) return;
   showOverlayLater(t('loading'));
   try {
@@ -434,7 +435,7 @@ function showCtxMenu(x, y, id, i, rowObj) {
     [many || !row.train_exclude ? 'exclude' : 'include', many || !row.train_exclude ? t('ctx_excl') : t('ctx_incl')],
     many && ['unfavorite', t('ctx_unfav')], many && ['include', t('ctx_incl')],
     ['all', t('ctx_sel_all')], 'hr',
-    ['delete', `${t('ctx_del')}${many ? ` (${ids.length})` : ''}`, 'danger'],
+    ['delete', `${t(S.project && S.project.kind === 'cross' ? 'ctx_del_cross' : 'ctx_del')}${many ? ` (${ids.length})` : ''}`, 'danger'],
   ].filter(Boolean);
   m.innerHTML = items.map(it => it === 'hr' ? '<hr>' : `<div data-act="${it[0]}" class="${it[2] || ''}">${esc(it[1])}</div>`).join('');
   m.classList.remove('hidden');

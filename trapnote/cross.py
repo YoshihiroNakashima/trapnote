@@ -1705,6 +1705,31 @@ def export_catalog(project, path: str, f: dict | None = None) -> dict:
     return dict(path=path, n=n)
 
 
+# ---------- 取り込みを取り消す（対象から外す。動画本体には触らない） ----------
+def remove_items(project, batch: str | None = None, f: dict | None = None, all_items: bool = False, progress=None, stop=None) -> dict:
+    """組（batch）か絞り込みか全部の対象を横断プロジェクトから外す。判定・枠・特徴量・枠の画像も消え、カタログの「取り込み済み」の印が外れる。参照先の動画には触らない"""
+    from .judge import build_where, delete_items
+    db = project.db
+    if all_items:
+        ids = [r[0] for r in db.q("SELECT id FROM items")]
+    elif batch is not None:
+        ids = [r[0] for r in db.q("SELECT id FROM items WHERE COALESCE(batch, '') = ?", (batch,))]
+    else:
+        where, p = build_where(dict(f or {}, include_missing=True))
+        ids = [r[0] for r in db.q(f"SELECT id FROM items WHERE {where}", p)]
+    n = 0
+    for i0 in range(0, len(ids), 2000):
+        if stop and stop():
+            break
+        r = delete_items(project, ids[i0:i0 + 2000], False)
+        n += r["n"]
+        if progress:
+            progress(n, len(ids), "")
+    project.data.setdefault("imports", []).append(dict(at=now_iso(), batch=batch if batch is not None else ("*" if all_items else ""), params=dict(mode="remove", filters=f or {}), n=-n, counts={}, by_source={}))
+    project.save()
+    return dict(n=n, n_requested=len(ids))
+
+
 # ---------- 走査の代わり: 参照先の動画があるかを確かめる ----------
 def check_missing(project, progress=None, stop=None) -> dict:
     db = project.db

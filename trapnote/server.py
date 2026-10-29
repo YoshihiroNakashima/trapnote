@@ -14,7 +14,7 @@ from aiohttp import web
 
 from . import APP_ID, APP_NAME, BUILD, BUILD_TIME, VERSION, cross, detect, dialogs, export as export_mod, judge, media, merge as merge_mod, scan as scan_mod, timelapse, train, yolo
 from .config import APP_DIR, DATA_DIR, STATIC_DIR, Settings, State
-from .jobs import ArchiveJob, CatalogBuildJob, CrossCopyJob, CrossImportJob, CrossSyncJob, DetectJob, LabelsJob, Lane, MetaJob, ReclassifyJob, ScanJob, TrainJob, TranscodeJob, YoloExportJob, YoloImportJob
+from .jobs import ArchiveJob, CatalogBuildJob, CrossCopyJob, CrossImportJob, CrossRemoveJob, CrossSyncJob, DetectJob, LabelsJob, Lane, MetaJob, ReclassifyJob, ScanJob, TrainJob, TranscodeJob, YoloExportJob, YoloImportJob
 from .paths import key, norm
 from .pattern import names_in, preview as pattern_preview
 from .project import PROJECT_DIRNAME, Project, find_project_for_root, is_project_dir
@@ -88,7 +88,8 @@ class Session:
         self.settings.remember_project(self.project.dir)
         self.state.last_project = self.project.dir
         self.state.save()
-        self.bg.submit(ScanJob())
+        if not self.project.is_cross:                  # 横断プロジェクトは開いたときの「動画の確認」（参照先の動画の stat）を自動でしない。数十万件だと長く、ほかの処理を止めるため。「更新」で手動
+            self.bg.submit(ScanJob())
         return dict(project=self.project.to_dict())
 
     def set_root(self, root: str) -> dict:
@@ -101,7 +102,8 @@ class Session:
         self.settings.remember_project(self.project.dir)
         self.state.last_project = self.project.dir
         self.state.save()
-        self.bg.submit(ScanJob())
+        if not self.project.is_cross:                  # 横断プロジェクトは開いたときの「動画の確認」（参照先の動画の stat）を自動でしない。数十万件だと長く、ほかの処理を止めるため。「更新」で手動
+            self.bg.submit(ScanJob())
         return dict(project=self.project.to_dict())
 
     def close_project(self) -> None:
@@ -1180,10 +1182,24 @@ def make_app(session: Session) -> web.Application:
         p = need_cross()
         b = await _body(request)
         spec = dict(mode=b.get("mode") or "select", params=b.get("params") or {}, ids=b.get("ids") or [], filters=b.get("filters") or {})
-        yielded = S.bg.yield_current(("meta",))
+        yielded = S.bg.yield_current(("meta", "scan"))      # メタデータの取得や動画の確認の後ろで待たない（取得は列の最後でやり直す。確認は「更新」で）
         S.bg.submit(CrossImportJob(spec, str(b.get("batch") or "").strip()), front=True)
-        if yielded:
+        if yielded == "meta":
             S.bg.submit(MetaJob())
+        return jr(S.jobs_status())
+
+    async def cross_items_remove(request):
+        """取り込んだ対象を外す: batch（組。"" は組なし）/ filters / all。動画本体には触らない"""
+        p = need_cross()
+        b = await _body(request)
+        spec = dict(batch=(str(b["batch"]) if b.get("batch") is not None else None), filters=_filters(b.get("filters") or {}) if b.get("filters") else None, all=bool(b.get("all")))
+        if spec["batch"] is None and spec["filters"] is None and not spec["all"]:
+            raise ApiError("外す対象（組・絞り込み・全部）を指定してください")
+        yielded = S.bg.yield_current(("meta", "scan"))
+        S.bg.submit(CrossRemoveJob(spec), front=True)
+        if yielded == "meta":
+            S.bg.submit(MetaJob())
+        S.undo_stack.clear()
         return jr(S.jobs_status())
 
     async def cross_sources_add_under(request):
@@ -1398,6 +1414,7 @@ def make_app(session: Session) -> web.Application:
     r.add_post("/api/cross/catalog/export", cross_catalog_export)
     r.add_post("/api/cross/plan", cross_plan)
     r.add_post("/api/cross/import", cross_import)
+    r.add_post("/api/cross/items/remove", cross_items_remove)
     r.add_post("/api/cross/sync/plan", cross_sync_plan)
     r.add_post("/api/cross/sync", cross_sync)
     r.add_post("/api/cross/export_list", cross_export_list)

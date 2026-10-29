@@ -176,6 +176,8 @@ const I18N = {
     cr_unit: '単位', cr_unit_station: '地点（その地点の動画を全部）', cr_unit_season: '調査回（その調査回の動画を全部）', cr_unit_station_season: '地点 × 調査回（その組の動画を全部）', cr_unit_station_season_s: '地点 × 調査回', cr_unit_video: '動画（1 本ずつ）', cr_unit_species: '種ごとに（既存の種名から n 本ずつ）',
     cr_n: '数', cr_seed_help: '同じ種なら同じ結果。別の組を取るときは変える', cr_random_import: 'この選び方で取り込む',
     cr_per_unit: '各単位の上限', cr_per_unit_help: '選んだ地点（調査回）1 つから取る本数の上限。0 なら全部', cr_total: '合計の上限', cr_total_help: '選んだ単位の動画が合計でこれを超えたら、乱数で間引いてこの本数にする（地点は 20 のまま）。0 なら上限なし', cr_max_avail: '既存の本数が', cr_max_avail_help: '本以下の種だけを対象にする（稀な種の補い用。0 なら全部の種）', cr_pool_of_units: '母数', cr_nothing: '選べる動画がありません（母集団が空か、全部取り込み済み）',
+    cr_remove_h: 'C. 取り込みを取り消す', cr_remove_help: '組ごとに（または全部）、取り込んだ動画をこの横断プロジェクトの対象から外す。参照先の動画は消さない。横断側で付けた判定・枠・特徴量は消える（参照先に書き戻していないものは失われる）。カタログの「取り込み済み」の印も外れる。', cr_no_batch: '（組なし）', cr_all_items: '全部', cr_remove_btn: '対象から外す', cr_remove_q: '参照先の動画は消しません。横断側で付けた判定・枠・特徴量は消えます（書き戻していないものは失われます）。元に戻せません。',
+    del_title_cross: '対象から外す', del_help_cross: '選んだ動画をこの横断プロジェクトの対象から外します（参照先の動画は消しません）。横断側で付けた判定・枠・特徴量は消えます。元に戻せないので注意してください。', del_n_cross: '外す', ctx_del_cross: '対象から外す（動画は消さない）',
     cr_sync_intro: '取り込んだ動画の判定を参照先と行き来させる段と、動画や一覧を外に出す段。', cr_log_help: 'どの条件で何本を取り込んだかの記録（ランダムに選んだ地点・調査回も残る）',
   },
   en: {
@@ -352,6 +354,8 @@ const I18N = {
     cr_unit: 'Unit', cr_unit_station: 'stations (all videos of each)', cr_unit_season: 'seasons (all videos of each)', cr_unit_station_season: 'station × season (all videos of each)', cr_unit_station_season_s: 'station × season', cr_unit_video: 'videos (one by one)', cr_unit_species: 'per species (n from the existing names)',
     cr_n: 'Count', cr_seed_help: 'Same seed, same result. Change it for another batch', cr_random_import: 'Import this pick',
     cr_per_unit: 'Max per unit', cr_per_unit_help: 'At most this many videos from each chosen station (season); 0 = all', cr_total: 'Total cap', cr_total_help: 'If the chosen units hold more videos than this, thin them at random to this many (the units stay chosen); 0 = no cap', cr_max_avail: 'Only species with at most', cr_max_avail_help: 'existing videos (to top up rare species); 0 = all species', cr_pool_of_units: 'pool', cr_nothing: 'Nothing to pick (empty population or everything already imported)',
+    cr_remove_h: 'C. Undo an import', cr_remove_help: 'Remove imported videos (by batch, or all) from this cross project. The source videos are not deleted. Judgements, boxes and features made here are deleted (anything not written back to the source is lost). The "imported" marks in the catalogue are cleared.', cr_no_batch: '(no batch)', cr_all_items: 'all', cr_remove_btn: 'Remove from project', cr_remove_q: 'Source videos are not deleted. Judgements, boxes and features made here are deleted (anything not written back is lost). This cannot be undone.',
+    del_title_cross: 'Remove from project', del_help_cross: 'Removes the selected videos from this cross project (source videos are not deleted). Judgements, boxes and features made here are deleted. This cannot be undone.', del_n_cross: 'Remove', ctx_del_cross: 'Remove from project (keeps the video)',
     cr_sync_intro: 'Exchange judgements of the imported videos with the sources, and export videos or lists.', cr_log_help: 'What was imported with which conditions (randomly chosen stations / seasons are kept too)',
   },
 };

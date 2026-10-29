@@ -562,8 +562,8 @@ def bulk_judge(db: Database, item_ids: list[int], payload: dict, by: str) -> dic
 
 
 def delete_items(project, item_ids: list[int], to_trash: bool = True) -> dict:
-    """動画（画像）をごみ箱へ（send2trash。なければ消す）、対象を DB から消す（判定・枠も一緒に）。再生用の変換とサムネイルも消す"""
-    from .paths import abs_of
+    """動画（画像）をごみ箱へ（send2trash。なければ消す）、対象を DB から消す（判定・枠も一緒に）。再生用の変換とサムネイルも消す。
+    横断プロジェクトでは動画本体（参照先の NAS など）には触らず、対象から外すだけ（判定・枠・特徴量・枠の画像を消す）"""
     from . import media
     db = project.db
     if not item_ids:
@@ -572,6 +572,7 @@ def delete_items(project, item_ids: list[int], to_trash: bool = True) -> dict:
         from send2trash import send2trash
     except Exception:
         send2trash = None
+    keep_files = project.is_cross
     n = failed = trashed = 0
     errors = []
     for chunk in range(0, len(item_ids), 500):
@@ -580,14 +581,17 @@ def delete_items(project, item_ids: list[int], to_trash: bool = True) -> dict:
         rows = db.q(f"SELECT id, rel_path FROM items WHERE id IN ({qs})", part)
         done = []
         for r in rows:
-            src = project.abs_path(r["rel_path"])
             try:
-                if os.path.isfile(src):
-                    if to_trash and send2trash is not None:
-                        send2trash(os.path.normpath(src))
-                        trashed += 1
-                    else:
-                        os.remove(src)
+                if not keep_files:
+                    src = project.abs_path(r["rel_path"])
+                    if os.path.isfile(src):
+                        if to_trash and send2trash is not None:
+                            send2trash(os.path.normpath(src))
+                            trashed += 1
+                        else:
+                            os.remove(src)
+                else:
+                    _drop_cross_caches(project, r["rel_path"])
                 try:
                     vp = media.video_cache_path(project.cache_dir("video"), r["rel_path"], "h264")
                     if os.path.isfile(vp):
@@ -608,7 +612,24 @@ def delete_items(project, item_ids: list[int], to_trash: bool = True) -> dict:
                 for tbl in ("detections", "field_values", "auto_results", "judgements", "history"):
                     c.execute(f"DELETE FROM {tbl} WHERE item_id IN ({qs2})", done)
                 c.execute(f"DELETE FROM items WHERE id IN ({qs2})", done)
+                if keep_files:
+                    c.execute(f"UPDATE catalog SET item_id=NULL WHERE item_id IN ({qs2})", done)
     return dict(n=n, failed=failed, trashed=trashed, errors=errors[:5])
+
+
+def _drop_cross_caches(project, rel_path: str) -> None:
+    """横断プロジェクトで対象から外すとき: 特徴量と枠の画像（cache）を消す"""
+    import shutil
+    try:
+        from .train import crop_path, features_path
+        fp = features_path(project, rel_path)
+        if os.path.isfile(fp):
+            os.remove(fp)
+        cd = os.path.dirname(crop_path(project, rel_path, 0))
+        if os.path.isdir(cd):
+            shutil.rmtree(cd, ignore_errors=True)
+    except Exception:
+        pass
 
 
 def set_note(db: Database, item_id: int, note: str) -> None:
