@@ -629,7 +629,7 @@ class CrossImportJob(Job):
 
     def status(self) -> dict:
         d = super().status()
-        d.update(result=self.result)
+        d.update(result=self.result, batch=self.batch)
         return d
 
 

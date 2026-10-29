@@ -251,6 +251,23 @@ function activeFilterNames() {
   if (f.det) out.push(t('det_' + f.det) || f.det);
   return out;
 }
+// 開いた直後、前回から残っていた絞り込みで 0 件なら外す（「AI と不一致」が残って 0 件のまま、を防ぐ）。動画がそもそもないときは何もしない
+async function autoClearIfEmpty() {
+  if (!S.project || S.total || !activeFilterNames().length) return;
+  const c = (S.facets && S.facets.counts) || {};
+  if (!((c.new || 0) + (c.auto || 0) + (c.verified || 0))) return;
+  clearFilters();
+  toast(t('filter_auto_cleared'));
+}
+// 横断で取り込みが終わったら、その組だけを一覧に出す
+async function showBatch(batch) {
+  if (!S.project) return;
+  await refreshFacets();
+  Object.assign(S.filter, { station: '', season: '', batch: batch || '', status: '', species: '', assignee: '', text: '', favorite: '', det: '', flag: '', agree: '', exclude: '', boxes: '' });
+  $('#fText').value = '';
+  renderFilters(); saveUi(); await reloadList();
+  toast(batch ? `${t('filter_batch')} ${batch}: ${S.total} ${t('items')}` : `${S.total} ${t('items')}`);
+}
 function clearFilters() {   // フォルダの選択（木）はそのまま
   Object.assign(S.filter, { station: '', season: '', batch: '', status: '', species: '', assignee: '', text: '', favorite: '', det: '', flag: '', agree: '', exclude: '', boxes: '' });
   $('#fText').value = '';
@@ -688,10 +705,11 @@ async function init() {
     $('#fText').value = S.filter.text || '';
     if (S.project && S.project.root) {
       await reloadList();
+      await autoClearIfEmpty();
       if (snap.last_item) openItem(snap.last_item).catch(() => {});
     } else if (!S.project) {
       // 起動直後は前回のプロジェクトを裏で開いている途中かもしれないので、少し待って見直す
-      setTimeout(async () => { const s2 = await api('/api/state'); if (s2.project) { setSnapshot(s2); await reloadList(); if (s2.last_item) openItem(s2.last_item).catch(() => {}); } else openProjectDialog(); }, 1200);
+      setTimeout(async () => { const s2 = await api('/api/state'); if (s2.project) { setSnapshot(s2); await reloadList(); await autoClearIfEmpty(); if (s2.last_item) openItem(s2.last_item).catch(() => {}); } else openProjectDialog(); }, 1200);
     }
     startJobsPolling();
   } catch (e) { toast(e.message, 'error'); }

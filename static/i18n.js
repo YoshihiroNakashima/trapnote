@@ -150,7 +150,7 @@ const I18N = {
     pattern_preview_none: '対象がまだありません',
     conflicts_badge: '衝突',
     confirm_create: '作成', root_pick: 'ルートを選ぶ…',
-    empty_filtered: '絞り込みに当てはまる動画がありません（下の条件が効いています）', empty_clear: '絞り込みを解除して全部を出す', empty_cross: 'まだ動画を取り込んでいません。「横断の手順」の 4 で動画を選んで取り込むと、ここに並びます', empty_none: 'このフォルダに動画がありません',
+    filter_auto_cleared: '前回の絞り込みでは 0 件だったので、絞り込みを解除しました', empty_filtered: '絞り込みに当てはまる動画がありません（下の条件が効いています）', empty_clear: '絞り込みを解除して全部を出す', empty_cross: 'まだ動画を取り込んでいません。「横断の手順」の 4 で動画を選んで取り込むと、ここに並びます', empty_none: 'このフォルダに動画がありません',
     // 横断プロジェクトの窓（5 つの段）
     cr_intro: '調査回をまたいで動画を集め、同定・学習・評価をするためのプロジェクト。上の 1 → 5 の順に進める。3 の「カタログを作る」は必須で、どの段でも右下のボタンから押せる。',
     cr_tab_sources: '参照先を登録', cr_tab_labels: '種名の対応表', cr_tab_build: 'カタログを作る', cr_tab_pick: '動画を選んで取り込む', cr_tab_sync: '書き戻し・書き出し',
@@ -329,7 +329,7 @@ const I18N = {
     pattern_preview_none: 'No items yet',
     conflicts_badge: 'conflicts',
     confirm_create: 'Create', root_pick: 'Choose root…',
-    empty_filtered: 'No videos match the filter (the conditions below are active)', empty_clear: 'Clear the filter and show all', empty_cross: 'No videos imported yet. Pick and import videos in step 4 of "Cross-project steps" and they appear here', empty_none: 'No videos in this folder',
+    filter_auto_cleared: 'The previous filter matched nothing, so it was cleared', empty_filtered: 'No videos match the filter (the conditions below are active)', empty_clear: 'Clear the filter and show all', empty_cross: 'No videos imported yet. Pick and import videos in step 4 of "Cross-project steps" and they appear here', empty_none: 'No videos in this folder',
     // cross-project window (5 steps)
     cr_intro: 'A project for collecting videos across seasons to identify, train and evaluate. Work through steps 1 → 5 above. Step 3 "Build the catalogue" is required and can be started from the button at the bottom right at any step.',
     cr_tab_sources: 'Register sources', cr_tab_labels: 'Species name mapping', cr_tab_build: 'Build the catalogue', cr_tab_pick: 'Pick and import videos', cr_tab_sync: 'Write back / export',

@@ -462,6 +462,8 @@ function crossOnJobs(jobs) {
     crossModalEl = null;
     S._bgWasRunning = true;
     crossDialog(after).then(() => { const mm = crossModalEl; if (mm && rec) mm.querySelector('#crStatus').innerHTML = `<div><b>${esc(t('ar_result'))}</b> (${esc(t('jb_state_' + rec.state))}): ${esc(rec.message || rec.error || '')}</div>`; });
+    if (rec.kind === 'cross_import' && rec.state === 'done' && rec.batch !== undefined && typeof showBatch === 'function') showBatch(rec.batch);   // 取り込んだ組を左の一覧に出す
+    if (rec.kind === 'cross_remove' && rec.state === 'done' && typeof showBatch === 'function') showBatch('');
   }
   const sb = st.querySelector('#crStop');
   if (sb) sb.onclick = async () => { try { const j = await api('/api/jobs/stop', { lane: L.lane || 'cross' }); m._wasRunning = m._wasRunning || 'stopping'; crossOnJobs(j); } catch (e) { toast(e.message, 'error'); } };
