@@ -14,7 +14,7 @@ from aiohttp import web
 
 from . import APP_ID, APP_NAME, BUILD, BUILD_TIME, VERSION, cross, detect, dialogs, export as export_mod, judge, media, merge as merge_mod, scan as scan_mod, timelapse, train, yolo
 from .config import APP_DIR, DATA_DIR, STATIC_DIR, Settings, State
-from .jobs import ArchiveJob, CatalogBuildJob, CrossCopyJob, CrossImportJob, CrossSyncJob, DetectJob, Lane, MetaJob, ReclassifyJob, ScanJob, TrainJob, TranscodeJob, YoloExportJob, YoloImportJob
+from .jobs import ArchiveJob, CatalogBuildJob, CrossCopyJob, CrossImportJob, CrossSyncJob, DetectJob, LabelsJob, Lane, MetaJob, ReclassifyJob, ScanJob, TrainJob, TranscodeJob, YoloExportJob, YoloImportJob
 from .paths import key, norm
 from .pattern import names_in, preview as pattern_preview
 from .project import PROJECT_DIRNAME, Project, find_project_for_root, is_project_dir
@@ -1066,9 +1066,18 @@ def make_app(session: Session) -> web.Application:
             raise ApiError("横断プロジェクトではありません")
         return p
 
+    def labels_job_queued(name: str) -> bool:
+        st = S.bg.status()
+        return any(j and j["kind"] == "cross_labels" and j.get("name") == name for j in [st["current"]] + st["queued"])
+
     async def cross_info(request):
         p = need_cross()
-        return jr(dict(sources=await io(cross.sources_info, p), imports=p.data.get("imports") or [], project=p.to_dict(), catalog=p.data.get("catalog"),
+        sources = await io(cross.sources_info, p)
+        for s in sources:                                   # 種名 CSV をまだ読んでいない親フォルダ参照は裏で読む（画面は待たない）
+            lab = s.get("labels") or {}
+            if lab.get("pending") and not labels_job_queued(s["name"]):
+                S.bg.submit(LabelsJob(s["name"]), front=True)
+        return jr(dict(sources=sources, imports=p.data.get("imports") or [], project=p.to_dict(), catalog=p.data.get("catalog"),
                        n_catalog=int(p.db.scalar("SELECT COUNT(*) FROM catalog") or 0), n_items=int(p.db.scalar("SELECT COUNT(*) FROM items") or 0),
                        n_sync=int(p.db.scalar("SELECT COUNT(*) FROM items WHERE src_id IS NOT NULL") or 0),
                        batches=[dict(batch=r[0] or "", n=r[1]) for r in p.db.q("SELECT batch, COUNT(*) FROM items GROUP BY batch ORDER BY batch")]))
@@ -1086,7 +1095,7 @@ def make_app(session: Session) -> web.Application:
         p = need_cross()
         b = await _body(request)
         try:
-            r = await io(cross.set_source_labels, p, str(b.get("name") or ""), (str(b.get("labels_csv") or "").strip() or None))
+            r = await io(cross.set_source_labels, p, str(b.get("name") or ""), (str(b.get("labels_csv") or "").strip() or None), False)
         except (ValueError, FileNotFoundError) as e:
             raise ApiError(str(e))
         return jr(r)

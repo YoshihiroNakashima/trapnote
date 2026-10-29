@@ -144,7 +144,7 @@ def _tree_rows(project, s: dict, seasons: list[str] | None = None, progress=None
         return [], []
     all_seasons = _tree_seasons(root)
     want = [se for se in all_seasons if not seasons or se in set(seasons)]
-    lab = _labels(project, s)
+    lab = _labels(project, s, (lambda a, b, msg: progress(0, len(want), f"種名の CSV: {msg}")) if progress else None, stop)
     by_season: dict[str, list[dict]] = defaultdict(list)
     for r in lab["rows"].values():
         by_season[r["season"]].append(r)
@@ -209,8 +209,8 @@ def _unique_name(project, wanted: str, path: str) -> str:
     return f"{cand}_{k}"
 
 
-def set_source_labels(project, name: str, labels_csv: str | None) -> dict:
-    """親フォルダ参照に、既存の種名の CSV（Season, Station, File, Species[, DateTime]）を付ける・外す"""
+def set_source_labels(project, name: str, labels_csv: str | None, wait: bool = True) -> dict:
+    """親フォルダ参照に、既存の種名の CSV（Season, Station, File, Species[, DateTime]）を付ける・外す。wait=False なら読まずに戻る（裏で LabelsJob が読む）"""
     s = source_by_name(project, name)
     if s is None or s.get("kind") != "tree":
         raise ValueError(f"親フォルダ参照ではありません: {name}")
@@ -223,6 +223,8 @@ def set_source_labels(project, name: str, labels_csv: str | None) -> dict:
         s.pop("labels_csv", None)
     project.save()
     _LABELS.pop(name, None)
+    if not wait:
+        return dict(ok=True, labels=dict(pending=not labels_ready(project, s)))
     lab = _labels(project, s)
     return dict(ok=True, labels=dict(n=len(lab["rows"]), unmapped=lab["unmapped"][:20], species=lab["species"], files=[dict(path=f["path"], n=f["n"], error=f["error"]) for f in lab["files"]]))
 
@@ -257,73 +259,205 @@ def label_files(s: dict) -> list[tuple[str, str]]:
     return out
 
 
-def _parse_label_file(project, path: str, season_default: str, rows: dict, unmapped: Counter, code_of: dict) -> dict:
-    """1 つの種名 CSV を rows に足す。返り値 dict(path, n, cols, error)"""
+class LabelRow:
+    """種名 CSV の 1 行（動画 1 本）。dict のように r["season"] で引ける。数十万行あるので __slots__ で小さく"""
+    __slots__ = ("season", "station", "file", "species", "dt")
+
+    def __init__(self, season: str, station: str, file: str, species: tuple = (), dt: str = ""):
+        self.season, self.station, self.file, self.species, self.dt = season, station, file, species, dt
+
+    def __getitem__(self, k):
+        return getattr(self, k)
+
+    def __setitem__(self, k, v):
+        setattr(self, k, v)
+
+    def get(self, k, default=None):
+        return getattr(self, k, default)
+
+    def __getstate__(self):
+        return (self.season, self.station, self.file, self.species, self.dt)
+
+    def __setstate__(self, st):
+        self.season, self.station, self.file, self.species, self.dt = st
+
+
+class _Counting:
+    """行を数えながら渡す（進み具合 = 読んだ文字数）"""
+
+    def __init__(self, text: str):
+        self.f = io.StringIO(text)
+        self.pos = 0
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        line = next(self.f)
+        self.pos += len(line)
+        return line
+
+
+def _parse_label_file(project, path: str, season_default: str, rows: dict, unmapped: Counter, code_of: dict, progress=None, stop=None, intern: dict | None = None) -> dict:
+    """1 つの種名 CSV を rows に足す。返り値 dict(path, n, cols, error)。
+    行は LabelRow(season, station, file, species=tuple(code...), dt)。調査回・地点・種の組は同じ文字列オブジェクトを使い回す（数十万行でもメモリを抑える）"""
     from . import media
     from .export import _sniff, read_text_any
+    label_fn = os.path.basename(path)
+    if progress:
+        progress(0, 1, f"{label_fn}: 読んでいます")
     try:
         text = read_text_any(path)
     except Exception as e:
         return dict(path=path, n=0, cols={}, error=str(e))
-    rd = csv.DictReader(io.StringIO(text), delimiter=_sniff(text))
-    head = {(h or "").strip().lower(): h for h in (rd.fieldnames or [])}
-    cols = {}
+    src = _Counting(text)
+    total = max(1, len(text))
+    rd = csv.reader(src, delimiter=_sniff(text))
+    try:
+        header = next(rd)
+    except StopIteration:
+        return dict(path=path, n=0, cols={}, error="空の CSV")
+    head = {(h or "").strip().lower(): i for i, h in enumerate(header)}
+    cols: dict[str, str] = {}
+    idx: dict[str, int] = {}
     for k, names in LABEL_ALIAS.items():
         for n in names:
             if n in head:
-                cols[k] = head[n]
+                cols[k] = header[head[n]]
+                idx[k] = head[n]
                 break
-    if "file" not in cols or "species" not in cols:
-        return dict(path=path, n=0, cols=cols, error=f"File と Species の列がありません（見出し: {', '.join(head.values())[:120]}）")
+    if "file" not in idx or "species" not in idx:
+        return dict(path=path, n=0, cols=cols, error=f"File と Species の列がありません（見出し: {', '.join(h for h in header if h)[:120]}）")
     sl = project.species
     z = bool(project.setting("z_is_utc"))
+    intern = intern if intern is not None else {}
+    i_file, i_sp = idx["file"], idx["species"]
+    i_se, i_st, i_dt = idx.get("season"), idx.get("station"), idx.get("datetime")
     n = 0
+    k_row = 0
     for r in rd:
-        fn = (r.get(cols["file"]) or "").strip()
+        k_row += 1
+        if k_row % 20000 == 0:
+            if stop and stop():
+                break
+            if progress:
+                progress(src.pos, total, f"{label_fn}: {k_row:,} 行")
+        try:
+            fn = (r[i_file] or "").strip()
+        except IndexError:
+            continue
         if not fn:
             continue
-        se = ((r.get(cols["season"]) or "").strip() if "season" in cols else "") or season_default
-        st = (r.get(cols["station"]) or "").strip() if "station" in cols else ""
-        label = (r.get(cols["species"]) or "").strip()
+        se = ((r[i_se] or "").strip() if i_se is not None and i_se < len(r) else "") or season_default
+        st = (r[i_st] or "").strip() if i_st is not None and i_st < len(r) else ""
+        label = (r[i_sp] or "").strip() if i_sp < len(r) else ""
+        se = intern.setdefault(se, se)
+        st = intern.setdefault(st, st)
         if label not in code_of:
             code_of[label] = (sl.code_for_label(label) or sl.guess_code(label)) if label else None
         code = code_of[label]
-        k = (se.lower(), st.lower(), fn.lower())
+        k = (intern.setdefault(se.lower(), se.lower()), intern.setdefault(st.lower(), st.lower()), fn.lower())
         d = rows.get(k)
         if d is None:
-            d = rows[k] = dict(season=se, station=st, file=fn, species=set(), dt="")
+            d = rows[k] = LabelRow(se, st, fn)
             n += 1
-            if "datetime" in cols and r.get(cols["datetime"]):
-                d["dt"] = media.parse_dt_any(r.get(cols["datetime"]) or "", z) or ""
+            if i_dt is not None and i_dt < len(r) and r[i_dt]:
+                d.dt = media.parse_dt_any(r[i_dt] or "", z) or ""
         if code:
-            d["species"].add(code)
+            if code not in d["species"]:
+                tup = tuple(sorted(d["species"] + (code,)))
+                d["species"] = intern.setdefault(tup, tup)
         elif label:
             unmapped[label] += 1
+    if progress:
+        progress(total, total, f"{label_fn}: {k_row:,} 行")
     return dict(path=path, n=n, cols=cols, error=None)
 
 
-def _labels(project, s: dict) -> dict:
-    """親フォルダ参照の既存の種名 CSV（指定した 1 つ、または自動で見つけたもの全部）を読む。ファイルが変わっていなければ覚えたものを使う。
-    返り値 dict(rows={(season, station, file) の小文字: dict(season, station, file, species=set(code), dt)}, unmapped=[(label, n)], species=[(code, n)], files=[...], cols)"""
+def _labels_sig(project, files: list[tuple[str, str]]) -> tuple:
+    sp = os.path.join(project.dir, "species.csv")
+    out = [("species", os.path.getmtime(sp) if os.path.isfile(sp) else 0, bool(project.setting("z_is_utc")))]
+    for p, _ in files:
+        try:
+            st = os.stat(p)
+            out.append((p, st.st_mtime, st.st_size))
+        except OSError:
+            pass
+    return tuple(out)
+
+
+def _labels_cache_path(project, s: dict) -> str:
+    d = project.cache_dir("labels")
+    os.makedirs(d, exist_ok=True)
+    return os.path.join(d, safe_name(s["name"]).replace("/", "_") + ".pkl")
+
+
+def labels_ready(project, s: dict) -> bool:
+    """種名 CSV を読んだものが手元（メモリか cache/labels）にあるか。あればメモリに載せる。読んではいない"""
+    import pickle
     files = label_files(s)
-    sig = tuple((p, os.path.getmtime(p)) for p, _ in files if os.path.isfile(p))
+    sig = _labels_sig(project, files)
     hit = _LABELS.get(s["name"])
     if hit and hit[0] == sig:
-        return hit[1]
+        return True
+    cp = _labels_cache_path(project, s)
+    if os.path.isfile(cp):
+        try:
+            with open(cp, "rb") as fh:
+                csig, out = pickle.load(fh)
+            if csig == sig:
+                _LABELS[s["name"]] = (sig, out)
+                return True
+        except Exception as e:
+            log.warning("種名 CSV のキャッシュを読めません（読み直します）: %s", e)
+    return False
+
+
+def labels_files_info(s: dict) -> list[dict]:
+    out = []
+    for p, se in label_files(s):
+        try:
+            out.append(dict(path=p, season=se, size=os.path.getsize(p)))
+        except OSError:
+            out.append(dict(path=p, season=se, size=0))
+    return out
+
+
+def _labels(project, s: dict, progress=None, stop=None) -> dict:
+    """親フォルダ参照の既存の種名 CSV（指定した 1 つ、または自動で見つけたもの全部）を読む。ファイルが変わっていなければ覚えたもの（メモリ → cache/labels の pickle）を使う。
+    返り値 dict(rows={(season, station, file) の小文字: dict(season, station, file, species=tuple(code), dt)}, unmapped=[(label, n)], species=[(code, n)], files=[...], cols)"""
+    import pickle
+    if labels_ready(project, s):
+        return _LABELS[s["name"]][1]
+    files = label_files(s)
+    sig = _labels_sig(project, files)
     rows: dict[tuple, dict] = {}
     unmapped: Counter = Counter()
     code_of: dict[str, str | None] = {}
+    intern: dict = {}
     used = []
     for path, se in files:
-        used.append(_parse_label_file(project, path, se, rows, unmapped, code_of))
+        if stop and stop():
+            break
+        used.append(_parse_label_file(project, path, se, rows, unmapped, code_of, progress, stop, intern))
     sp_counts: Counter = Counter()
     for d in rows.values():
         if "empty" in d["species"] and len(d["species"]) > 1:
-            d["species"].discard("empty")
+            tup = tuple(c for c in d["species"] if c != "empty")
+            d["species"] = intern.setdefault(tup, tup)
         for c in d["species"]:
             sp_counts[c] += 1
     out = dict(rows=rows, unmapped=unmapped.most_common(), species=sp_counts.most_common(), files=used, cols=(used[0]["cols"] if used else {}))
+    if stop and stop():
+        return out                                   # 途中でやめたものは覚えない
     _LABELS[s["name"]] = (sig, out)
+    try:
+        cp = _labels_cache_path(project, s)
+        with open(cp + ".tmp", "wb") as fh:
+            pickle.dump((sig, out), fh, protocol=pickle.HIGHEST_PROTOCOL)
+        os.replace(cp + ".tmp", cp)
+    except Exception as e:
+        log.warning("種名 CSV のキャッシュを書けません: %s", e)
     return out
 
 
@@ -383,8 +517,9 @@ def source_summary(src, name: str, project=None) -> dict:
                 speciesnet_model=src.setting("speciesnet_model"), pattern=src.setting("pattern"))
 
 
-def tree_summary(project, s: dict) -> dict:
-    """親フォルダ参照の様子: ルートがあるか、調査回のフォルダ数、種名 CSV（本数・種ごと・対応しない値）"""
+def tree_summary(project, s: dict, wait: bool = False) -> dict:
+    """親フォルダ参照の様子: ルートがあるか、調査回のフォルダ数、種名 CSV（本数・種ごと・対応しない値）。
+    wait=False で種名 CSV をまだ読んでいなければ labels=dict(pending=True, files=[...]) を返す（読むのは LabelsJob）"""
     root = norm(s.get("root") or "")
     available = bool(root and os.path.isdir(root))
     seasons = _tree_seasons(root) if available else []
@@ -392,6 +527,10 @@ def tree_summary(project, s: dict) -> dict:
     proj_seasons = [se for se in seasons if tree_season_project(root, se)] if available else []
     d = dict(name=s["name"], kind="tree", root=root, dir=None, project_name=s["name"], ok=True, available=available, seasons=seasons, project_seasons=proj_seasons, stations=[],
              n_items=None, n_verified=None, n_human=None, n_det=None, species=[], n_imported=n_in, labels_csv=s.get("labels_csv") or "", labels=None)
+    if available and not wait and not labels_ready(project, s):
+        fi = labels_files_info(s)
+        d["labels"] = dict(pending=True, files=[dict(path=f["path"], n=None, error=None) for f in fi], size=sum(f["size"] for f in fi), auto=not s.get("labels_csv")) if fi else dict(files=[], auto=not s.get("labels_csv"))
+        return d
     if available:
         try:
             lab = _labels(project, s)
@@ -412,12 +551,12 @@ def tree_summary(project, s: dict) -> dict:
     return d
 
 
-def sources_info(project) -> list[dict]:
-    """登録した参照先の様子（開けないものは error）"""
+def sources_info(project, wait: bool = False) -> list[dict]:
+    """登録した参照先の様子（開けないものは error）。wait=False なら種名 CSV をまだ読んでいない親フォルダ参照は labels.pending"""
     out = []
     for s in project.sources():
         if s.get("kind") == "tree":
-            out.append(tree_summary(project, s))
+            out.append(tree_summary(project, s, wait))
             continue
         try:
             src = open_source(s["dir"])

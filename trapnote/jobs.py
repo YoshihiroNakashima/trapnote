@@ -603,6 +603,33 @@ class CatalogBuildJob(Job):
         self.message = f"カタログ {r['n']} 本（" + " · ".join(f"{k} {v}" for k, v in r["by_source"].items()) + "）"
 
 
+class LabelsJob(Job):
+    """横断プロジェクト: 親フォルダ参照の種名 CSV を読む（数十万行・NAS だと分単位でかかるので裏で。読んだものは cache/labels に残す）"""
+
+    def __init__(self, name: str):
+        super().__init__("cross_labels", dict(name=name), f"種名の CSV の読み込み（{name}）")
+        self.name = name
+
+    def run(self, ctx) -> None:
+        from . import cross
+        project = ctx.project
+        if project is None or not project.is_cross:
+            return
+        s = cross.source_by_name(project, self.name)
+        if s is None or s.get("kind") != "tree":
+            return
+
+        def prog(a, b, msg):
+            self.done, self.total, self.current = a, b, msg or ""
+        self.message = "大きな CSV では数分かかります"
+        lab = cross._labels(project, s, prog, self.stop_flag.is_set)
+        self.done = self.total = max(self.total, 1)
+        self.message = f"{len(lab['rows']):,} 件（{', '.join(os.path.basename(f['path']) for f in lab['files'])}）" + (f" · 対応しない種名 {sum(n for _, n in lab['unmapped'])}" if lab["unmapped"] else "")
+
+    def status(self) -> dict:
+        return dict(super().status(), name=self.name)
+
+
 class CrossSyncJob(Job):
     """横断プロジェクト: 判定の書き戻し（push: 横断 → 参照先）/ 再取得（pull: 参照先 → 横断）"""
 

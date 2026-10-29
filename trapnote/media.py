@@ -85,20 +85,35 @@ def fmt_dt(dt: datetime) -> str:
     return dt.strftime(DT_FMT)
 
 
+_DT_RE = re.compile(r"^(\d{4})[-/:.](\d{1,2})[-/:.](\d{1,2})[T _](\d{1,2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?\s*(Z|[+-]\d{2}:?\d{2})?$")
+_D_RE = re.compile(r"^(\d{4})[-/:.](\d{1,2})[-/:.](\d{1,2})$")
+
+
 def parse_dt_any(s: str, z_is_utc: bool = False) -> str | None:
-    """いろいろな書式の日時を YYYY/MM/DD HH:MM:SS にする。末尾 Z は既定でカメラの時刻そのまま（時差の変換なし）"""
+    """いろいろな書式の日時を YYYY/MM/DD HH:MM:SS にする。末尾 Z は既定でカメラの時刻そのまま（時差の変換なし）。
+    大きな CSV（数十万行）でも速いように、時差の変換がないときは datetime を作らずに書式だけそろえる"""
     s = (s or "").strip()
     if not s:
         return None
-    m = re.match(r"^(\d{4})[-/:.](\d{1,2})[-/:.](\d{1,2})[T _](\d{1,2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?\s*(Z|[+-]\d{2}:?\d{2})?$", s)
+    m = _DT_RE.match(s)
     if not m:
-        m2 = re.match(r"^(\d{4})[-/:.](\d{1,2})[-/:.](\d{1,2})$", s)
+        m2 = _D_RE.match(s)
         if m2:
             return f"{int(m2.group(1)):04d}/{int(m2.group(2)):02d}/{int(m2.group(3)):02d} 00:00:00"
         return None
-    y, mo, d, h, mi = (int(m.group(i)) for i in range(1, 6))
-    sec = int(m.group(6) or 0)
-    tz = m.group(7)
+    g = m.groups()
+    y, mo, d, h, mi = int(g[0]), int(g[1]), int(g[2]), int(g[3]), int(g[4])
+    sec = int(g[5] or 0)
+    tz = g[6]
+    if not (1 <= mo <= 12 and 1 <= d <= 31 and h <= 23 and mi <= 59 and sec <= 59):
+        return None
+    if not (tz and z_is_utc):
+        if d > 28:
+            try:
+                datetime(y, mo, d, h, mi, sec)
+            except ValueError:
+                return None
+        return f"{y:04d}/{mo:02d}/{d:02d} {h:02d}:{mi:02d}:{sec:02d}"
     try:
         dt = datetime(y, mo, d, h, mi, sec)
     except ValueError:

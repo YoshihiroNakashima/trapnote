@@ -43,6 +43,7 @@ function crossTabSources(m, body) {
     if (l.error) return `<span class="ng" title="${esc(l.error)}">${esc(t('cross_labels_bad'))}</span>`;
     const files = l.files || [];
     if (!files.length) return `<span class="info">${esc(t('cross_no_labels'))}</span>`;
+    if (l.pending) return `<span class="warn" title="${esc(files.map(f => f.path).join('\n'))}">${esc(t('cross_labels_reading'))} ${files.length} ${esc(l.auto ? t('cross_labels_auto') : t('cross_labels_given'))} · ${(l.size / 1048576).toFixed(l.size > 10485760 ? 0 : 1)} MB ${esc(t('cross_labels_reading_help'))}</span>`;
     const un = (l.unmapped || []).map(([v, n]) => `${v} (${n})`).join(', ');
     const bad = files.filter(f => f.error);
     return `<span class="info" title="${esc(files.map(f => `${f.path} (${f.error || f.n})`).join('\n'))}">${esc(t('cross_labels'))} ${files.length} ${esc(l.auto ? t('cross_labels_auto') : t('cross_labels_given'))} · ${l.n_here ?? l.n ?? 0} ${esc(t('items'))}${bad.length ? ` <span class="ng">${esc(t('cross_labels_bad'))} ${bad.length}</span>` : ''}${l.n_unmapped ? ` <span class="ng" title="${esc(un)}">${esc(t('cross_unmapped'))} ${l.n_unmapped}</span>` : ''}</span>`;
@@ -81,7 +82,7 @@ function crossTabSources(m, body) {
   m.querySelectorAll('[data-lab]').forEach(b => { b.onclick = async () => {
     const pth = q('#crSrcLabels').value.trim() || await pickPath('csv');
     if (!pth) { toast(t('cross_pick_labels'), 'error'); return; }
-    try { const r = await api('/api/cross/sources/labels', { name: b.dataset.lab, labels_csv: pth }); toast(`${t('cross_labels')} ${r.labels ? r.labels.n : 0}`); crossModalEl = null; crossDialog('sources'); } catch (e) { toast(e.message, 'error'); }
+    try { const r = await api('/api/cross/sources/labels', { name: b.dataset.lab, labels_csv: pth }); toast(r.labels && r.labels.pending ? t('cross_labels_reading') : `${t('cross_labels')} ${r.labels ? (r.labels.n ?? '') : 0}`); crossModalEl = null; crossDialog('sources'); } catch (e) { toast(e.message, 'error'); }
   }; });
   m.querySelectorAll('[data-rm]').forEach(b => { b.onclick = async () => {
     crossModalEl = null;
@@ -239,13 +240,14 @@ function crossTabSync(m, body) {
 function crossOnJobs(jobs) {
   const m = crossModalEl;
   if (!m || !document.body.contains(m) || !jobs || !jobs.bg) return;
-  const mine = j => j && (j.kind === 'cross_import' || j.kind === 'cross_sync' || j.kind === 'cross_copy' || j.kind === 'cross_catalog');
+  const mine = j => j && (j.kind === 'cross_import' || j.kind === 'cross_sync' || j.kind === 'cross_copy' || j.kind === 'cross_catalog' || j.kind === 'cross_labels');
   const cur = jobs.bg.current, rec = (jobs.bg.recent || []).find(mine);
   const queued = (jobs.bg.queued || []).some(mine);
   const st = m.querySelector('#crStatus');
   if (cur && mine(cur)) {
     const pct = cur.total ? Math.round(100 * cur.done / cur.total) : 0;
-    st.innerHTML = `<div><b>${esc(cur.label)}</b>: ${cur.done}${cur.total ? ' / ' + cur.total + ` (${pct}%)` : ''}</div>${cur.total ? `<div class="prog"><div style="width:${pct}%"></div></div>` : ''}<div class="info">${esc(cur.current || cur.message || '')}</div>`;
+    const count = cur.kind === 'cross_labels' ? `${pct}%` : `${cur.done}${cur.total ? ' / ' + cur.total + ` (${pct}%)` : ''}`;
+    st.innerHTML = `<div><b>${esc(cur.label)}</b>: ${count}</div>${cur.total ? `<div class="prog"><div style="width:${pct}%"></div></div>` : ''}<div class="info">${esc(cur.current || '')}${cur.current && cur.message ? ' · ' : ''}${esc(cur.message || '')}</div>`;
     m._wasRunning = m._wasRunning || cur.kind;
   } else if (queued) {
     st.innerHTML = `<div><b>${esc(t('jb_queued'))}</b></div>`;
