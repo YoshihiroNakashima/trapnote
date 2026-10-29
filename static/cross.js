@@ -39,11 +39,13 @@ function crossTabSources(m, body) {
   const info = m._info, srcs = info.sources || [];
   const labInfo = s => {
     if (s.kind !== 'tree') return '';
-    if (!s.labels_csv) return `<span class="info">${esc(t('cross_no_labels'))}</span>`;
     const l = s.labels || {};
     if (l.error) return `<span class="ng" title="${esc(l.error)}">${esc(t('cross_labels_bad'))}</span>`;
+    const files = l.files || [];
+    if (!files.length) return `<span class="info">${esc(t('cross_no_labels'))}</span>`;
     const un = (l.unmapped || []).map(([v, n]) => `${v} (${n})`).join(', ');
-    return `<span class="info" title="${esc(s.labels_csv)}">${esc(t('cross_labels'))} ${l.n_here ?? l.n ?? 0}${l.n_unmapped ? ` <span class="ng" title="${esc(un)}">${esc(t('cross_unmapped'))} ${l.n_unmapped}</span>` : ''}</span>`;
+    const bad = files.filter(f => f.error);
+    return `<span class="info" title="${esc(files.map(f => `${f.path} (${f.error || f.n})`).join('\n'))}">${esc(t('cross_labels'))} ${files.length} ${esc(l.auto ? t('cross_labels_auto') : t('cross_labels_given'))} · ${l.n_here ?? l.n ?? 0} ${esc(t('items'))}${bad.length ? ` <span class="ng">${esc(t('cross_labels_bad'))} ${bad.length}</span>` : ''}${l.n_unmapped ? ` <span class="ng" title="${esc(un)}">${esc(t('cross_unmapped'))} ${l.n_unmapped}</span>` : ''}</span>`;
   };
   const rows = srcs.map(s => `<tr><td><b>${esc(s.name)}</b> <span class="chip ${s.kind === 'tree' ? 'human' : 'ai'}">${esc(s.kind === 'tree' ? t('cross_kind_tree') : t('cross_kind_project'))}</span>${s.ok ? '' : ` <span class="ng">✗</span>`}</td>
     <td class="info" title="${esc(s.dir || s.root || '')}">${esc(s.ok ? (s.root || '') : (s.error || ''))}${s.ok && !s.available ? ` <span class="ng">${esc(t('cross_unavailable'))}</span>` : ''}${s.kind === 'tree' && s.seasons ? `<div>${esc(t('cross_seasons'))} ${s.seasons.length} · ${labInfo(s)}</div>` : ''}</td>
@@ -52,17 +54,21 @@ function crossTabSources(m, body) {
   const cat = info.catalog;
   body.innerHTML = `<div class="note">${esc(t('cross_sources_help'))}</div>
     ${srcs.length ? `<div style="max-height:30vh;overflow:auto"><table class="tbl"><tr><th>${esc(t('cross_src_name'))}</th><th>${esc(t('cross_src_root'))}</th><th>${esc(t('items'))}</th><th>${esc(t('st_verified'))}</th><th>${esc(t('cross_human'))}</th><th>${esc(t('cross_imported'))}</th><th></th></tr>${rows}</table></div>` : `<div class="note">${esc(t('cross_no_sources'))}</div>`}
-    <h4>${esc(t('cross_add_src'))}</h4>
-    <div class="form-row"><label>${esc(t('cross_folder_l'))}</label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><input type="text" id="crSrcPath" spellcheck="false" style="width:360px" placeholder="Y:\\PRM_N"><button type="button" class="small" data-pick="crSrcPath" data-kind="folder" data-name="">${esc(t('pick'))}</button> ${esc(t('cross_src_name'))} <input type="text" id="crSrcName" spellcheck="false" style="width:90px" placeholder="Y"></span></div>
-    <div class="form-row"><label>${esc(t('cross_labels_csv'))}</label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><input type="text" id="crSrcLabels" spellcheck="false" style="width:360px"><button type="button" class="small" data-pick="crSrcLabels" data-kind="csv" data-name="">${esc(t('pick'))}</button></span></div>
-    <div class="form-row"><label></label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><button type="button" class="small" id="crSrcAdd">${esc(t('cross_add_one'))}</button><button type="button" class="small" id="crSrcAddUnder">${esc(t('cross_add_under'))}</button></span></div>
+    <h4>${esc(t('cross_add_src'))} <span class="info">${esc(t('cross_add_src_multi'))}</span></h4>
+    <div class="form-row"><label>${esc(t('cross_folder_l'))}</label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><input type="text" id="crSrcPath" spellcheck="false" style="width:380px" placeholder="Y:\\PRM_N"><button type="button" class="small" data-pick="crSrcPath" data-kind="folder" data-name="">${esc(t('pick'))}</button><button type="button" class="small" id="crSrcUp" title="${esc(t('cross_up_tip'))}">${esc(t('cross_up'))}</button></span></div>
+    <div class="form-row"><label></label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><button type="button" class="primary small" id="crSrcAddUnder">${esc(t('cross_add_under'))}</button><button type="button" class="small" id="crSrcAdd">${esc(t('cross_add_one'))}</button></span></div>
     <div class="note">${esc(t('cross_add_src_help'))}</div>
+    <details class="adv"><summary>${esc(t('cross_add_opts'))}</summary>
+      <div class="form-row"><label>${esc(t('cross_src_name'))}</label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><input type="text" id="crSrcName" spellcheck="false" style="width:120px" placeholder="${esc(t('cross_name_ph'))}"> <span class="info">${esc(t('cross_name_help'))}</span></span></div>
+      <div class="form-row"><label>${esc(t('cross_labels_csv'))}</label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><input type="text" id="crSrcLabels" spellcheck="false" style="width:380px"><button type="button" class="small" data-pick="crSrcLabels" data-kind="csv" data-name="">${esc(t('pick'))}</button> <span class="info">${esc(t('cross_labels_help'))}</span></span></div>
+    </details>
     <h4>${esc(t('cross_catalog_h'))}</h4>
     <div class="form-row"><label></label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><button type="button" class="primary small" id="crBuild" ${srcs.length ? '' : 'disabled'}>${esc(cat ? t('cross_build_again') : t('cross_build'))}</button>
       <span class="info">${cat ? `${cat.n} ${esc(t('items'))} · ${esc((cat.built_at || '').slice(0, 16).replace('T', ' '))}` : esc(t('cross_no_catalog'))}</span></span></div>
     <div class="note">${esc(t('cross_catalog_help'))}</div>`;
   wirePicks(m);
   const q = sel => m.querySelector(sel);
+  q('#crSrcUp').onclick = () => { const v = q('#crSrcPath').value.trim().replace(/[\\/]+$/, ''); const i = Math.max(v.lastIndexOf('/'), v.lastIndexOf('\\')); if (i > 1) q('#crSrcPath').value = v.slice(0, i); };
   q('#crSrcAdd').onclick = async () => {
     const pth = q('#crSrcPath').value.trim(); if (!pth) return;
     try { const r = await api('/api/cross/sources/add', { path: pth, name: q('#crSrcName').value.trim(), labels_csv: q('#crSrcLabels').value.trim() }); setSnapshot(r.state); toast(`${t('cross_added')}: ${r.name}`); crossModalEl = null; crossDialog('sources'); } catch (e) { toast(e.message, 'error'); }

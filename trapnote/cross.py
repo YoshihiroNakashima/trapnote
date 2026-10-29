@@ -68,12 +68,10 @@ def add_source(project, path: str, name: str | None = None, labels_csv: str | No
         try:
             if key(src.dir) == key(project.dir):
                 raise ValueError("自分自身は参照先にできません")
-            nm = safe_name((name or "").strip() or src.name).replace("/", "_") or "source"
             for s in project.sources():
                 if s.get("dir") and key(s["dir"]) == key(src.dir):
                     return dict(name=s["name"], dir=s["dir"], kind="project", added=False)
-                if s["name"] == nm:
-                    raise ValueError(f"同じ名前の参照先があります: {nm}（名前を変えてください）")
+            nm = _unique_name(project, (name or "").strip() or src.name, src.root or path)
             first = not project.sources()
             project.data.setdefault("sources", []).append(dict(name=nm, kind="project", dir=src.dir, added_at=now_iso()))
             project.forget_source_roots()
@@ -87,12 +85,10 @@ def add_source(project, path: str, name: str | None = None, labels_csv: str | No
         raise FileNotFoundError(f"フォルダがありません: {path}")
     if key(path) == key(project.root or "") or key(path) == key(project.dir):
         raise ValueError("自分自身は参照先にできません")
-    nm = safe_name((name or "").strip() or os.path.basename(path.rstrip("/"))).replace("/", "_") or "source"
     for s in project.sources():
         if s.get("root") and key(s["root"]) == key(path):
             return dict(name=s["name"], root=s["root"], kind="tree", added=False)
-        if s["name"] == nm:
-            raise ValueError(f"同じ名前の参照先があります: {nm}（名前を変えてください）")
+    nm = _unique_name(project, (name or "").strip(), path)
     entry = dict(name=nm, kind="tree", root=path, added_at=now_iso())
     if labels_csv:
         entry["labels_csv"] = norm(labels_csv)
@@ -123,6 +119,28 @@ def add_sources_under(project, parent: str, labels_csv: str | None = None) -> di
     return dict(added=added, skipped=skipped, errors=errors, kind="project", n_sub=len(subs), n_not_project=len(subs) - len(projs))
 
 
+def _unique_name(project, wanted: str, path: str) -> str:
+    """参照先の名前。指定がなければフォルダ名。重なれば ドライブ文字_フォルダ名（Y_PRM_N）、それでも重なれば番号を足す。指定した名前が重なるときはエラー"""
+    taken = {s["name"] for s in project.sources()}
+    if wanted:
+        nm = safe_name(wanted).replace("/", "_") or "source"
+        if nm in taken:
+            raise ValueError(f"同じ名前の参照先があります: {nm}（名前を変えてください）")
+        return nm
+    base = safe_name(os.path.basename(norm(path).rstrip("/"))).replace("/", "_") or "source"
+    if base not in taken:
+        return base
+    p = norm(path)
+    prefix = p[0] if len(p) >= 2 and p[1] == ":" else safe_name(os.path.basename(os.path.dirname(p.rstrip("/"))))
+    cand = f"{prefix}_{base}" if prefix else base
+    if cand not in taken:
+        return cand
+    k = 2
+    while f"{cand}_{k}" in taken:
+        k += 1
+    return f"{cand}_{k}"
+
+
 def set_source_labels(project, name: str, labels_csv: str | None) -> dict:
     """親フォルダ参照に、既存の種名の CSV（Season, Station, File, Species[, DateTime]）を付ける・外す"""
     s = source_by_name(project, name)
@@ -137,8 +155,8 @@ def set_source_labels(project, name: str, labels_csv: str | None) -> dict:
         s.pop("labels_csv", None)
     project.save()
     _LABELS.pop(name, None)
-    lab = _labels(project, s) if labels_csv else None
-    return dict(ok=True, labels=dict(n=len(lab["rows"]), unmapped=lab["unmapped"][:20], species=lab["species"]) if lab else None)
+    lab = _labels(project, s)
+    return dict(ok=True, labels=dict(n=len(lab["rows"]), unmapped=lab["unmapped"][:20], species=lab["species"], files=[dict(path=f["path"], n=f["n"], error=f["error"]) for f in lab["files"]]))
 
 
 _LABELS: dict = {}       # name → (csv path, mtime, parsed)
@@ -146,19 +164,39 @@ LABEL_ALIAS = {"season": ("season", "調査回", "期"), "station": ("station", 
                "species": ("species", "種", "種名", "label"), "datetime": ("datetime", "date_time", "日時", "timestamp")}
 
 
-def _labels(project, s: dict) -> dict:
-    """親フォルダ参照の既存の種名 CSV を読む（ファイルが変わっていなければ覚えたものを使う）。
-    返り値 dict(rows={(season, station, file) の小文字: dict(season, station, file, species=set(code), dt)}, unmapped=[(label, n)], species=[(code, n)], cols)"""
+def label_files(s: dict) -> list[tuple[str, str]]:
+    """親フォルダ参照の種名 CSV の候補 [(path, その CSV の調査回 or "")]。
+    指定があればそれだけ。なければ親フォルダの直下（調査回 ""）と各調査回フォルダの直下の *.csv を自動で探す"""
+    if s.get("labels_csv"):
+        return [(norm(s["labels_csv"]), "")] if os.path.isfile(s["labels_csv"]) else []
+    root = norm(s.get("root") or "")
+    if not root or not os.path.isdir(root):
+        return []
+    out = []
+    try:
+        for e in sorted(os.scandir(root), key=lambda e: e.name):
+            if e.is_file() and e.name.lower().endswith(".csv"):
+                out.append((norm(e.path), ""))
+    except OSError:
+        pass
+    for se in _tree_seasons(root):
+        try:
+            for e in sorted(os.scandir(os.path.join(root, se)), key=lambda e: e.name):
+                if e.is_file() and e.name.lower().endswith(".csv"):
+                    out.append((norm(e.path), se))
+        except OSError:
+            pass
+    return out
+
+
+def _parse_label_file(project, path: str, season_default: str, rows: dict, unmapped: Counter, code_of: dict) -> dict:
+    """1 つの種名 CSV を rows に足す。返り値 dict(path, n, cols, error)"""
     from . import media
     from .export import _sniff, read_text_any
-    path = s.get("labels_csv")
-    if not path or not os.path.isfile(path):
-        return dict(rows={}, unmapped=[], species=[], cols={})
-    mt = os.path.getmtime(path)
-    hit = _LABELS.get(s["name"])
-    if hit and hit[0] == path and hit[1] == mt:
-        return hit[2]
-    text = read_text_any(path)
+    try:
+        text = read_text_any(path)
+    except Exception as e:
+        return dict(path=path, n=0, cols={}, error=str(e))
     rd = csv.DictReader(io.StringIO(text), delimiter=_sniff(text))
     head = {(h or "").strip().lower(): h for h in (rd.fieldnames or [])}
     cols = {}
@@ -168,40 +206,56 @@ def _labels(project, s: dict) -> dict:
                 cols[k] = head[n]
                 break
     if "file" not in cols or "species" not in cols:
-        raise ValueError(f"CSV に File と Species の列が見つかりません: {path}（見出し: {', '.join(head.values())}）")
+        return dict(path=path, n=0, cols=cols, error=f"File と Species の列がありません（見出し: {', '.join(head.values())[:120]}）")
     sl = project.species
     z = bool(project.setting("z_is_utc"))
-    code_of: dict[str, str | None] = {}
-    rows: dict[tuple, dict] = {}
-    unmapped: Counter = Counter()
-    sp_counts: Counter = Counter()
+    n = 0
     for r in rd:
         fn = (r.get(cols["file"]) or "").strip()
         if not fn:
             continue
-        se = (r.get(cols["season"]) or "").strip() if "season" in cols else ""
+        se = ((r.get(cols["season"]) or "").strip() if "season" in cols else "") or season_default
         st = (r.get(cols["station"]) or "").strip() if "station" in cols else ""
         label = (r.get(cols["species"]) or "").strip()
         if label not in code_of:
-            code_of[label] = sl.code_for_label(label) or sl.guess_code(label) if label else None
+            code_of[label] = (sl.code_for_label(label) or sl.guess_code(label)) if label else None
         code = code_of[label]
         k = (se.lower(), st.lower(), fn.lower())
         d = rows.get(k)
         if d is None:
             d = rows[k] = dict(season=se, station=st, file=fn, species=set(), dt="")
+            n += 1
             if "datetime" in cols and r.get(cols["datetime"]):
                 d["dt"] = media.parse_dt_any(r.get(cols["datetime"]) or "", z) or ""
         if code:
             d["species"].add(code)
         elif label:
             unmapped[label] += 1
+    return dict(path=path, n=n, cols=cols, error=None)
+
+
+def _labels(project, s: dict) -> dict:
+    """親フォルダ参照の既存の種名 CSV（指定した 1 つ、または自動で見つけたもの全部）を読む。ファイルが変わっていなければ覚えたものを使う。
+    返り値 dict(rows={(season, station, file) の小文字: dict(season, station, file, species=set(code), dt)}, unmapped=[(label, n)], species=[(code, n)], files=[...], cols)"""
+    files = label_files(s)
+    sig = tuple((p, os.path.getmtime(p)) for p, _ in files if os.path.isfile(p))
+    hit = _LABELS.get(s["name"])
+    if hit and hit[0] == sig:
+        return hit[1]
+    rows: dict[tuple, dict] = {}
+    unmapped: Counter = Counter()
+    code_of: dict[str, str | None] = {}
+    used = []
+    for path, se in files:
+        used.append(_parse_label_file(project, path, se, rows, unmapped, code_of))
+    sp_counts: Counter = Counter()
     for d in rows.values():
         if "empty" in d["species"] and len(d["species"]) > 1:
             d["species"].discard("empty")
         for c in d["species"]:
             sp_counts[c] += 1
-    out = dict(rows=rows, unmapped=unmapped.most_common(), species=sp_counts.most_common(), cols=cols)
-    _LABELS[s["name"]] = (path, mt, out)
+    out = dict(rows=rows, unmapped=unmapped.most_common(), species=sp_counts.most_common(), files=used, cols=(used[0]["cols"] if used else {}))
+    _LABELS[s["name"]] = (sig, out)
     return out
 
 
@@ -269,7 +323,7 @@ def tree_summary(project, s: dict) -> dict:
     n_in = int(project.db.scalar("SELECT COUNT(*) FROM items WHERE rel_path LIKE ?", (s["name"] + "/%",)) or 0)
     d = dict(name=s["name"], kind="tree", root=root, dir=None, project_name=s["name"], ok=True, available=available, seasons=seasons, stations=[],
              n_items=None, n_verified=None, n_human=None, n_det=None, species=[], n_imported=n_in, labels_csv=s.get("labels_csv") or "", labels=None)
-    if s.get("labels_csv"):
+    if available:
         try:
             lab = _labels(project, s)
             here = set(seasons)
@@ -279,6 +333,7 @@ def tree_summary(project, s: dict) -> dict:
                 for c in r["species"]:
                     sp[c] += 1
             d["labels"] = dict(n=len(lab["rows"]), n_here=len(rows_here), unmapped=lab["unmapped"][:20], n_unmapped=sum(n for _, n in lab["unmapped"]), cols=lab["cols"],
+                               files=[dict(path=f["path"], n=f["n"], error=f["error"]) for f in lab["files"]], auto=not s.get("labels_csv"),
                                seasons=sorted({r["season"] for r in lab["rows"].values() if r["season"]}))
             d["species"] = [dict(code=c, n=n) for c, n in sp.most_common()]
             d["n_human"] = sum(1 for r in rows_here if r["species"])
@@ -461,14 +516,16 @@ def _select_tree(project, s: dict, mode: str, params: dict, exclude_st: set, csv
     name, root = s["name"], norm(s.get("root") or "")
     if not root or not os.path.isdir(root):
         raise FileNotFoundError(f"{name} のフォルダが見えません: {root}")
-    lab = _labels(project, s) if s.get("labels_csv") else None
+    lab = _labels(project, s)
+    if not lab["rows"]:
+        lab = None
     seasons_here = set(_tree_seasons(root))
 
     def row_of(se, st, fn, species=None, dt=""):
         return dict(id=None, rel=f"{se}/{st}/{fn}", name=fn, station=st, season=se, dt=dt or "", status="auto" if species else "new", species=set(species or ()), src_name=name, src_dir="", src_kind="tree", src_root=root)
     if mode == "species":
         if not lab:
-            raise ValueError(f"{name}: 種ごとに選ぶには既存の種名の CSV を付けてください")
+            raise ValueError(f"{name}: 種ごとに選ぶには既存の種名の CSV が要ります（親フォルダか調査回フォルダに置くか、参照先の「種名の CSV」で指定）")
         only_verified = bool(params.get("only_verified"))
         if only_verified:
             return                                        # 親フォルダ参照に確認済みはない
@@ -494,7 +551,7 @@ def _select_tree(project, s: dict, mode: str, params: dict, exclude_st: set, csv
                         picked.append((name, "", row_of(se, st, fn)))
     elif mode == "all":
         if not lab:
-            raise ValueError(f"{name}: 親フォルダを丸ごと選ぶには既存の種名の CSV を付けてください（フォルダ全体の走査はしません）")
+            raise ValueError(f"{name}: 親フォルダを丸ごと選ぶには既存の種名の CSV が要ります（フォルダ全体の走査はしません）")
         for r in lab["rows"].values():
             if r["season"] in seasons_here and r["station"] not in exclude_st:
                 picked.append((name, "", row_of(r["season"], r["station"], r["file"], r["species"], r["dt"])))
@@ -693,8 +750,8 @@ def build_catalog(project, progress=None, stop=None) -> dict:
         if s.get("kind") == "tree":
             root = norm(s.get("root") or "")
             here = set(_tree_seasons(root)) if root and os.path.isdir(root) else set()
-            lab = _labels(project, s) if s.get("labels_csv") else None
-            for r in (lab["rows"].values() if lab else []):
+            lab = _labels(project, s)
+            for r in lab["rows"].values():
                 if r["season"] not in here:
                     continue
                 rows.append((name, None, f"{r['season']}/{r['station']}/{r['file']}", r["season"], r["station"], r["file"], r["dt"] or None,
