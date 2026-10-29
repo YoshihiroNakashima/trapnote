@@ -99,24 +99,76 @@ def add_source(project, path: str, name: str | None = None, labels_csv: str | No
 
 
 def add_sources_under(project, parent: str, labels_csv: str | None = None) -> dict:
-    """親フォルダの下の調査回フォルダをまとめて参照先に登録する。TrapNote のプロジェクトがあるフォルダはプロジェクト参照、
-    1 つもなければ親フォルダ自体を親フォルダ参照（kind = tree）として登録する"""
+    """親フォルダ（下に調査回フォルダが並ぶもの）を 1 つの参照先として登録する。調査回フォルダに TrapNote のプロジェクトがあればその判定を、
+    なければ種名の CSV を使う（調査回ごとに自動で切り替える）。親フォルダ自体がプロジェクトのルートならプロジェクト参照"""
     parent = norm(parent)
     if not os.path.isdir(parent):
         raise FileNotFoundError(f"フォルダがありません: {parent}")
-    added, skipped, errors = [], [], []
-    subs = sorted(e.name for e in os.scandir(parent) if e.is_dir() and not e.name.startswith(".") and e.name.lower() not in ("trapnote", "staytime"))
-    projs = [n for n in subs if _is_project_path(os.path.join(parent, n))]
-    if not projs:
+    if _is_project_path(parent):
         r = add_source(project, parent, None, labels_csv)
-        return dict(added=[r["name"]] if r.get("added") else [], skipped=[] if r.get("added") else [r["name"]], errors=[], kind="tree", n_sub=len(subs))
-    for n in projs:
-        try:
-            r = add_source(project, os.path.join(parent, n), n)
-            (added if r.get("added") else skipped).append(r["name"])
-        except Exception as e:
-            errors.append(f"{n}: {e}")
-    return dict(added=added, skipped=skipped, errors=errors, kind="project", n_sub=len(subs), n_not_project=len(subs) - len(projs))
+        return dict(added=[r["name"]] if r.get("added") else [], skipped=[] if r.get("added") else [r["name"]], errors=[], kind="project", n_sub=0, n_project_seasons=0)
+    subs = _tree_seasons(parent)
+    r = add_source(project, parent, None, labels_csv)
+    n_proj = sum(1 for n in subs if _is_project_path(os.path.join(parent, n)))
+    return dict(added=[r["name"]] if r.get("added") else [], skipped=[] if r.get("added") else [r["name"]], errors=[], kind="tree", n_sub=len(subs), n_project_seasons=n_proj)
+
+
+def tree_season_project(root: str, season: str) -> str | None:
+    """調査回フォルダに TrapNote のプロジェクトがあればそのフォルダ（<root>/<season>/TrapNote）"""
+    from .project import find_project_for_root
+    d = os.path.join(root, season)
+    return find_project_for_root(d) if os.path.isdir(d) else None
+
+
+def _tree_rows(project, s: dict, seasons: list[str] | None = None, progress=None, stop=None) -> tuple[list[dict], list[str]]:
+    """親フォルダ参照の全動画の行。調査回フォルダにプロジェクトがあればその items と判定（src_dir / src_id 付き）、なければ種名の CSV の行。
+    行: dict(season, station, file, rel=<season>/<station>/<file>, species(set), dt, status, ai, agree, det_state, duration, size, src_dir, src_id, src_rel)"""
+    root = norm(s.get("root") or "")
+    if not root or not os.path.isdir(root):
+        return [], []
+    all_seasons = _tree_seasons(root)
+    want = [se for se in all_seasons if not seasons or se in set(seasons)]
+    lab = _labels(project, s)
+    by_season: dict[str, list[dict]] = defaultdict(list)
+    for r in lab["rows"].values():
+        by_season[r["season"]].append(r)
+    out: list[dict] = []
+    proj_seasons: list[str] = []
+    for i, se in enumerate(want):
+        if stop and stop():
+            break
+        if progress:
+            progress(i, len(want), f"{s['name']}/{se}")
+        pdir = tree_season_project(root, se)
+        src = None
+        if pdir:
+            try:
+                src = open_source(pdir)
+            except Exception as e:
+                log.warning("調査回のプロジェクト %s を開けません: %s", pdir, e)
+        if src is not None:
+            proj_seasons.append(se)
+            try:
+                hum: dict[int, list] = defaultdict(list)
+                for j in src.db.q("SELECT j.item_id, j.species, j.origin, i.status FROM judgements j JOIN items i ON i.id=j.item_id WHERE j.species != 'area'"):
+                    if j["status"] == "verified" or j["origin"] in HUMAN_ORIGINS:
+                        hum[j["item_id"]].append(j["species"])
+                for r in src.db.q("SELECT id, rel_path, station, name, COALESCE(datetime_corrected, datetime) AS dt, status, auto_json, agree, det_state, duration, size FROM items WHERE missing=0"):
+                    ai = None
+                    if r["auto_json"]:
+                        try:
+                            ai = ";".join(x["species"] for x in (json.loads(r["auto_json"]).get("species") or [])) or None
+                        except Exception:
+                            ai = None
+                    out.append(dict(season=se, station=r["station"] or "", file=r["name"], rel=f"{se}/{r['rel_path']}", species=set(hum.get(r["id"], [])), dt=r["dt"] or "",
+                                    status=r["status"], ai=ai, agree=r["agree"], det_state=r["det_state"], duration=r["duration"], size=r["size"], src_dir=src.dir, src_id=r["id"], src_rel=r["rel_path"]))
+            finally:
+                src.close()
+        else:
+            for r in by_season.get(se, []):
+                out.append(dict(season=se, station=r["station"], file=r["file"], rel=f"{se}/{r['station']}/{r['file']}", species=set(r["species"]), dt=r["dt"] or "",
+                                status="auto" if r["species"] else "new", ai=None, agree=None, det_state=0, duration=None, size=None, src_dir=None, src_id=None, src_rel=None))
+    return out, proj_seasons
 
 
 def _unique_name(project, wanted: str, path: str) -> str:
@@ -321,12 +373,13 @@ def tree_summary(project, s: dict) -> dict:
     available = bool(root and os.path.isdir(root))
     seasons = _tree_seasons(root) if available else []
     n_in = int(project.db.scalar("SELECT COUNT(*) FROM items WHERE rel_path LIKE ?", (s["name"] + "/%",)) or 0)
-    d = dict(name=s["name"], kind="tree", root=root, dir=None, project_name=s["name"], ok=True, available=available, seasons=seasons, stations=[],
+    proj_seasons = [se for se in seasons if tree_season_project(root, se)] if available else []
+    d = dict(name=s["name"], kind="tree", root=root, dir=None, project_name=s["name"], ok=True, available=available, seasons=seasons, project_seasons=proj_seasons, stations=[],
              n_items=None, n_verified=None, n_human=None, n_det=None, species=[], n_imported=n_in, labels_csv=s.get("labels_csv") or "", labels=None)
     if available:
         try:
             lab = _labels(project, s)
-            here = set(seasons)
+            here = set(seasons) - set(proj_seasons)                                     # プロジェクトのある調査回は CSV ではなくプロジェクトの判定を使う
             rows_here = [r for r in lab["rows"].values() if r["season"] in here]        # この親フォルダにある調査回の分だけ数える
             sp: Counter = Counter()
             for r in rows_here:
@@ -512,25 +565,21 @@ def select_items(project, params: dict, progress=None) -> dict:
 
 
 def _select_tree(project, s: dict, mode: str, params: dict, exclude_st: set, csv_rows: list, pool: dict, picked: list) -> None:
-    """親フォルダ参照から候補を集める。行は dict(id=None, rel=<調査回>/<地点>/<動画>, name, station, season, dt, species(set), status)"""
+    """親フォルダ参照から候補を集める（_tree_rows: 調査回のプロジェクトがあればその判定、なければ種名の CSV）。
+    行は dict(id=src_id or None, rel=<調査回>/<地点>/<動画>, name, station, season, dt, species(set), status, src_kind="tree", src_dir, src_rel, prefix=調査回)"""
     name, root = s["name"], norm(s.get("root") or "")
     if not root or not os.path.isdir(root):
         raise FileNotFoundError(f"{name} のフォルダが見えません: {root}")
-    lab = _labels(project, s)
-    if not lab["rows"]:
-        lab = None
-    seasons_here = set(_tree_seasons(root))
+    trows, _ = _tree_rows(project, s)
 
-    def row_of(se, st, fn, species=None, dt=""):
-        return dict(id=None, rel=f"{se}/{st}/{fn}", name=fn, station=st, season=se, dt=dt or "", status="auto" if species else "new", species=set(species or ()), src_name=name, src_dir="", src_kind="tree", src_root=root)
+    def row_of(r):
+        return dict(id=r["src_id"], rel=r["rel"], name=r["file"], station=r["station"], season=r["season"], dt=r["dt"] or "", status=r["status"], species=set(r["species"]),
+                    src_name=name, src_dir=r["src_dir"] or "", src_kind="tree", src_root=root, src_rel=r["src_rel"], prefix=r["season"])
     if mode == "species":
-        if not lab:
-            raise ValueError(f"{name}: 種ごとに選ぶには既存の種名の CSV が要ります（親フォルダか調査回フォルダに置くか、参照先の「種名の CSV」で指定）")
+        if not any(r["species"] for r in trows):
+            raise ValueError(f"{name}: 種ごとに選ぶには既存の判定が要ります（調査回のプロジェクトの判定か、親フォルダ・調査回フォルダに置いた種名の CSV）")
         only_verified = bool(params.get("only_verified"))
-        if only_verified:
-            return                                        # 親フォルダ参照に確認済みはない
-        cands = [row_of(r["season"], r["station"], r["file"], r["species"], r["dt"]) for r in lab["rows"].values()
-                 if r["species"] and r["season"] in seasons_here and r["station"] not in exclude_st]
+        cands = [row_of(r) for r in trows if r["species"] and r["station"] not in exclude_st and (r["status"] == "verified" or not only_verified)]
         if params.get("single_only", True):
             cands = [r for r in cands if len(r["species"]) <= 1]
         for r in _thin(cands, float(params.get("gap_min") or 0)):
@@ -538,34 +587,23 @@ def _select_tree(project, s: dict, mode: str, params: dict, exclude_st: set, csv
                 pool[sp].append(r)
     elif mode == "stations":
         want_st = {str(x) for x in (params.get("stations") or [])}
-        if lab:
-            for r in lab["rows"].values():
-                if r["station"] in want_st and r["station"] not in exclude_st and r["season"] in seasons_here:
-                    picked.append((name, "", row_of(r["season"], r["station"], r["file"], r["species"], r["dt"])))
-        else:
-            for se in seasons_here:
-                for st in want_st:
-                    if st in exclude_st:
-                        continue
-                    for fn in _tree_station_files(root, se, st):
-                        picked.append((name, "", row_of(se, st, fn)))
+        for r in trows:
+            if r["station"] in want_st and r["station"] not in exclude_st:
+                picked.append((name, r["src_dir"] or "", row_of(r)))
     elif mode == "all":
-        if not lab:
-            raise ValueError(f"{name}: 親フォルダを丸ごと選ぶには既存の種名の CSV が要ります（フォルダ全体の走査はしません）")
-        for r in lab["rows"].values():
-            if r["season"] in seasons_here and r["station"] not in exclude_st:
-                picked.append((name, "", row_of(r["season"], r["station"], r["file"], r["species"], r["dt"])))
+        for r in trows:
+            if r["station"] not in exclude_st:
+                picked.append((name, r["src_dir"] or "", row_of(r)))
     elif mode == "csv":
+        idx = {(r["season"].lower(), r["station"].lower(), r["file"].lower()): r for r in trows}
         for row in csv_rows:
             se, st, fn = row.get("season") or "", row.get("station") or "", row["file"]
             if not se or not st:
-                continue                                  # 親フォルダ参照では Season と Station が要る
-            if se not in seasons_here:
                 continue
-            lr = lab["rows"].get((se.lower(), st.lower(), fn.lower())) if lab else None
-            if lr is None and not os.path.isfile(os.path.join(root, se, st, fn)):
+            r = idx.get((se.lower(), st.lower(), fn.lower()))
+            if r is None:
                 continue
-            picked.append((name, "", row_of(se, st, fn, lr["species"] if lr else None, lr["dt"] if lr else "")))
+            picked.append((name, r["src_dir"] or "", row_of(r)))
             row["_hit"] = True
 
 
@@ -626,20 +664,18 @@ def import_rows(project, picked: list, batch: str, progress=None, stop=None) -> 
     db = project.db
     cols = [r["name"] for r in db.q("PRAGMA table_info(items)")]
     copy_cols = [c for c in cols if c not in ITEM_COPY_SKIP]
-    by_src: dict[str, list[dict]] = defaultdict(list)
-    sdir_of: dict[str, str] = {}
+    by_src: dict[tuple, list[dict]] = defaultdict(list)
     for name, sdir, r in picked:
-        by_src[name].append(r)
-        sdir_of[name] = sdir
+        by_src[(name, sdir or "")].append(r)
     n_done = 0
     now = now_iso()
-    for name, rows in by_src.items():
+    for (name, sdir), rows in by_src.items():
         if stop and stop():
             break
-        if rows and rows[0].get("src_kind") == "tree":
+        if not sdir:                                           # 親フォルダ参照で、調査回にプロジェクトがないもの（種名の CSV だけ）
             n_done += _import_tree_rows(project, name, rows, batch, now, lambda a, b, msg: progress and progress(n_done + a, len(picked), msg), stop)
             continue
-        src = open_source(sdir_of[name])
+        src = open_source(sdir)
         try:
             fdir = project.cache_dir("features")
             os.makedirs(fdir, exist_ok=True)
@@ -655,10 +691,11 @@ def import_rows(project, picked: list, batch: str, progress=None, stop=None) -> 
                             continue
                         srow = dict(srow)
                         src_rel = srow["rel_path"]
-                        rel = f"{name}/{src_rel}"
+                        prefix = r.get("prefix") or ""                     # 親フォルダ参照の中の調査回プロジェクトなら <調査回>/ が付く
+                        rel = f"{name}/{prefix}/{src_rel}" if prefix else f"{name}/{src_rel}"
                         vals = {c_: srow.get(c_) for c_ in copy_cols}
                         st0 = item_state(src.db, sid)
-                        vals.update(rel_path=rel, rel_key=rel_key(rel), folder=os.path.dirname(rel), season=srow.get("season") or name,
+                        vals.update(rel_path=rel, rel_key=rel_key(rel), folder=os.path.dirname(rel), season=srow.get("season") or prefix or name,
                                     src_dir=src.dir, src_id=sid, src_rel=src_rel, batch=batch or None, imported_at=now, src_updated_at=srow.get("updated_at"),
                                     src_sig=state_sig(st0, srow.get("train_exclude"), srow.get("recheck")), updated_at=now)
                         names = list(vals.keys())
@@ -748,14 +785,10 @@ def build_catalog(project, progress=None, stop=None) -> dict:
             progress(0, 0, name)
         rows: list[tuple] = []
         if s.get("kind") == "tree":
-            root = norm(s.get("root") or "")
-            here = set(_tree_seasons(root)) if root and os.path.isdir(root) else set()
-            lab = _labels(project, s)
-            for r in lab["rows"].values():
-                if r["season"] not in here:
-                    continue
-                rows.append((name, None, f"{r['season']}/{r['station']}/{r['file']}", r["season"], r["station"], r["file"], r["dt"] or None,
-                             "auto" if r["species"] else "new", ";".join(sorted(r["species"])) or None, None, None, 0, None, None))
+            trows, _ = _tree_rows(project, s, None, lambda a, b, msg: progress and progress(a, b, msg), stop)
+            for r in trows:
+                rows.append((name, r["src_id"], r["rel"], r["season"], r["station"], r["file"], r["dt"] or None, r["status"],
+                             ";".join(sorted(r["species"])) or None, r["ai"], r["agree"], r["det_state"] or 0, r["duration"], r["size"]))
         else:
             try:
                 src = open_source(s["dir"])
@@ -931,8 +964,14 @@ def catalog_import(project, ids: list[int], batch: str, record: dict | None = No
             if s is None:
                 continue
             if s.get("kind") == "tree":
-                picked.append((r["source"], "", dict(id=None, rel=r["rel"], name=r["name"], station=r["station"] or "", season=r["season"] or "", dt=r["datetime"] or "",
-                                                     status="auto" if r["species"] else "new", species=set((r["species"] or "").split(";")) - {""}, src_name=r["source"], src_dir="", src_kind="tree", src_root=norm(s.get("root") or ""))))
+                root = norm(s.get("root") or "")
+                pdir = tree_season_project(root, r["season"]) if r["src_id"] is not None and r["season"] else None
+                if pdir:                                            # 調査回のプロジェクトから（判定・検出・特徴量ごと写す）
+                    sub = r["rel"].split("/", 1)[1] if "/" in r["rel"] else r["rel"]
+                    picked.append((r["source"], pdir, dict(id=r["src_id"], rel_path=sub, name=r["name"], station=r["station"], season=r["season"], prefix=r["season"])))
+                else:
+                    picked.append((r["source"], "", dict(id=None, rel=r["rel"], name=r["name"], station=r["station"] or "", season=r["season"] or "", dt=r["datetime"] or "",
+                                                         status="auto" if r["species"] else "new", species=set((r["species"] or "").split(";")) - {""}, src_name=r["source"], src_dir="", src_kind="tree", src_root=root)))
             else:
                 picked.append((r["source"], s["dir"], dict(id=r["src_id"], rel_path=r["rel"], name=r["name"], station=r["station"], season=r["season"])))
     n = import_rows(project, picked, batch, progress, stop)
@@ -996,21 +1035,29 @@ def _differs(a: dict, b: dict) -> bool:
     return state_sig(a) != state_sig(b)
 
 
+def _label_of_dir(project, sdir: str) -> str:
+    """書き戻し先のプロジェクトの表示名: 参照先の名前（プロジェクト参照）か、親フォルダ参照なら <名前>/<調査回>"""
+    for s in project.sources():
+        if s.get("dir") and key(s["dir"]) == key(sdir):
+            return s["name"]
+        if s.get("kind") == "tree" and s.get("root") and key(sdir).startswith(key(s["root"]).rstrip("/") + "/"):
+            return f"{s['name']}/{os.path.basename(os.path.dirname(norm(sdir)))}"
+    return os.path.basename(os.path.dirname(norm(sdir))) or sdir
+
+
 def sync_plan(project, direction: str) -> dict:
     """push（横断 → 参照先）/ pull（参照先 → 横断）で何が変わるかを数える。
     push: 横断で確認済みにした（取り込み後に更新された）対象のうち、参照先と内容が違うもの。参照先も取り込み後に変わっていれば衝突。
     pull: 参照先で取り込み後に更新された対象のうち、横断と違うもの。横断でも変えていれば衝突"""
     db = project.db
     out = dict(n_update=0, n_conflict=0, n_same=0, by_source={}, conflicts=[])
-    for s in project.sources():
-        name = s["name"]
-        if s.get("kind") == "tree":
-            continue                                      # 親フォルダ参照には書き戻す先（プロジェクト）がない
-        rows = db.q("SELECT id, src_id, rel_path, status, verified_at, updated_at, imported_at, src_updated_at, src_sig, train_exclude, recheck FROM items WHERE src_dir=? AND src_id IS NOT NULL", (s["dir"],))
+    for sdir in [r[0] for r in db.q("SELECT DISTINCT src_dir FROM items WHERE src_dir IS NOT NULL AND src_id IS NOT NULL ORDER BY src_dir")]:
+        name = _label_of_dir(project, sdir)
+        rows = db.q("SELECT id, src_id, rel_path, status, verified_at, updated_at, imported_at, src_updated_at, src_sig, train_exclude, recheck FROM items WHERE src_dir=? AND src_id IS NOT NULL", (sdir,))
         if not rows:
             continue
         try:
-            src = open_source(s["dir"])
+            src = open_source(sdir)
         except Exception as e:
             out["by_source"][name] = dict(error=str(e))
             continue
@@ -1060,13 +1107,11 @@ def sync_apply(project, direction: str, by: str, overwrite_conflicts: bool = Fal
     from .judge import update_agree
     db = project.db
     n_done = n_skip = 0
-    for s in project.sources():
-        if s.get("kind") == "tree":
-            continue
-        rows = db.q("SELECT id, src_id, rel_path, status, updated_at, imported_at, src_updated_at, src_sig, train_exclude, recheck FROM items WHERE src_dir=? AND src_id IS NOT NULL", (s["dir"],))
+    for sdir in [r[0] for r in db.q("SELECT DISTINCT src_dir FROM items WHERE src_dir IS NOT NULL AND src_id IS NOT NULL ORDER BY src_dir")]:
+        rows = db.q("SELECT id, src_id, rel_path, status, updated_at, imported_at, src_updated_at, src_sig, train_exclude, recheck FROM items WHERE src_dir=? AND src_id IS NOT NULL", (sdir,))
         if not rows:
             continue
-        src = open_source(s["dir"])
+        src = open_source(sdir)
         try:
             changed_src_ids, changed_ids = [], []
             for n, r in enumerate(rows):

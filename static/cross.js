@@ -48,7 +48,7 @@ function crossTabSources(m, body) {
     return `<span class="info" title="${esc(files.map(f => `${f.path} (${f.error || f.n})`).join('\n'))}">${esc(t('cross_labels'))} ${files.length} ${esc(l.auto ? t('cross_labels_auto') : t('cross_labels_given'))} · ${l.n_here ?? l.n ?? 0} ${esc(t('items'))}${bad.length ? ` <span class="ng">${esc(t('cross_labels_bad'))} ${bad.length}</span>` : ''}${l.n_unmapped ? ` <span class="ng" title="${esc(un)}">${esc(t('cross_unmapped'))} ${l.n_unmapped}</span>` : ''}</span>`;
   };
   const rows = srcs.map(s => `<tr><td><b>${esc(s.name)}</b> <span class="chip ${s.kind === 'tree' ? 'human' : 'ai'}">${esc(s.kind === 'tree' ? t('cross_kind_tree') : t('cross_kind_project'))}</span>${s.ok ? '' : ` <span class="ng">✗</span>`}</td>
-    <td class="info" title="${esc(s.dir || s.root || '')}">${esc(s.ok ? (s.root || '') : (s.error || ''))}${s.ok && !s.available ? ` <span class="ng">${esc(t('cross_unavailable'))}</span>` : ''}${s.kind === 'tree' && s.seasons ? `<div>${esc(t('cross_seasons'))} ${s.seasons.length} · ${labInfo(s)}</div>` : ''}</td>
+    <td class="info" title="${esc(s.dir || s.root || '')}">${esc(s.ok ? (s.root || '') : (s.error || ''))}${s.ok && !s.available ? ` <span class="ng">${esc(t('cross_unavailable'))}</span>` : ''}${s.kind === 'tree' && s.seasons ? `<div>${esc(t('cross_seasons'))} ${s.seasons.length}${(s.project_seasons || []).length ? ` (${esc(t('cross_proj_seasons'))} ${s.project_seasons.length})` : ''} · ${labInfo(s)}</div>` : ''}</td>
     <td>${s.ok && s.n_items != null ? s.n_items : '—'}</td><td>${s.ok && s.n_verified != null ? s.n_verified : '—'}</td><td>${s.ok && s.n_human != null ? s.n_human : '—'}</td><td>${s.n_imported || 0}</td>
     <td>${s.kind === 'tree' ? `<button type="button" class="small" data-lab="${esc(s.name)}">${esc(t('cross_set_labels'))}</button> ` : ''}<button type="button" class="small" data-rm="${esc(s.name)}">${esc(t('cross_remove'))}</button></td></tr>`).join('');
   const cat = info.catalog;
@@ -200,7 +200,7 @@ async function crossLoadCatalog(m) {
 function crossTabSync(m, body) {
   const info = m._info;
   const imports = (info.imports || []).slice().reverse();
-  const hasProj = (info.sources || []).some(s => s.kind !== 'tree');
+  const hasProj = (info.n_sync || 0) > 0 || (info.sources || []).some(s => s.kind !== 'tree' || (s.project_seasons || []).length);
   body.innerHTML = `<h4>${esc(t('cross_sync_h'))}</h4><div class="note">${esc(t('cross_sync_help'))}${hasProj ? '' : ' ' + esc(t('cross_sync_tree_note'))}</div>
     <div class="btn-row"><button type="button" class="small" id="crPushPlan" ${hasProj ? '' : 'disabled'}>${esc(t('cross_push_count'))}</button><button type="button" class="small" id="crPush" ${hasProj ? '' : 'disabled'}>${esc(t('cross_push'))}</button><button type="button" class="small" id="crPullPlan" ${hasProj ? '' : 'disabled'}>${esc(t('cross_pull_count'))}</button><button type="button" class="small" id="crPull" ${hasProj ? '' : 'disabled'}>${esc(t('cross_pull'))}</button><label class="chk"><input type="checkbox" id="crOverwrite"> ${esc(t('cross_overwrite'))}</label></div>
     <div id="crSyncOut"></div>

@@ -1066,6 +1066,7 @@ def make_app(session: Session) -> web.Application:
         p = need_cross()
         return jr(dict(sources=await io(cross.sources_info, p), imports=p.data.get("imports") or [], project=p.to_dict(), catalog=p.data.get("catalog"),
                        n_catalog=int(p.db.scalar("SELECT COUNT(*) FROM catalog") or 0), n_items=int(p.db.scalar("SELECT COUNT(*) FROM items") or 0),
+                       n_sync=int(p.db.scalar("SELECT COUNT(*) FROM items WHERE src_id IS NOT NULL") or 0),
                        batches=[dict(batch=r[0] or "", n=r[1]) for r in p.db.q("SELECT batch, COUNT(*) FROM items GROUP BY batch ORDER BY batch")]))
 
     async def cross_source_add(request):
