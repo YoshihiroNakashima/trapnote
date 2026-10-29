@@ -1,37 +1,45 @@
 'use strict';
-/* 横断プロジェクト（2 階層目）の窓: 5 つの段（手順）
-   1. 参照先を登録する（調査回のプロジェクトか NAS の親フォルダ）
-   2. 種名の対応表（参照先の種名の表記を、この横断プロジェクトの種リストのどの種と見なすか）
-   3. カタログを作る（参照先の全動画の目録。必須。どの段でも窓の下の「カタログを作る」から押せる）
-   4. 動画を選んで取り込む（ランダム / 表でチェック / 絞り込みの全部。取り込んだものが一覧と再生の対象になる）
-   5. 書き戻し・書き出し（判定の書き戻し・再取得、動画のコピー、一覧 CSV、取り込みの記録） */
+/* 横断プロジェクト（2 階層目）の窓。最初に目的を選ぶ（project の設定 cross_purpose）:
+   統合（merge）= 調査回ごとのデータを 1 つにまとめる:  1. 参照先 → 2. 種名の対応表 → 3. カタログを作る → 4. まとめて書き出す（Season 列つきの CSV）
+   学習（train）= 種判別モデルを鍛える:                 1. 参照先 → 2. 種名の対応表 → 3. カタログを作る → 4. 動画を選んで取り込む → 5. 学習と評価 → 6. 書き戻し・書き出し
+   1〜3 は共通。カタログは必須で、どの段でも窓の下の「カタログを作る」から押せる */
 
 let crossModalEl = null;
-const CR_F0 = { source: '', season: '', station: '', species: '', status: '', imported: '', text: '', exclude_stations: '', single_only: false, csv_text: '' };
+const CR_F0 = { source: '', season: '', station: '', species: '', status: '', imported: '', text: '', exclude_stations: '', single_only: false, csv_text: '', exclude_batches: null };
 const CR = { tab: '', f: Object.assign({}, CR_F0), counts: null,
-  smp: { unit: 'station', n: 20, cap: 5, gap: 10, seed: 1, per_unit: 0, total: 3000, max_avail: 0 }, labelQ: '' };
-const CR_TABS = ['sources', 'labels', 'build', 'pick', 'sync'];
+  smp: { unit: 'station', n: 20, cap: 5, gap: 10, seed: 1, per_unit: 0, total: 3000, max_avail: 0 }, labelQ: '', report: '' };
+const CR_TABS_ALL = ['sources', 'labels', 'build', 'pick', 'study', 'merge', 'sync'];
+const CR_TABS_BY = { merge: ['sources', 'labels', 'build', 'merge'], train: ['sources', 'labels', 'build', 'pick', 'study', 'sync'], '': ['sources', 'labels', 'build'] };
+let CR_TABS = CR_TABS_BY[''];
+const crPurpose = info => ((info.project.settings || {}).cross_purpose || '');
 
 async function crossDialog(tab) {
   let info;
   try { info = await api('/api/cross/info'); } catch (e) { toast(e.message, 'error'); return; }
   const cs = info.catalog_status || {};
+  const purpose = crPurpose(info);
+  CR_TABS = CR_TABS_BY[purpose] || CR_TABS_BY[''];
   if (tab && CR_TABS.includes(tab)) CR.tab = tab;
   else {                                   // 段を指定せずに開いたときは、いまの状態で次にやる段を出す
     if (!info.sources.length) CR.tab = 'sources';
     else if (!cs.built || !info.n_catalog) CR.tab = 'build';
-    else CR.tab = 'pick';
+    else CR.tab = purpose === 'merge' ? 'merge' : (purpose === 'train' ? (info.n_items ? 'study' : 'pick') : 'build');
   }
+  const evalB = (info.batches || []).filter(b => b.eval);
   const stepStatus = {
     sources: info.sources.length ? `${info.sources.length} ${t('items')}` : t('cr_none_yet'),
     labels: info.n_label_map ? `${info.n_label_map} ${t('cr_n_rules')}` : t('cr_auto_only'),
     build: !cs.built ? t('cr_not_built') : (cs.stale ? `${info.n_catalog} · ${crStaleWord(cs)}` : `${info.n_catalog} ${t('items')}`),
     pick: `${t('cross_items_n')} ${info.n_items}`,
+    study: evalB.length ? `${t('cr_eval_short')}: ${evalB.map(b => b.batch).join(', ')}` : (info.n_items ? `${(info.batches || []).filter(b => b.batch).length} ${t('cr_batches_u')}` : ''),
+    merge: cs.built ? `${info.n_catalog} ${t('items')}` : '',
     sync: info.n_sync ? `${info.n_sync} ${t('items')}` : '',
   };
   const warnStep = { sources: !info.sources.length, build: info.sources.length && (!cs.built || cs.stale) };
+  const purposeLabel = purpose === 'merge' ? t('cr_purpose_merge') : (purpose === 'train' ? t('cr_purpose_train') : t('cr_purpose_none'));
   const m = showModal(`<h3>${esc(t('cross_title'))} <span class="info">${esc(info.project.name)}</span></h3>
-    <div class="note">${esc(t('cr_intro'))}</div>
+    <div class="cr-purpose-line"><span>${esc(t('cr_purpose'))}: <b>${esc(purposeLabel)}</b></span> <button type="button" class="small" id="crPurposeBtn">${esc(purpose ? t('cr_purpose_change') : t('cr_purpose_choose'))}</button> <span class="info">${esc(t('cr_intro'))}</span></div>
+    <div id="crPurposeBox" class="${purpose ? 'hidden' : ''}">${crPurposeCards(purpose)}</div>
     <div class="steps" id="crTabs">${CR_TABS.map((k, i) => `<button type="button" class="stp ${CR.tab === k ? 'on' : ''} ${warnStep[k] ? 'warn' : ''}" data-tab="${k}"><span class="n">${i + 1}</span><span class="l">${esc(t('cr_tab_' + k))}</span><span class="s">${esc(stepStatus[k] || '')}</span></button>`).join('')}</div>
     <div id="crBody"></div>
     <div id="crStatus"></div>
@@ -42,8 +50,18 @@ async function crossDialog(tab) {
   m.querySelector('#mCancel').onclick = () => { crossModalEl = null; closeModal(); };
   m.querySelectorAll('#crTabs .stp').forEach(b => { b.onclick = () => { CR.tab = b.dataset.tab; m.querySelectorAll('#crTabs .stp').forEach(x => x.classList.toggle('on', x === b)); crossRenderTab(m); }; });
   m.querySelector('#crBuildFoot').onclick = () => crossBuild(m);
+  m.querySelector('#crPurposeBtn').onclick = () => { m.querySelector('#crPurposeBox').classList.toggle('hidden'); };
+  m.querySelectorAll('[data-purpose]').forEach(b => { b.onclick = async () => {
+    try { await api('/api/project/settings', { cross_purpose: b.dataset.purpose }); crossModalEl = null; crossDialog(); } catch (e) { toast(e.message, 'error'); }
+  }; });
   crossRenderTab(m);
   crossOnJobs(S.snap && S.snap.jobs);
+}
+
+// 目的を選ぶ 2 枚のカード（統合 / 学習）。選ぶと段の並びが変わる（いつでも変えられる）
+function crPurposeCards(cur) {
+  const card = (k, title, body, steps) => `<button type="button" class="cr-card ${cur === k ? 'on' : ''}" data-purpose="${k}"><div class="cr-card-t">${esc(title)}</div><div class="cr-card-b">${esc(body)}</div><div class="cr-card-s">${esc(steps)}</div></button>`;
+  return `<div class="cr-cards">${card('merge', t('cr_purpose_merge'), t('cr_purpose_merge_help'), t('cr_purpose_merge_steps'))}${card('train', t('cr_purpose_train'), t('cr_purpose_train_help'), t('cr_purpose_train_steps'))}</div>`;
 }
 
 // 対応表（か種リスト）だけが変わったときは、作り直さずに表記から種を当て直すだけ（数秒）。参照先が変わったときは作り直し
@@ -73,6 +91,8 @@ function crossRenderTab(m) {
   else if (CR.tab === 'labels') crossTabLabels(m, body);
   else if (CR.tab === 'build') crossTabBuild(m, body);
   else if (CR.tab === 'pick') crossTabPick(m, body);
+  else if (CR.tab === 'study') crossTabStudy(m, body);
+  else if (CR.tab === 'merge') crossTabMerge(m, body);
   else crossTabSync(m, body);
 }
 
@@ -228,6 +248,9 @@ function crossTabPick(m, body) {
   if (!info.n_catalog) { body.innerHTML = `<div class="note">${esc(t('cr_pick_help'))}</div><div class="callout warn">${esc(t('cross_no_catalog_yet'))}</div>`; return; }
   const srcs = info.sources || [], cs = info.catalog_status || {};
   const sm = CR.smp;
+  const batches = (info.batches || []).filter(b => b.batch);
+  const evalNames = batches.filter(b => b.eval).map(b => b.batch);
+  if (CR.f.exclude_batches === null || CR.f.exclude_batches === undefined) CR.f.exclude_batches = evalNames.slice();     // 既定: 評価用の組（gold）の地点・調査回は母集団から除く
   const unitOpts = [['station', t('cr_unit_station')], ['season', t('cr_unit_season')], ['station_season', t('cr_unit_station_season')], ['video', t('cr_unit_video')], ['species', t('cr_unit_species')]];
   body.innerHTML = `<div class="note">${esc(t('cr_pick_help'))}</div>
     ${cs.stale ? `<div class="callout warn">${esc(crStaleText(cs))}: ${esc(t('cr_pick_stale'))}</div>` : ''}
@@ -243,7 +266,8 @@ function crossTabPick(m, body) {
       <label class="chk" title="${esc(t('cross_single'))}"><input type="checkbox" id="cfSingle" ${CR.f.single_only ? 'checked' : ''}> ${esc(t('cross_single_short'))}</label>
       <button type="button" class="small primary" id="cfApply">${esc(t('cross_apply'))}</button><button type="button" class="small" id="cfClear">${esc(t('cross_clear'))}</button>
     </div>
-    <details class="adv" ${CR.f.exclude_stations || CR.f.csv_text ? 'open' : ''}><summary>${esc(t('cross_more_filters'))}</summary>
+    <details class="adv" ${CR.f.exclude_stations || CR.f.csv_text || (CR.f.exclude_batches || []).length ? 'open' : ''}><summary>${esc(t('cross_more_filters'))}</summary>
+      ${batches.length ? `<div class="form-row"><label>${esc(t('cr_excl_batches'))}</label><span style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${batches.map(b => `<label class="chk"><input type="checkbox" data-exb="${esc(b.batch)}" ${(CR.f.exclude_batches || []).includes(b.batch) ? 'checked' : ''}> ${esc(b.batch)}${b.eval ? ` <span class="chip human">${esc(t('cr_eval_chip'))}</span>` : ''} <span class="info">(${b.n})</span></label>`).join('')}<span class="info">${esc(t('cr_excl_batches_help'))}</span></span></div>` : ''}
       <div class="form-row"><label>${esc(t('cross_exclude'))}</label><input type="text" id="cfExclude" value="${esc(CR.f.exclude_stations)}" spellcheck="false" style="width:420px" placeholder="BSN0590, BSN0620, …"><span class="info">${esc(t('cross_exclude_help'))}</span></div>
       <div class="form-row"><label>${esc(t('cross_csv'))}</label><span style="display:flex;flex-direction:column;gap:4px"><textarea id="cfCsv" rows="4" style="width:520px;font-family:monospace" spellcheck="false" placeholder="Season,Station,File&#10;N240128,BSN0812,IMG_0011.AVI">${esc(CR.f.csv_text)}</textarea><span class="info">${esc(t('cross_csv_filter_help'))}</span></span></div>
     </details>
@@ -275,9 +299,11 @@ function crossTabPick(m, body) {
     <div class="cr-actions"><select id="cfRmBatch">${(info.batches || []).map(b => `<option value="${esc(b.batch)}">${esc(b.batch || t('cr_no_batch'))} (${b.n})</option>`).join('')}<option value="__all__">${esc(t('cr_all_items'))} (${info.n_items})</option></select>
       <button type="button" class="small danger-outline" id="cfRemove">${esc(t('cr_remove_btn'))}</button></div>` : ''}`;
   const q = sel => m.querySelector(sel);
-  const readF = () => { CR.f = { source: q('#cfSource').value, season: q('#cfSeason').value, station: q('#cfStation').value.trim(), species: q('#cfSpecies').value, status: q('#cfStatus').value, imported: q('#cfImported').value, text: q('#cfText').value.trim(), exclude_stations: q('#cfExclude').value.trim(), single_only: q('#cfSingle').checked, csv_text: q('#cfCsv').value }; };
+  const readF = () => { CR.f = { source: q('#cfSource').value, season: q('#cfSeason').value, station: q('#cfStation').value.trim(), species: q('#cfSpecies').value, status: q('#cfStatus').value, imported: q('#cfImported').value, text: q('#cfText').value.trim(), exclude_stations: q('#cfExclude').value.trim(), single_only: q('#cfSingle').checked, csv_text: q('#cfCsv').value,
+    exclude_batches: [...m.querySelectorAll('input[data-exb]:checked')].map(c => c.dataset.exb) }; };
   q('#cfApply').onclick = () => { readF(); crossLoadCatalog(m); };
-  q('#cfClear').onclick = () => { CR.f = Object.assign({}, CR_F0); crossRenderTab(m); };
+  q('#cfClear').onclick = () => { CR.f = Object.assign({}, CR_F0, { exclude_batches: evalNames.slice() }); crossRenderTab(m); };
+  m.querySelectorAll('input[data-exb]').forEach(c => { c.onchange = () => { readF(); crossLoadCatalog(m); }; });
   ['#cfStation', '#cfText'].forEach(sel => q(sel).addEventListener('keydown', e => { if (e.key === 'Enter') { readF(); crossLoadCatalog(m); } }));
   const batchOrWarn = () => { const b = q('#cfBatch').value.trim(); CR.batch = b; if (!b) { toast(t('cross_need_batch'), 'error'); q('#cfBatch').focus(); } return b; };
   q('#cfBatch').onchange = () => { CR.batch = q('#cfBatch').value.trim(); };
@@ -304,7 +330,7 @@ function crossTabPick(m, body) {
   };
   // ランダムに選ぶ
   const unitUi = () => { const u = q('#cfUnit').value; CR.smp.unit = u; const grp = ['station', 'season', 'station_season'].includes(u);
-    q('#cfCapWrap').classList.toggle('hidden', u !== 'species'); q('#cfMaxAvailWrap').classList.toggle('hidden', u !== 'species'); q('#cfGapWrap').classList.toggle('hidden', u !== 'species' && u !== 'video');
+    q('#cfCapWrap').classList.toggle('hidden', u !== 'species'); q('#cfMaxAvailWrap').classList.toggle('hidden', u !== 'species');
     q('#cfPerUnitWrap').classList.toggle('hidden', !grp); q('#cfTotalWrap').classList.toggle('hidden', !grp); };
   q('#cfUnit').onchange = unitUi; unitUi();
   const sampleParams = () => { CR.smp = { unit: q('#cfUnit').value, n: parseInt(q('#cfN').value) || 0, cap: parseInt(q('#cfCap').value) || 0, gap: parseFloat(q('#cfGap').value) || 0, seed: parseInt(q('#cfSeed').value) || 1,
@@ -313,10 +339,12 @@ function crossTabPick(m, body) {
   const showSample = r => {
     const unitName = { station: t('filter_station_s'), season: t('filter_season_s'), station_season: t('cr_unit_station_season_s') }[r.unit];
     let html = `<div><b>${esc(t('cross_will_import'))} ${r.n} ${esc(t('items'))}</b>`;
+    const thin = r.n_pool && r.n_pool_thin != null && r.n_pool_thin !== r.n_pool ? ` → ${t('cr_thinned')} ${r.n_pool_thin}` : '';     // 連続動画の間引きで減った分
     if (r.units && r.units.length) {
       const pool = {}; (r.units_pool || []).forEach(([k, n]) => { pool[k] = n; });
-      html += ` · ${esc(unitName)} ${r.units.length} / ${r.n_units_available}${r.n_pool && r.n_pool !== r.n ? ` · ${esc(t('cr_pool_of_units'))} ${r.n_pool} → ${r.n}` : ''}: <span class="info">${esc(r.units.map(([k, n]) => `${k} (${n}${pool[k] && pool[k] !== n ? ` / ${pool[k]}` : ''})`).join(', '))}</span>`;
-    } else if (r.unit === 'video') html += ` <span class="info">/ ${r.n_units_available}</span>`;
+      html += ` · ${esc(unitName)} ${r.units.length} / ${r.n_units_available}${r.n_pool && (r.n_pool !== r.n || thin) ? ` · ${esc(t('cr_pool_of_units'))} ${r.n_pool}${esc(thin)} → ${r.n}` : ''}: <span class="info">${esc(r.units.map(([k, n]) => `${k} (${n}${pool[k] && pool[k] !== n ? ` / ${pool[k]}` : ''})`).join(', '))}</span>`;
+    } else if (r.unit === 'video') html += ` <span class="info">/ ${r.n_units_available}${thin ? ` (${esc(t('cr_pool_of_units'))} ${r.n_pool}${esc(thin)})` : ''}</span>`;
+    else if (r.unit === 'species' && thin) html += ` <span class="info">(${esc(t('cr_pool_of_units'))} ${r.n_pool}${esc(thin)})</span>`;
     html += '</div>';
     const cnt = Object.entries(r.counts || {});
     if (cnt.length) html += `<div class="info">${esc(t('species'))}: ${cnt.map(([k, v]) => `${esc(k === '(none)' ? t('sp_none') : spLabel(k))} ${v}${r.available && r.available[k] != null ? ` <span class="info">/ ${r.available[k]}</span>` : ''}`).join(' · ')}</div>`;
@@ -351,14 +379,122 @@ async function crossLoadCatalog(m) {
     const codes = sortCodes(Object.keys(cnt.by_species).filter(c => c !== '(none)'));
     for (const c of codes) { const o = document.createElement('option'); o.value = c; o.textContent = `${spLabel(c)} (${cnt.by_species[c]})`; if (CR.f.species === c) o.selected = true; spSel.appendChild(o); }
   }
-  q('#cfSummary').innerHTML = `<span>${esc(t('cr_pool'))} <b>${cnt.total}</b></span><span>${esc(t('cross_imported'))} <b>${cnt.imported}</b></span><span>${esc(t('filter_station_s'))} <b>${(cnt.stations || []).filter(Boolean).length}</b></span><span>${esc(t('filter_season_s'))} <b>${(cnt.seasons || []).filter(Boolean).length}</b></span>${Object.entries(cnt.by_source).map(([k, v]) => `<span>${esc(k)} <b>${v}</b></span>`).join('')}${Object.entries(cnt.by_status).map(([k, v]) => `<span>${esc(k === 'verified' ? t('st_verified') : (k === 'auto' ? t('cross_st_labelled') : t('st_new')))} <b>${v}</b></span>`).join('')}`;
+  const ex = cnt.excluded;
+  const exTxt = ex && ex.batches && ex.batches.length ? `<span title="${esc(t('cr_excl_batches_help'))}">${esc(t('cr_excluded'))} ${esc(ex.batches.join(', '))}: ${[ex.stations ? `${t('filter_station_s')} ${ex.stations}` : '', ex.seasons ? `${t('filter_season_s')} ${ex.seasons}` : '', ex.cells ? `${t('cr_unit_station_season_s')} ${ex.cells}` : ''].filter(Boolean).join(' · ') || '—'}</span>` : '';
+  q('#cfSummary').innerHTML = `<span>${esc(t('cr_pool'))} <b>${cnt.total}</b></span><span>${esc(t('cross_imported'))} <b>${cnt.imported}</b></span><span>${esc(t('filter_station_s'))} <b>${(cnt.stations || []).filter(Boolean).length}</b></span><span>${esc(t('filter_season_s'))} <b>${(cnt.seasons || []).filter(Boolean).length}</b></span>${Object.entries(cnt.by_source).map(([k, v]) => `<span>${esc(k)} <b>${v}</b></span>`).join('')}${Object.entries(cnt.by_status).map(([k, v]) => `<span>${esc(k === 'verified' ? t('st_verified') : (k === 'auto' ? t('cross_st_labelled') : t('st_new')))} <b>${v}</b></span>`).join('')}${exTxt}`;
   q('#cfNAll').textContent = cnt.total - cnt.imported;
   // 種 × 調査回
   const seasons = cnt.seasons, sp = sortCodes(Object.keys(cnt.pivot).filter(c => c !== '(none)')).concat(cnt.pivot['(none)'] ? ['(none)'] : []);
   q('#cfPivot').innerHTML = sp.length ? `<table class="tbl matrix"><tr><th>${esc(t('species'))} \\ ${esc(t('cross_seasons'))}</th>${seasons.map(s => `<th>${esc(s || '—')}</th>`).join('')}<th>${esc(t('ag_n'))}</th></tr>${sp.map(c => `<tr><td><b>${esc(c === '(none)' ? t('sp_none') : spLabel(c))}</b></td>${seasons.map(s => `<td>${cnt.pivot[c][s] || ''}</td>`).join('')}<td><b>${cnt.by_species[c]}</b></td></tr>`).join('')}</table>` : '';
 }
 
-// ---------- 5. 書き戻し・書き出し ----------
+// ---------- 5. 学習と評価（目的 = 学習） ----------
+// 組（batch）を単位に進める: 評価用の組（gold。目視で全部確認し、学習には使わない）と学習用の組（round1 …）。
+// 評価 = 既存の判定（CSV・調査回のプロジェクト）と AI の判定を、目視（確認済み）と比べる。学習は評価用の組を検証用にして行う
+function crUnitWord(u) { return { station: t('filter_station_s'), season: t('filter_season_s'), station_season: t('cr_unit_station_season_s'), video: t('cr_unit_video_s'), species: t('cr_unit_species_s'), all: t('cr_all_items'), csv: 'CSV' }[u] || (u || ''); }
+function crossTabStudy(m, body) {
+  // 確認が進むと数字が変わるので、この段を開くたびに取り直す（窓を開いたときの info は古いことがある）
+  body.innerHTML = `<div class="note">${esc(t('cr_study_help'))}</div><div class="info">${esc(t('loading'))}</div>`;
+  api('/api/cross/info').then(info => { if (m.isConnected && CR.tab === 'study') { m._info = info; crossRenderStudy(m, body); } }).catch(e => { body.innerHTML = `<div class="ng">${esc(e.message)}</div>`; });
+}
+function crossRenderStudy(m, body) {
+  const info = m._info;
+  const named = (info.batches || []).filter(b => b.batch);
+  const noBatch = (info.batches || []).find(b => !b.batch);
+  const evalNames = named.filter(b => b.eval).map(b => b.batch);
+  const models = info.models || [], cur = info.classifier || 'speciesnet';
+  const curName = cur.startsWith('local:') ? cur.slice(6) : 'SpeciesNet';
+  const fmtImports = b => (b.imports || []).map(x => `${crUnitWord(x.unit)}${x.n_units ? ' ' + x.n_units : ''}`).filter(Boolean).join(', ');
+  const rows = named.map(b => `<tr class="${b.eval ? 'cur' : ''}"><td><b>${esc(b.batch)}</b><div class="info">${esc(fmtImports(b))}</div></td>
+    <td><label class="chk" title="${esc(t('cr_eval_tip'))}"><input type="checkbox" data-evb="${esc(b.batch)}" ${b.eval ? 'checked' : ''}> ${esc(t('cr_eval_chip'))}</label></td>
+    <td>${b.n}</td><td class="${b.n_verified < b.n ? 'warn' : 'ok'}">${b.n_verified}${b.n_verified < b.n ? ` <span class="info">/ ${b.n}</span>` : ''}</td><td>${b.n_ai}</td><td>${b.n_disagree}${b.n_partial ? ` <span class="info">+${b.n_partial}</span>` : ''}</td>
+    <td><button type="button" class="small" data-list="${esc(b.batch)}" title="${esc(t('cr_list_tip'))}">${esc(t('cr_list_btn'))}</button> <button type="button" class="small" data-dis="${esc(b.batch)}" title="${esc(t('cr_dis_tip'))}" ${b.n_disagree + b.n_partial ? '' : 'disabled'}>${esc(t('cr_dis_btn'))}</button> <button type="button" class="small ${b.eval ? 'primary' : ''}" data-rep="${esc(b.batch)}" ${b.n_verified ? '' : 'disabled'}>${esc(t('cr_report_btn'))}</button></td></tr>`).join('');
+  body.innerHTML = `<div class="note">${esc(t('cr_study_help'))}</div>
+    <details class="adv cr-proto" ${named.length ? '' : 'open'}><summary>${esc(t('cr_proto_h'))}</summary><ol>
+      <li>${esc(t('cr_proto_1'))}</li><li>${esc(t('cr_proto_2'))}</li><li>${esc(t('cr_proto_3'))}</li><li>${esc(t('cr_proto_4'))}</li><li>${esc(t('cr_proto_5'))}</li></ol></details>
+    <h4>${esc(t('cr_batches_h'))} <span class="info">${esc(t('cr_batches_sub'))}</span></h4>
+    ${named.length ? `<div style="max-height:32vh;overflow:auto"><table class="tbl cr-batches"><tr><th>${esc(t('cross_batch'))}</th><th>${esc(t('cr_role'))}</th><th>${esc(t('items'))}</th><th>${esc(t('st_verified'))}</th><th>${esc(t('cr_ai_done'))}</th><th title="${esc(t('cr_dis_tip'))}">${esc(t('cr_disagree'))}</th><th></th></tr>${rows}</table></div>
+      ${noBatch ? `<div class="info">${esc(t('cr_no_batch'))}: ${noBatch.n} ${esc(t('items'))}</div>` : ''}` : `<div class="callout warn">${esc(t('cr_study_no_batches'))}</div>`}
+    <h4>${esc(t('cr_model_h'))}</h4>
+    <div class="cr-actions"><span>${esc(t('cr_model_now'))}: <b>${esc(curName)}</b></span>
+      <button type="button" class="small" id="crStApply" title="${esc(t('cr_apply_tip'))}">${esc(t('cr_apply_btn'))}</button>
+      <button type="button" class="small primary" id="crStTrain" ${named.length ? '' : 'disabled'} title="${esc(t('cr_train_tip'))}">${esc(t('cr_train_btn'))}${evalNames.length ? ` (${esc(t('cr_eval_short'))}: ${esc(evalNames.join(', '))})` : ''}</button>
+      <button type="button" class="small" id="crStModels">${esc(t('tr_models'))} (${models.length})</button></div>
+    <div id="crReport">${CR.report ? `<div class="info">${esc(t('loading'))}</div>` : ''}</div>`;
+  const q = sel => m.querySelector(sel);
+  m.querySelectorAll('input[data-evb]').forEach(c => { c.onchange = async () => {
+    const names = [...m.querySelectorAll('input[data-evb]:checked')].map(x => x.dataset.evb);
+    try { await api('/api/cross/eval_batches', { batches: names }); CR.f.exclude_batches = null; crossModalEl = null; crossDialog('study'); } catch (e) { toast(e.message, 'error'); }
+  }; });
+  m.querySelectorAll('[data-list]').forEach(b => { b.onclick = () => { crossModalEl = null; closeModal(); showBatch(b.dataset.list); }; });
+  m.querySelectorAll('[data-dis]').forEach(b => { b.onclick = async () => { crossModalEl = null; closeModal(); await showBatch(b.dataset.dis); S.filter.agree = 'disagree'; renderFilters(); saveUi(); await reloadList(); toast(`${t('filter_batch')} ${b.dataset.dis} · ${t('cmp_disagree')}: ${S.total} ${t('items')}`); }; });
+  m.querySelectorAll('[data-rep]').forEach(b => { b.onclick = () => crossShowReport(m, b.dataset.rep); });
+  q('#crStApply').onclick = () => { crossModalEl = null; closeModal(); detectDialog({ mode: 'reclass' }); };
+  q('#crStTrain').onclick = () => { crossModalEl = null; closeModal(); trainDialog(null, { holdout_batches: evalNames }); };
+  q('#crStModels').onclick = () => { crossModalEl = null; closeModal(); trainDialog(); };
+  if (CR.report && named.some(b => b.batch === CR.report)) crossShowReport(m, CR.report);
+}
+
+// 組の評価: 既存の判定（CSV・調査回のプロジェクト）と AI の判定を目視と比べた表（種ごとの一致率と混同行列）
+async function crossShowReport(m, batch) {
+  CR.report = batch;
+  const out = m.querySelector('#crReport');
+  if (!out) return;
+  out.innerHTML = `<div class="info">${esc(t('loading'))}</div>`;
+  let r;
+  try { r = await api('/api/cross/report', { batch }); } catch (e) { out.innerHTML = `<div class="ng">${esc(e.message)}</div>`; return; }
+  if (!m.isConnected || !m.querySelector('#crReport')) return;
+  const nm = c => c === '(low)' ? t('cr_none_label') : (c === '(none)' ? t('sp_none') : spLabel(c));
+  const block = (title, e, otherLabel, help) => {
+    if (!e || !e.n) return `<h4>${esc(title)}</h4><div class="note">${esc(t('cr_report_none'))}</div>`;
+    const sp = Object.keys(e.by_species);
+    const cols = e.cols || [];
+    return `<h4>${esc(title)}</h4><div class="note">${esc(help)}</div>
+      <div class="ag-big"><span class="ag-num">${fmtPct(e.exact, e.n)}</span><span class="info">${esc(t('ag_overall'))} · ${e.exact} / ${e.n}</span>
+        <span class="info">${esc(t('cr_partial'))} ${fmtPct(e.partial, e.n)} · ${esc(t('tr_first_ok'))} ${fmtPct(e.first, e.n)} · ${esc(t('cr_none_label'))} ${e.low}</span></div>
+      <div style="max-height:30vh;overflow:auto"><table class="tbl"><tr><th>${esc(t('cr_human_label'))}</th><th>n</th><th>${esc(t('ag_rate'))}</th><th>${esc(t('tr_first_ok'))}</th><th>${esc(t('cr_none_label'))}</th><th>${esc(otherLabel)} (${esc(t('cr_top_confusions'))})</th></tr>
+      ${sp.map(c => { const x = e.by_species[c]; const row = e.matrix[c] || {}; const conf = Object.entries(row).filter(([k]) => k !== c).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, v]) => `${nm(k)} ${v}`).join(' · ');
+        return `<tr><td><b>${esc(spLabel(c))}</b></td><td>${x.n}</td><td><b>${fmtPct(x.exact, x.n)}</b></td><td class="info">${fmtPct(x.first, x.n)}</td><td class="info">${x.low || ''}</td><td class="info">${esc(conf)}</td></tr>`; }).join('')}</table></div>
+      ${cols.length ? `<details class="adv"><summary>${esc(t('cr_matrix'))} (${esc(otherLabel)})</summary><div style="max-height:30vh;overflow:auto"><table class="tbl matrix"><tr><th>${esc(t('cr_human_label'))} \\ ${esc(otherLabel)}</th>${cols.map(c => `<th>${esc(nm(c))}</th>`).join('')}</tr>
+        ${Object.keys(e.matrix).map(h => { const row = e.matrix[h]; return `<tr><td><b>${esc(spLabel(h))}</b></td>${cols.map(c => `<td class="${c === h ? 'diag' : (row[c] ? 'off' : '')}">${row[c] || ''}</td>`).join('')}</tr>`; }).join('')}</table></div></details>` : ''}`;
+  };
+  const models = Object.entries(r.models || {}).map(([k, v]) => `${k} (${v})`).join(', ');
+  out.innerHTML = `<h4>${esc(t('cr_report_h'))}: ${esc(batch)}${r.eval ? ` <span class="chip human">${esc(t('cr_eval_chip'))}</span>` : ''}</h4>
+    <div class="dt-counts"><span>${esc(t('items'))} <b>${r.n}</b></span><span>${esc(t('st_verified'))} <b>${r.n_verified}</b></span><span>${esc(t('cr_existing_n'))} <b>${r.n_existing}</b></span><span>${esc(t('cr_ai_done'))} <b>${r.n_ai}</b>${models ? ` <span class="info">(${esc(models)})</span>` : ''}</span></div>
+    ${r.n_verified < r.n ? `<div class="callout warn">${esc(t('cr_report_partial'))} (${r.n_verified} / ${r.n})</div>` : ''}
+    ${block(t('cr_existing_h'), r.existing, t('cr_existing_label'), t('cr_existing_help'))}
+    ${block(t('cr_ai_h'), r.ai, 'AI', t('cr_ai_help'))}`;
+}
+
+// ---------- 4. まとめて書き出す（目的 = 統合） ----------
+function crossTabMerge(m, body) {
+  const info = m._info, cs = info.catalog_status || {};
+  const srcs = info.sources || [];
+  const by = Object.entries(cs.by_source || {}).map(([k, v]) => `${esc(k)} <b>${v}</b>`).join(' · ');
+  body.innerHTML = `<div class="note">${esc(t('cr_merge_help'))}</div>
+    ${!cs.built ? `<div class="callout warn">${esc(t('cross_no_catalog_yet'))}</div>` : (cs.stale ? `<div class="callout warn">${esc(crStaleText(cs))}: ${esc(t('cr_pick_stale'))}</div>` : '')}
+    ${cs.built ? `<div class="dt-counts"><span>${esc(t('cross_catalog_n'))} <b>${info.n_catalog}</b></span>${by ? `<span>${by}</span>` : ''}<span>${esc(t('tr_trained_at'))} <b>${esc((cs.built_at || '').slice(0, 16).replace('T', ' '))}</b></span></div>` : ''}
+    <div class="cr-filters">
+      <select id="cmSource"><option value="">${esc(t('cross_all_sources'))}</option>${srcs.map(s => `<option value="${esc(s.name)}">${esc(s.name)}</option>`).join('')}</select>
+      <select id="cmStatus"><option value="">${esc(t('cr_merge_all'))}</option><option value="any">${esc(t('cr_merge_labelled'))}</option><option value="verified">${esc(t('st_verified'))}</option></select>
+      <label class="chk" title="${esc(t('cr_merge_long_tip'))}"><input type="checkbox" id="cmLong" checked> ${esc(t('cr_merge_long'))}</label>
+    </div>
+    <div class="cr-actions"><button type="button" class="primary" id="cmExport" ${cs.built ? '' : 'disabled'}>${esc(t('cr_merge_btn'))}</button><span class="info">${esc(t('cr_merge_where'))}</span></div>
+    <div id="cmOut"></div>
+    <div class="note">${esc(t('cr_merge_cols'))}</div>
+    <details class="adv"><summary>${esc(t('cr_merge_more'))}</summary><div class="note">${esc(t('cr_merge_more_help'))}</div></details>`;
+  const q = sel => m.querySelector(sel);
+  q('#cmExport').onclick = async () => {
+    const st = q('#cmStatus').value;
+    const f = { source: q('#cmSource').value };
+    if (st === 'any') f.species = 'any'; else if (st) f.status = st;
+    q('#cmOut').innerHTML = `<span class="info">${esc(t('loading'))}</span>`;
+    try { const r = await api('/api/cross/catalog/export', { filters: f, long: q('#cmLong').checked }); q('#cmOut').innerHTML = `<div class="ok">${esc(t('cross_list_done'))}: ${esc(r.path)} <span class="info">(${r.n} ${esc(t('items'))}${r.n_rows !== r.n ? ` · ${r.n_rows} ${esc(t('cr_rows'))}` : ''})</span></div>`; toast(`${t('cross_list_done')}: ${r.n}`); }
+    catch (e) { q('#cmOut').innerHTML = `<div class="ng">${esc(e.message)}</div>`; }
+  };
+}
+
+// ---------- 6. 書き戻し・書き出し ----------
 function crossTabSync(m, body) {
   const info = m._info;
   const imports = (info.imports || []).slice().reverse();

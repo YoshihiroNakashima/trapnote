@@ -499,6 +499,7 @@ class TrainJob(Job):
             return
         opts = train.train_settings(project, self.options)
         opts["holdout_stations"] = self.options.get("holdout_stations") or None
+        opts["holdout_batches"] = [str(x) for x in (self.options.get("holdout_batches") or []) if str(x)]      # 検証用の組（gold など）
         kind = self.options.get("kind", "A")
         sources = [str(x) for x in (self.options.get("sources") or [])] or None      # 材料に加えるほかのプロジェクト
 
@@ -521,9 +522,10 @@ class TrainJob(Job):
         ev = r.get("eval")
         if ev and ev["before"]["n"]:
             b, a = ev["before"], ev["after"]
-            self.message = f"{self.name}: 検証用 {ev['n_items']} 本の一致率 {100 * b['exact'] / b['n']:.0f}% → {100 * a['exact'] / a['n']:.0f}%（学習 {r['n_items']} 本・{r['n_crops']} 枠・{len(r['classes'])} 種）"
+            who = f"組 {', '.join(ev['batches'])}" if ev.get("batches") else "地点"
+            self.message = f"{self.name}: 検証用（{who}）{ev['n_items']} 本の一致率 {100 * b['exact'] / b['n']:.0f}% → {100 * a['exact'] / a['n']:.0f}%（学習 {r['n_items']} 本・{r['n_crops']} 枠・{len(r['classes'])} 種）"
         else:
-            self.message = f"{self.name}: 学習 {r['n_items']} 本・{r['n_crops']} 枠・{len(r['classes'])} 種（検証用の地点なし）"
+            self.message = f"{self.name}: 学習 {r['n_items']} 本・{r['n_crops']} 枠・{len(r['classes'])} 種（検証用なし）"
         self.phase = "done"
 
     def status(self) -> dict:

@@ -58,6 +58,7 @@ PROJECT_DEFAULTS = {
     "archive_move_to": "",             # move のときの移し先（この下に相対パスで置く）
     "z_is_utc": False,                 # 末尾 Z の日時（動画の creation_time、CSV の DateTime）を UTC とみなして時差を変換するか。既定はカメラの時刻そのまま
     "catalog_scan_folders": False,     # 横断: カタログを作るとき、プロジェクトも種名の CSV の行もない調査回はフォルダを見て動画を載せる（NAS では遅い）
+    "cross_purpose": "",               # 横断の目的: merge（調査回のデータを 1 つにまとめる）/ train（種判別モデルを鍛える）/ ""（まだ決めていない）
 }
 
 

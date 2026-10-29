@@ -420,6 +420,31 @@ def make_app(session: Session) -> web.Application:
         res["state"] = await io(S.snapshot)
         return jr(res)
 
+    async def projects_recent(request):
+        """最近のプロジェクトの一覧（名前・種類・この PC から見えるか）。project.json を読むだけ（NAS が眠っていると数秒かかることがあるので画面は先に出し、後から埋める）"""
+        from .project import PROJECT_JSON
+
+        def one(path: str) -> dict:
+            d = dict(path=path, name=os.path.basename(os.path.dirname(path)) or path, kind="", exists=False)
+            try:
+                with open(os.path.join(path, PROJECT_JSON), encoding="utf-8") as fh:
+                    j = json.load(fh)
+                d.update(exists=True, kind=str(j.get("kind") or "season"), name=str(j.get("name") or d["name"]),
+                         purpose=str((j.get("settings") or {}).get("cross_purpose") or ""), n_sources=len(j.get("sources") or []))
+            except Exception:
+                pass
+            return d
+        paths = list(S.settings.get("recent_projects", []))
+        return jr(dict(projects=await io(lambda: [one(x) for x in paths])))
+
+    async def projects_forget(request):
+        """最近のプロジェクトの一覧から消す（プロジェクト自体は消さない）"""
+        b = await _body(request)
+        path = str(b.get("path") or "")
+        rp = [x for x in S.settings.get("recent_projects", []) if x.lower() != path.lower()]
+        S.settings.update(dict(recent_projects=rp))
+        return jr(dict(recent_projects=rp, state=await io(S.snapshot)))
+
     async def project_root(request):
         b = await _body(request)
         res = await io(S.set_root, b.get("path", ""))
@@ -926,7 +951,8 @@ def make_app(session: Session) -> web.Application:
             if S._hub is not None and S._hub.device is not None:
                 S._hub.unload()
                 S._hub.device = None
-        opts = dict(kind=kind, holdout_stations=[str(x) for x in (b.get("holdout_stations") or [])] or None, sources=sources)
+        opts = dict(kind=kind, holdout_stations=[str(x) for x in (b.get("holdout_stations") or [])] or None, sources=sources,
+                    holdout_batches=[str(x) for x in (b.get("holdout_batches") or []) if str(x)])
         if kind == "B" and b.get("init_from"):
             init = train.safe_model_name(str(b["init_from"]))
             if init == name:
@@ -1120,7 +1146,19 @@ def make_app(session: Session) -> web.Application:
                        n_catalog=int(p.db.scalar("SELECT COUNT(*) FROM catalog") or 0), n_items=int(p.db.scalar("SELECT COUNT(*) FROM items") or 0),
                        n_sync=int(p.db.scalar("SELECT COUNT(*) FROM items WHERE src_id IS NOT NULL") or 0),
                        n_label_map=len(cross.label_map(p)), label_map_at=p.data.get("label_map_at"),
-                       batches=[dict(batch=r[0] or "", n=r[1]) for r in p.db.q("SELECT batch, COUNT(*) FROM items GROUP BY batch ORDER BY batch")]))
+                       batches=cross.batches_info(p), eval_batches=cross.eval_batches(p), models=train.list_models(p), classifier=p.setting("classifier")))
+
+    async def cross_report(request):
+        """組（gold など）の評価: 既存の判定（CSV・調査回のプロジェクト）と AI の判定を、目視（確認済み）と比べる"""
+        p = need_cross()
+        b = await _body(request)
+        return jr(await io(cross.batch_report, p, str(b.get("batch") or "")))
+
+    async def cross_eval_batches(request):
+        """評価用の組（学習には使わない）を決める"""
+        p = need_cross()
+        b = await _body(request)
+        return jr(dict(eval_batches=cross.set_eval_batches(p, b.get("batches") or [])))
 
     async def cross_labels(request):
         """種名の対応表の画面の元（表記・本数・自動の当たり・いまの対応）"""
@@ -1255,8 +1293,9 @@ def make_app(session: Session) -> web.Application:
     async def cross_catalog_export(request):
         p = need_cross()
         b = await _body(request)
-        path = norm(b.get("path") or os.path.join(p.dir, "exports", f"catalog_{time.strftime('%Y%m%d_%H%M')}.csv"))
-        return jr(await io(cross.export_catalog, p, path, b.get("filters") or {}))
+        long = bool(b.get("long"))
+        path = norm(b.get("path") or os.path.join(p.dir, "exports", f"{'merged' if long else 'catalog'}_{time.strftime('%Y%m%d_%H%M')}.csv"))
+        return jr(await io(cross.export_catalog, p, path, b.get("filters") or {}, long))
 
     async def cross_sync_plan(request):
         p = need_cross()
@@ -1372,6 +1411,8 @@ def make_app(session: Session) -> web.Application:
     r.add_get("/api/state", state)
     r.add_post("/api/dialog", dialog)
     r.add_post("/api/project/open", project_open)
+    r.add_get("/api/projects/recent", projects_recent)
+    r.add_post("/api/projects/forget", projects_forget)
     r.add_post("/api/project/root", project_root)
     r.add_post("/api/project/close", project_close)
     r.add_post("/api/project/settings", project_settings)
@@ -1426,6 +1467,8 @@ def make_app(session: Session) -> web.Application:
     r.add_post("/api/cross/catalog/rows", cross_catalog_rows)
     r.add_post("/api/cross/catalog/sample", cross_catalog_sample)
     r.add_post("/api/cross/catalog/export", cross_catalog_export)
+    r.add_post("/api/cross/report", cross_report)
+    r.add_post("/api/cross/eval_batches", cross_eval_batches)
     r.add_post("/api/cross/plan", cross_plan)
     r.add_post("/api/cross/import", cross_import)
     r.add_post("/api/cross/items/remove", cross_items_remove)

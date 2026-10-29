@@ -10,19 +10,39 @@ function wirePicks(m) {
 
 // ---------- プロジェクトを開く ----------
 async function openProjectDialog() {
+  // 2 種類のプロジェクトを並べて出す: 調査回のプロジェクト（動画のフォルダ）と横断プロジェクト（調査回をまたぐ: 統合 / 学習）。最近の一覧には種類と × を付ける
   const recent = (S.snap && S.snap.recent_projects) || [];
-  const m = showModal(`<h3>${esc(t('open_title'))}</h3><div class="note">${esc(t('open_help'))}</div>
-    ${pathRow('opPath', t('open_project'), 'folder', '', '')}
-    ${recent.length ? `<h4>${esc(t('recent'))}</h4><ul class="recent">${recent.map(p => `<li data-p="${esc(p)}">${esc(p)}</li>`).join('')}</ul>` : ''}
-    <details class="adv"><summary>${esc(t('cross_new'))}</summary><div class="note">${esc(t('cross_new_help'))}</div>
-      ${pathRow('opCross', t('cross_folder'), 'folder', '', '')}
-      <div class="btn-row"><button type="button" class="small" id="opCrossMake">${esc(t('cross_make'))}</button></div></details>
-    <div class="modal-actions"><button id="mCancel">${esc(t('cancel'))}</button><button id="mOk" class="primary">${esc(t('ok'))}</button></div>`);
+  const nameOf = p => p.replace(/[\\/]+$/, '').split(/[\\/]/).filter(Boolean).slice(-2, -1)[0] || p;
+  const li = (p, d) => `<li data-p="${esc(p)}" class="${d && d.exists === false ? 'gone' : ''}"><span class="chip ${d && d.kind === 'cross' ? 'human' : 'ai'} op-kind" title="${esc(d && d.kind === 'cross' ? t('cross_chip_tip') : t('op_season_tip'))}">${esc(!d ? '…' : (d.kind === 'cross' ? t('cross_chip') : t('op_season_chip')))}</span> <b>${esc(d ? d.name : nameOf(p))}</b>${d && d.kind === 'cross' && d.purpose ? ` <span class="info">(${esc(d.purpose === 'merge' ? t('cr_purpose_merge') : t('cr_purpose_train'))})</span>` : ''} <span class="info op-path">${esc(p)}</span>${d && d.exists === false ? ` <span class="ng">${esc(t('op_gone'))}</span>` : ''}<button type="button" class="x" data-forget="${esc(p)}" title="${esc(t('op_forget_tip'))}">×</button></li>`;
+  const m = showModal(`<h3>${esc(t('open_title'))}</h3>
+    <div class="op-cards">
+      <div class="op-card"><h4>${esc(t('op_season_h'))}</h4><div class="note">${esc(t('open_help'))}</div>${pathRow('opPath', t('open_project'), 'folder', '', '')}<div class="btn-row"><button type="button" id="mOk" class="primary">${esc(t('op_open_btn'))}</button></div></div>
+      <div class="op-card"><h4>${esc(t('cross_new_h'))}</h4><div class="note">${esc(t('cross_new_help'))}</div>${pathRow('opCross', t('cross_folder'), 'folder', '', '')}<div class="btn-row"><button type="button" class="primary" id="opCrossMake">${esc(t('cross_make'))}</button></div></div>
+    </div>
+    ${recent.length ? `<h4>${esc(t('recent'))} <span class="info">${esc(t('op_recent_help'))}</span></h4><ul class="recent" id="opRecent">${recent.map(p => li(p, null)).join('')}</ul>` : ''}
+    <div class="modal-actions"><button id="mCancel">${esc(t('close'))}</button></div>`);
   wirePicks(m);
   m.querySelector('#mCancel').onclick = closeModal;
   m.querySelector('#mOk').onclick = () => { const p = m.querySelector('#opPath').value.trim(); if (p) { closeModal(); openProjectPath(p); } };
-  m.querySelector('#opCrossMake').onclick = () => { const p = m.querySelector('#opCross').value.trim(); if (p) { closeModal(); openProjectPath(p, true, 'cross').then(() => { if (S.project && S.project.kind === 'cross') crossDialog(); }); } };
-  m.querySelectorAll('.recent li').forEach(li => { li.onclick = () => { closeModal(); openProjectPath(li.dataset.p); }; });
+  m.querySelector('#opPath').addEventListener('keydown', e => { if (e.key === 'Enter') m.querySelector('#mOk').click(); });
+  m.querySelector('#opCrossMake').onclick = () => { const p = m.querySelector('#opCross').value.trim(); if (!p) { toast(t('cross_need_folder'), 'error'); return; } closeModal(); openProjectPath(p, true, 'cross').then(() => { if (S.project && S.project.kind === 'cross') crossDialog(); }); };
+  const wire = () => {
+    m.querySelectorAll('.recent li').forEach(el => { el.onclick = e => { if (e.target.closest('button')) return; closeModal(); openProjectPath(el.dataset.p); }; });
+    m.querySelectorAll('.recent [data-forget]').forEach(b => { b.onclick = async e => {
+      e.stopPropagation();
+      try { const r = await api('/api/projects/forget', { path: b.dataset.forget }); if (r.state) setSnapshot(r.state); b.closest('li').remove(); if (!m.querySelectorAll('.recent li').length) { const h = m.querySelector('#opRecent'); if (h) { h.previousElementSibling.remove(); h.remove(); } } }
+      catch (err) { toast(err.message, 'error'); }
+    }; });
+  };
+  wire();
+  if (recent.length) {                       // 種類（横断 / 調査回）と見えるかは project.json を読んで後から埋める（NAS が眠っていると数秒かかる）
+    try {
+      const r = await api('/api/projects/recent');
+      if (!m.isConnected) return;
+      for (const d of r.projects || []) { const el = m.querySelector(`.recent li[data-p="${CSS.escape(d.path)}"]`); if (el) el.outerHTML = li(d.path, d); }
+      wire();
+    } catch (e) { /* 一覧はそのまま */ }
+  }
 }
 
 // ---------- 設定 ----------
@@ -790,14 +810,16 @@ function evalLine(ev) {    // {before, after} → 「一致率 0% → 45%」の�
   const b = ev.before, a = ev.after;
   return `${fmtPct(b.exact, b.n)} → <b>${fmtPct(a.exact, a.n)}</b>`;
 }
-async function trainDialog(showName) {
+async function trainDialog(showName, preset) {
+  // preset = {holdout_batches: ['gold']}（横断の「学習と評価」から開いたとき。評価用の組を検証用にして始める）
   const m = showModal(`<h3>${esc(t('tr_title'))}</h3><div class="note">${esc(t('tr_help'))}</div>
     <div id="trEnv" class="env-row">${esc(t('loading'))}</div>
     <div id="trPlan" class="dt-counts"></div>
     <div id="trSpecies" class="info"></div>
     <div class="form-row"><label>${esc(t('tr_kind'))}</label><select id="trKind"><option value="A">${esc(t('tr_kind_a'))}</option><option value="B">${esc(t('tr_kind_b'))}</option></select></div>
     <div class="form-row"><label>${esc(t('tr_name'))}</label><input type="text" id="trName" spellcheck="false" style="width:260px"></div>
-    <div class="form-row"><label>${esc(t('tr_holdout'))}</label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><input type="number" id="trHold" step="0.05" min="0" max="0.6" style="width:70px"> <span class="info">${esc(t('tr_holdout_help'))}</span><label class="chk" title="${esc(t('tr_final_wo_help'))}"><input type="checkbox" id="trFinalHold"> ${esc(t('tr_final_wo'))}</label></span></div>
+    <div class="form-row hidden" id="trBatchRow"><label>${esc(t('tr_hold_batches'))}</label><span style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span id="trBatches"></span><span class="info">${esc(t('tr_hold_batches_help'))}</span></span></div>
+    <div class="form-row"><label>${esc(t('tr_holdout'))}</label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><input type="number" id="trHold" step="0.05" min="0" max="0.6" style="width:70px"> <span class="info" id="trHoldHelp">${esc(t('tr_holdout_help'))}</span><label class="chk" title="${esc(t('tr_final_wo_help'))}"><input type="checkbox" id="trFinalHold"> ${esc(t('tr_final_wo'))}</label></span></div>
     <details class="adv" id="trSrcDetails"><summary>${esc(t('tr_sources'))} <span id="trSrcN" class="info"></span></summary>
       <div class="note">${esc(t('tr_sources_help'))}</div>
       <div id="trSources" class="sp-grid" style="max-height:20vh;overflow:auto"></div>
@@ -836,6 +858,20 @@ async function trainDialog(showName) {
     stationsN();
   };
   const stationsN = () => { const n = m.querySelectorAll('#trStations input:checked').length; q('#trStN').textContent = n ? `(${n})` : ''; };
+  const batchesChecked = () => [...m.querySelectorAll('#trBatches input:checked')].map(c => c.dataset.b);
+  const batchUi = () => {      // 検証用の組があるときは、地点の割合は使わず、検証用は保存するモデルにも入れない（gold を含まないモデルにする）
+    const on = batchesChecked().length > 0;
+    q('#trHold').disabled = on; q('#trHoldHelp').textContent = on ? t('tr_holdout_off_batches') : t('tr_holdout_help');
+    if (on) q('#trFinalHold').checked = true;
+    q('#trFinalHold').disabled = on;
+  };
+  const renderBatches = (checked) => {
+    const bs = (planData && planData.batches) || [];
+    q('#trBatchRow').classList.toggle('hidden', !bs.length);
+    q('#trBatches').innerHTML = bs.map(b => `<label class="chk" title="${esc(t('tr_hold_batch_tip'))}"><input type="checkbox" data-b="${esc(b.batch)}" ${checked.includes(b.batch) ? 'checked' : ''}> ${esc(b.batch)} <span class="info">${b.n_ready} / ${b.n}</span></label>`).join('');
+    m.querySelectorAll('#trBatches input').forEach(c => { c.onchange = batchUi; });
+    batchUi();
+  };
   q('#trStClear').onclick = () => { m.querySelectorAll('#trStations input').forEach(c => { c.checked = false; }); stationsN(); };
   const renderSources = () => {
     q('#trSources').innerHTML = srcList.length ? srcList.map(x => `<label><input type="checkbox" data-src="${x.id}" ${x.checked ? 'checked' : ''}> <span>${esc(x.name)}</span> <span class="info" title="${esc(x.path)}">${esc(x.path)}</span></label>`).join('') : `<div class="note">${esc(t('tr_src_none'))}</div>`;
@@ -871,7 +907,7 @@ async function trainDialog(showName) {
     const ms = r.models || [];
     const cur = r.classifier || 'speciesnet';
     q('#trModels').innerHTML = ms.length ? `<table class="tbl"><tr><th>${esc(t('tr_name'))}</th><th>${esc(t('tr_kind'))}</th><th>${esc(t('tr_trained_at'))}</th><th>${esc(t('tr_data'))}</th><th>${esc(t('tr_eval_short'))}</th><th></th></tr>` +
-      ms.map(x => `<tr class="${cur === 'local:' + x.name ? 'cur' : ''}"><td><b>${esc(x.name)}</b>${cur === 'local:' + x.name ? ` <span class="chip ai">${esc(t('tr_in_use'))}</span>` : ''}${x.shared || x.also_shared ? ` <span class="chip human" title="${esc(t('tr_shared_tip'))}">${esc(t('tr_shared'))}</span>` : ''}${x.init_from ? `<div class="info">${esc(t('tr_init_from'))}: ${esc((x.init_chain || [x.init_from]).join(' → '))}</div>` : ''}${x.sources && x.sources.length ? `<div class="info">${esc(t('tr_src_with'))}: ${esc([x.project || ''].concat(x.sources.map(y => y.name)).filter(Boolean).join(' + '))}</div>` : ''}${x.final_without_holdout ? `<div class="info">${esc(t('tr_final_wo_short'))}</div>` : ''}</td><td>${esc(x.kind)}</td><td class="info">${esc((x.trained_at || '').slice(0, 16).replace('T', ' '))}</td><td class="info">${x.n_items || 0} ${esc(t('items'))} · ${x.n_crops || 0} ${esc(t('tr_crops'))} · ${(x.classes || []).length} ${esc(t('tr_species_u'))}</td><td>${x.eval ? `${evalLine(x.eval)} <span class="info">(${x.eval.n_items})</span>` : `<span class="info">${esc(t('tr_no_holdout'))}</span>`}</td><td><button type="button" class="small" data-res="${esc(x.name)}">${esc(t('tr_result'))}</button> <button type="button" class="small" data-use="${esc(x.name)}" title="${esc(t('tr_row_apply_tip'))}">${esc(t('tr_row_apply'))}</button> ${!x.shared && !x.also_shared ? `<button type="button" class="small" data-share="${esc(x.name)}" title="${esc(t('tr_share_tip'))}">${esc(t('tr_share'))}</button> ` : ''}<button type="button" class="small" data-del="${esc(x.name)}">${esc(t('delete'))}</button></td></tr>`).join('') + '</table>'
+      ms.map(x => `<tr class="${cur === 'local:' + x.name ? 'cur' : ''}"><td><b>${esc(x.name)}</b>${cur === 'local:' + x.name ? ` <span class="chip ai">${esc(t('tr_in_use'))}</span>` : ''}${x.shared || x.also_shared ? ` <span class="chip human" title="${esc(t('tr_shared_tip'))}">${esc(t('tr_shared'))}</span>` : ''}${x.init_from ? `<div class="info">${esc(t('tr_init_from'))}: ${esc((x.init_chain || [x.init_from]).join(' → '))}</div>` : ''}${x.sources && x.sources.length ? `<div class="info">${esc(t('tr_src_with'))}: ${esc([x.project || ''].concat(x.sources.map(y => y.name)).filter(Boolean).join(' + '))}</div>` : ''}${x.final_without_holdout ? `<div class="info">${esc(t('tr_final_wo_short'))}</div>` : ''}</td><td>${esc(x.kind)}</td><td class="info">${esc((x.trained_at || '').slice(0, 16).replace('T', ' '))}</td><td class="info">${x.n_items || 0} ${esc(t('items'))} · ${x.n_crops || 0} ${esc(t('tr_crops'))} · ${(x.classes || []).length} ${esc(t('tr_species_u'))}</td><td>${x.eval ? `${evalLine(x.eval)} <span class="info">(${x.eval.n_items}${x.eval.batches && x.eval.batches.length ? ` · ${esc(x.eval.batches.join(', '))}` : ''})</span>` : `<span class="info">${esc(t('tr_no_holdout'))}</span>`}</td><td><button type="button" class="small" data-res="${esc(x.name)}">${esc(t('tr_result'))}</button> <button type="button" class="small" data-use="${esc(x.name)}" title="${esc(t('tr_row_apply_tip'))}">${esc(t('tr_row_apply'))}</button> ${!x.shared && !x.also_shared ? `<button type="button" class="small" data-share="${esc(x.name)}" title="${esc(t('tr_share_tip'))}">${esc(t('tr_share'))}</button> ` : ''}<button type="button" class="small" data-del="${esc(x.name)}">${esc(t('delete'))}</button></td></tr>`).join('') + '</table>'
       : `<div class="note">${esc(t('tr_none_models'))}</div>`;
     m.querySelectorAll('[data-use]').forEach(b => { b.onclick = () => { trainModalEl = null; detectDialog({ mode: 'reclass', classifier: 'local:' + b.dataset.use }); }; });
     const initNow = q('#trInit').value;
@@ -898,13 +934,15 @@ async function trainDialog(showName) {
       if (!srcList.length) srcList = (r.recent || []).map(x => ({ id: ++srcSeq, path: x.path, name: x.name, checked: false }));
       renderSources();
       renderStations();
-      if (!q('#trName').value) {
+      const firstTime = !q('#trName').value;
+      if (firstTime) {
         const ps = r.settings;
         q('#trHold').value = ps.train_holdout_frac; q('#trMinConf').value = ps.train_min_conf; q('#trWHard').value = ps.train_weight_hard; q('#trMinPer').value = ps.train_min_per_class;
         q('#trEmpty').checked = ps.train_use_empty !== false; q('#trFinalHold').checked = !!ps.train_final_without_holdout; q('#trMix').value = ps.train_base_mix; q('#trEpochs').value = ps.train_epochs_b; q('#trBatch').value = ps.train_batch_b;
         q('#trUnfreeze').value = ps.train_unfreeze; q('#trLr').value = ps.train_lr_b; q('#trDevice').value = r.device || 'auto';
         kindUi();
       }
+      renderBatches(firstTime ? ((preset && preset.holdout_batches) || r.eval_batches || []) : batchesChecked());      // 設定を入れた後に（検証用の組があれば「保存するモデルにも入れない」を付ける）
       renderModels(r);
       const ld = env.loaded || {};
       if (ld.classifier) q('#trEnv').innerHTML += ld.feat_dim ? `<span class="ok">${esc(t('tr_feat_layer'))} ${esc(ld.feat_layer || '')} (${ld.feat_dim})</span>` : `<span class="ng">${esc(t('tr_feat_none'))}</span>`;
@@ -925,6 +963,7 @@ async function trainDialog(showName) {
       train_min_per_class: parseInt(q('#trMinPer').value) || 5, train_use_empty: q('#trEmpty').checked, train_final_without_holdout: q('#trFinalHold').checked, train_base_mix: parseFloat(q('#trMix').value),
       train_epochs_b: parseInt(q('#trEpochs').value) || 5, train_batch_b: parseInt(q('#trBatch').value) || 16, train_unfreeze: parseFloat(q('#trUnfreeze').value), train_lr_b: parseFloat(q('#trLr').value),
       holdout_stations: [...m.querySelectorAll('#trStations input:checked')].map(c => c.dataset.st),
+      holdout_batches: batchesChecked(),
       init_from: q('#trKind').value === 'B' ? q('#trInit').value : '',
       sources: srcChecked().map(x => x.path),
     };
@@ -970,12 +1009,12 @@ async function trainResultDialog(name) {
   try { r = await api(`/api/train/result?name=${encodeURIComponent(name)}`); } catch (e) { toast(e.message, 'error'); return; }
   const nm = c => c === '(low)' ? t('det_low') : spLabel(c);
   const ev = r.eval;
-  const block = (title, e, n, stations) => {
+  const block = (title, e, n, stations, batches) => {
     if (!e || !e.before || !e.before.n) return '';
     const b = e.before, a = e.after;
     const sp = sortCodes(Object.keys(Object.assign({}, b.by_species, a.by_species)));
     const cols = sortCodes(new Set([].concat(...Object.values(a.matrix || {}).map(row => Object.keys(row)), Object.keys(a.matrix || {}))));
-    return `<h4>${esc(title)}</h4>${stations ? `<div class="info">${esc(t('tr_stations'))}: ${esc(stations.join(', '))}</div>` : ''}
+    return `<h4>${esc(title)}</h4>${batches && batches.length ? `<div class="info">${esc(t('tr_hold_batches'))}: ${esc(batches.join(', '))}</div>` : ''}${stations && stations.length ? `<div class="info">${esc(t('tr_stations'))}: ${esc(stations.join(', '))}</div>` : ''}
       <div class="ag-big"><span class="ag-num">${fmtPct(b.exact, b.n)} → ${fmtPct(a.exact, a.n)}</span><span class="info">${esc(t('ag_overall'))} · ${b.exact} → ${a.exact} / ${n}</span>
         <span class="info">${esc(t('tr_first_ok'))} ${fmtPct(b.first, b.n)} → ${fmtPct(a.first, a.n)} · ${esc(t('det_low'))} ${b.low} → ${a.low}</span></div>
       <div style="max-height:30vh;overflow:auto"><table class="tbl"><tr><th>${esc(t('dt_eval_human'))}</th><th>n</th><th>${esc(t('ag_rate'))} ${esc(t('tr_before'))} → ${esc(t('tr_after'))}</th><th>${esc(t('tr_first_ok'))}</th></tr>
@@ -988,8 +1027,8 @@ async function trainResultDialog(name) {
   const hist = ((r.train_record_all || r.train_record || {}).history || []);
   const m = showModal(`<h3>${esc(t('tr_result'))}: ${esc(r.name)} <span class="info">(${esc(t('tr_kind'))} ${esc(r.kind)} · ${esc((r.trained_at || '').slice(0, 16).replace('T', ' '))} · ${r.elapsed || 0} s)</span></h3>
     <div class="note">${esc(t('tr_result_help'))}</div>
-    <div class="info">${esc(t('tr_data'))}: ${r.n_items} ${esc(t('items'))} · ${r.n_crops} ${esc(t('tr_crops'))} · ${(r.classes || []).length} ${esc(t('tr_species_u'))}（${esc(counts)}）${dropped ? `<br>${esc(t('tr_dropped'))}: ${esc(dropped)}` : ''}${r.n_nofeat ? `<br>${esc(t('tr_nofeat'))}: ${r.n_nofeat}` : ''}${r.init_from ? `<br>${esc(t('tr_init_from'))}: SpeciesNet → ${esc((r.init_chain || [r.init_from]).join(' → '))}` : ''}${r.sources && r.sources.length ? `<br>${esc(t('tr_src_with'))}: ${esc([r.project || ''].concat(r.sources.map(y => `${y.name} (${y.n_items})`)).filter(Boolean).join(' + '))}` : ''}${r.final_without_holdout ? `<br>${esc(t('tr_final_wo_short'))}: ${esc((r.holdout_stations || []).join(', '))}` : ''}</div>
-    ${ev ? block(t('tr_eval_title'), ev, ev.n_items, ev.stations) : `<div class="note">${esc(t('tr_no_holdout'))}</div>`}
+    <div class="info">${esc(t('tr_data'))}: ${r.n_items} ${esc(t('items'))} · ${r.n_crops} ${esc(t('tr_crops'))} · ${(r.classes || []).length} ${esc(t('tr_species_u'))}（${esc(counts)}）${dropped ? `<br>${esc(t('tr_dropped'))}: ${esc(dropped)}` : ''}${r.n_nofeat ? `<br>${esc(t('tr_nofeat'))}: ${r.n_nofeat}` : ''}${r.init_from ? `<br>${esc(t('tr_init_from'))}: SpeciesNet → ${esc((r.init_chain || [r.init_from]).join(' → '))}` : ''}${r.sources && r.sources.length ? `<br>${esc(t('tr_src_with'))}: ${esc([r.project || ''].concat(r.sources.map(y => `${y.name} (${y.n_items})`)).filter(Boolean).join(' + '))}` : ''}${r.final_without_holdout ? `<br>${esc(t('tr_final_wo_short'))}: ${esc(((r.holdout_batches || []).map(b => `${t('filter_batch')} ${b}`)).concat(r.holdout_stations || []).join(', '))}` : ''}</div>
+    ${ev ? block(t('tr_eval_title'), ev, ev.n_items, ev.stations, ev.batches) : `<div class="note">${esc(t('tr_no_holdout'))}</div>`}
     ${r.fit_all ? block(t('tr_fit_all'), r.fit_all, r.fit_all.after.n, null) : ''}
     ${hist.length ? `<details class="adv"><summary>${esc(t('tr_history'))}</summary><div class="info">${hist.map(h => `${h.epoch}: ${h.train_loss}${h.val_loss != null ? ' / ' + h.val_loss + (h.val_acc != null ? ' (' + (100 * h.val_acc).toFixed(0) + '%)' : '') : ''}`).join(' · ')}</div></details>` : ''}
     <div class="modal-actions"><button id="mCancel">${esc(t('close'))}</button></div>`);

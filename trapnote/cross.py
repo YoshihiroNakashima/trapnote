@@ -1439,7 +1439,33 @@ def _catalog_mark_imported(project) -> None:
             c.execute("UPDATE catalog SET item_id=? WHERE source=? AND rel=?", (iid, name, rel))
 
 
-def catalog_where(f: dict) -> tuple[str, list]:
+def batch_units(project, batches) -> dict:
+    """組（gold など）の動画が占める単位 = 学習用の母集団から除くもの。取り込みの記録の選び方（unit）で決める:
+    地点で選んだ組 → その地点（全調査回）、調査回で選んだ組 → その調査回（全地点）、それ以外 → 動画のある 地点 × 調査回 の組。
+    返り値 dict(stations=set, seasons=set, cells=set("調査回/地点"), batches=[...])"""
+    names = [str(b) for b in (batches or []) if str(b)]
+    out = dict(stations=set(), seasons=set(), cells=set(), batches=names)
+    if not names:
+        return out
+    units_of: dict[str, set] = defaultdict(set)
+    for rec in project.data.get("imports") or []:
+        if rec.get("batch") in names and rec.get("n", 0) > 0:
+            u = (rec.get("params") or {}).get("unit") or ((rec.get("params") or {}).get("params") or {}).get("unit")
+            units_of[rec["batch"]].add(u or "")
+    db = project.db
+    for b in names:
+        rows = db.q("SELECT DISTINCT COALESCE(season, ''), COALESCE(station, '') FROM items WHERE batch=?", (b,))
+        us = units_of.get(b) or {""}
+        if "station" in us:
+            out["stations"] |= {r[1] for r in rows if r[1]}
+        if "season" in us:
+            out["seasons"] |= {r[0] for r in rows if r[0]}
+        if us - {"station", "season"}:
+            out["cells"] |= {f"{r[0]}/{r[1]}" for r in rows if r[0] or r[1]}
+    return out
+
+
+def catalog_where(f: dict, project=None) -> tuple[str, list]:
     w, p = ["1=1"], []
     if f.get("source"):
         w.append("source=?"); p.append(f["source"])
@@ -1451,6 +1477,17 @@ def catalog_where(f: dict) -> tuple[str, list]:
     ex = [x.strip() for x in str(f.get("exclude_stations") or "").replace("、", ",").split(",") if x.strip()] if isinstance(f.get("exclude_stations"), str) else list(f.get("exclude_stations") or [])
     if ex:
         w.append(f"(station IS NULL OR station NOT IN ({','.join('?' * len(ex))}))"); p += ex
+    if project is not None and f.get("exclude_batches"):             # 評価用の組（gold）の地点・調査回を母集団から除く
+        bu = batch_units(project, f["exclude_batches"])
+        if bu["stations"]:
+            sts = sorted(bu["stations"])
+            w.append(f"(station IS NULL OR station NOT IN ({','.join('?' * len(sts))}))"); p += sts
+        if bu["seasons"]:
+            ses = sorted(bu["seasons"])
+            w.append(f"(season IS NULL OR season NOT IN ({','.join('?' * len(ses))}))"); p += ses
+        if bu["cells"]:                                             # 組が多いことがあるので、変数の上限に掛からないよう文字列で埋め込む
+            lits = ",".join("'" + c.replace("'", "''") + "'" for c in sorted(bu["cells"]))
+            w.append(f"(COALESCE(season, '') || '/' || COALESCE(station, '')) NOT IN ({lits})")
     sp = f.get("species")
     if sp == "none":
         w.append("species IS NULL")
@@ -1486,7 +1523,7 @@ def catalog_where(f: dict) -> tuple[str, list]:
 
 def catalog_counts(project, f: dict) -> dict:
     db = project.db
-    where, p = catalog_where(f)
+    where, p = catalog_where(f, project)
     total = int(db.scalar(f"SELECT COUNT(*) FROM catalog WHERE {where}", p) or 0)
     imported = int(db.scalar(f"SELECT COUNT(*) FROM catalog WHERE {where} AND item_id IS NOT NULL", p) or 0)
     by_source = {r[0]: r[1] for r in db.q(f"SELECT source, COUNT(*) FROM catalog WHERE {where} GROUP BY source", p)}
@@ -1498,8 +1535,12 @@ def catalog_counts(project, f: dict) -> dict:
         for code in (r[0] or "(none)").split(";"):
             pivot[code][r[1] or ""] += r[2]
     by_species = {k: sum(v.values()) for k, v in pivot.items()}
+    excluded = None
+    if f.get("exclude_batches"):
+        bu = batch_units(project, f["exclude_batches"])
+        excluded = dict(batches=bu["batches"], stations=len(bu["stations"]), seasons=len(bu["seasons"]), cells=len(bu["cells"]))
     return dict(total=total, imported=imported, by_source=by_source, by_status=by_status, seasons=seasons, stations=stations,
-                pivot={k: dict(v) for k, v in pivot.items()}, by_species=by_species, built=project.data.get("catalog"))
+                pivot={k: dict(v) for k, v in pivot.items()}, by_species=by_species, built=project.data.get("catalog"), excluded=excluded)
 
 
 CAT_SORTS = {"rel": "source, rel", "datetime": "COALESCE(datetime, ''), rel", "station": "station, COALESCE(datetime, ''), rel", "species": "species, rel", "status": "status, rel", "season": "season, station, rel"}
@@ -1507,7 +1548,7 @@ CAT_SORTS = {"rel": "source, rel", "datetime": "COALESCE(datetime, ''), rel", "s
 
 def catalog_rows(project, f: dict, sort: str = "rel", desc: bool = False, offset: int = 0, limit: int = 200) -> dict:
     db = project.db
-    where, p = catalog_where(f)
+    where, p = catalog_where(f, project)
     order = CAT_SORTS.get(sort or "rel", CAT_SORTS["rel"])
     if desc:
         order = ", ".join(x.strip() + " DESC" for x in order.split(","))
@@ -1566,11 +1607,11 @@ def catalog_sample(project, f: dict, params: dict) -> dict:
       station         地点を n か所選び、その地点の動画を全部（gold の地点など。参照先・調査回をまたいで同じ地点名は 1 か所）
       season          調査回を n 回選び、その調査回の動画を全部
       station_season  地点 × 調査回の組を n 組選び、その動画を全部
-      （station / season / station_season は per_unit = 単位ごとの上限、total = 合計の上限で、選んだ単位の中から乱数で間引ける。gold の「地点 20・合計 3,000 本」など）
+      （station / season / station_season は gap_min で連続動画を間引いてから、per_unit = 単位ごとの上限、total = 合計の上限で、選んだ単位の中から乱数で間引ける。gold の「地点 20・合計 3,000 本」など）
       （species は max_avail = 既存の本数がこれ以下の種だけ、で稀な種の補いができる）
-    乱数の種 seed で同じ結果が再現できる。返り値 dict(ids, n, counts={code: n}, available={code: n}（種ごと）, units=[(名前, 選んだ本数)], units_pool=[(名前, 母数)], n_pool, n_units_available)"""
+    乱数の種 seed で同じ結果が再現できる。返り値 dict(ids, n, counts={code: n}, available={code: n}（種ごと）, units=[(名前, 選んだ本数)], units_pool=[(名前, 母数)], n_pool, n_pool_thin, n_units_available)"""
     db = project.db
-    where, p = catalog_where(dict(f, imported="0"))
+    where, p = catalog_where(dict(f, imported="0"), project)
     unit = params.get("unit") or ("species" if params.get("n_per_species") else "all")
     if unit not in SAMPLE_UNITS:
         raise ValueError(f"選び方が分かりません: {unit}")
@@ -1589,13 +1630,16 @@ def catalog_sample(project, f: dict, params: dict) -> dict:
         groups = {r[0]: r[1] for r in db.q(f"SELECT {kx} AS k, COUNT(*) FROM catalog WHERE {where} GROUP BY k", p)}
         keys = sorted(k for k in groups if k and k != "/")
         chosen = sorted(rng.sample(keys, min(n_want, len(keys))))
-        by_unit: dict[str, list[tuple]] = defaultdict(list)
+        by_unit: dict[str, list[tuple]] = defaultdict(list)          # 行は (id, source, season, station, datetime, species)（_thin_rows と同じ並び）
         for i0 in range(0, len(chosen), 500):
             part = chosen[i0:i0 + 500]
             qs = ",".join("?" * len(part))
-            for r in db.q(f"SELECT id, {kx} AS k, species FROM catalog WHERE {where} AND {kx} IN ({qs}) ORDER BY id", [*p, *part]):
-                by_unit[r[1]].append((r[0], r[2]))
+            for r in db.q(f"SELECT id, {kx} AS k, species, source, season, station, datetime FROM catalog WHERE {where} AND {kx} IN ({qs}) ORDER BY id", [*p, *part]):
+                by_unit[r[1]].append((r[0], r[3], r[4], r[5], r[6], r[2]))
         n_pool = sum(len(v) for v in by_unit.values())
+        if gap_min > 0:                                              # 同じ地点で gap_min 分以内に続く動画は 1 本に（同じ個体の連続を数えないため）
+            by_unit = defaultdict(list, {k: _thin_rows(v, gap_min) for k, v in by_unit.items()})
+        n_pool_thin = sum(len(v) for v in by_unit.values())
         picked: list[tuple] = []
         for k in chosen:
             rows_k = by_unit.get(k, [])
@@ -1604,17 +1648,16 @@ def catalog_sample(project, f: dict, params: dict) -> dict:
             picked.extend(rows_k)
         if total and len(picked) > total:
             picked = sorted(rng.sample(picked, total))
-        units = Counter(k for k in chosen)
         sel_by_unit: Counter = Counter()
         counts: Counter = Counter()
         pid = {r[0] for r in picked}
         for k, rows_k in by_unit.items():
             sel_by_unit[k] = sum(1 for r in rows_k if r[0] in pid)
-        for _id, sp in picked:
-            for code in (sp or "(none)").split(";"):
+        for r in picked:
+            for code in (r[5] or "(none)").split(";"):
                 counts[code] += 1
         return dict(ids=[r[0] for r in picked], counts=dict(counts), available={}, n=len(picked), units=[(k, sel_by_unit[k]) for k in chosen],
-                    units_pool=[(k, groups[k]) for k in chosen], n_pool=n_pool, n_units_available=len(keys), unit=unit)
+                    units_pool=[(k, groups[k]) for k in chosen], n_pool=n_pool, n_pool_thin=n_pool_thin, n_units_available=len(keys), unit=unit, gap_min=gap_min)
     rows = [tuple(r) for r in db.q(f"SELECT id, source, season, station, datetime, species FROM catalog WHERE {where}" + (" AND species IS NOT NULL" if unit == "species" else ""), p)]
     if unit == "video":
         cands = _thin_rows(rows, gap_min)
@@ -1622,13 +1665,15 @@ def catalog_sample(project, f: dict, params: dict) -> dict:
         rng.shuffle(cands)
         picked = cands[:n_want]
         cnt = lambda rs: dict(Counter(code for r in rs for code in (r[5] or "(none)").split(";")))
-        return dict(ids=[r[0] for r in picked], counts=cnt(picked), available=cnt(cands), n=len(picked), units=[], n_units_available=len(cands), unit=unit)
+        return dict(ids=[r[0] for r in picked], counts=cnt(picked), available=cnt(cands), n=len(picked), units=[], n_units_available=len(cands), unit=unit,
+                    n_pool=len(rows), n_pool_thin=len(cands), gap_min=gap_min)
     # unit == species
     n_per = n_want
     want_sp = set(params.get("species") or [])
     max_avail = int(params.get("max_avail") or 0)         # 既存の本数がこれ以下の種だけ（稀な種の補い用。0 で全部の種）
     pool: dict[str, list[tuple]] = defaultdict(list)
-    for r in _thin_rows(rows, gap_min):
+    thinned = _thin_rows(rows, gap_min)
+    for r in thinned:
         for code in r[5].split(";"):
             if not want_sp or code in want_sp:
                 pool[code].append(r)
@@ -1654,7 +1699,8 @@ def catalog_sample(project, f: dict, params: dict) -> dict:
             per_cell[cell] += 1
             seen.add(r[0]); ids.append(r[0]); n_sp += 1
         counts2[code] = n_sp
-    return dict(ids=ids, counts=counts2, available={k: len(v) for k, v in pool.items()}, n=len(ids), units=[], n_units_available=len(pool), unit=unit)
+    return dict(ids=ids, counts=counts2, available={k: len(v) for k, v in pool.items()}, n=len(ids), units=[], n_units_available=len(pool), unit=unit,
+                n_pool=len(rows), n_pool_thin=len(thinned), gap_min=gap_min)
 
 
 def catalog_import(project, ids: list[int], batch: str, record: dict | None = None, progress=None, stop=None) -> dict:
@@ -1688,21 +1734,153 @@ def catalog_import(project, ids: list[int], batch: str, record: dict | None = No
     return dict(n=n, n_requested=len(ids))
 
 
-def export_catalog(project, path: str, f: dict | None = None) -> dict:
-    """カタログ（参照先の全動画と判定）を 1 つの CSV に: Source, Season, Station, File, DateTime, Status, Species, AI, Agree, Imported, RelPathInSource"""
+def export_catalog(project, path: str, f: dict | None = None, long: bool = False) -> dict:
+    """カタログ（参照先の全動画と判定）を 1 つの CSV に。
+    long=False: 1 行 = 1 動画。Source, Season, Station, File, DateTime, Status, Species（複数は ; 区切り）, AI, Agree, Imported, RelPathInSource
+    long=True : 1 行 = 1 動画 × 1 種（調査回ごとのデータを 1 つにまとめる用。PRM_N の CSV と同じ Season, Station, File, DateTime, Species が先頭。
+                Season は調査回のフォルダ名。種のない動画は Species 空で 1 行。続けて Status, Source, AI, Imported, RelPathInSource）"""
     db = project.db
-    where, p = catalog_where(f or {})
+    where, p = catalog_where(f or {}, project)
     sl = project.species
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    n = 0
+    n = n_rows = 0
     with open(path, "w", encoding="utf-8-sig", newline="") as fh:
         w = csv.writer(fh)
-        w.writerow(["Source", "Season", "Station", "File", "DateTime", "Status", "Species", "AI", "Agree", "Imported", "RelPathInSource"])
+        if long:
+            w.writerow(["Season", "Station", "File", "DateTime", "Species", "Status", "Source", "AI", "Imported", "RelPathInSource"])
+        else:
+            w.writerow(["Source", "Season", "Station", "File", "DateTime", "Status", "Species", "AI", "Agree", "Imported", "RelPathInSource"])
         for r in db.q(f"SELECT source, season, station, name, datetime, status, species, ai, agree, item_id, rel FROM catalog WHERE {where} ORDER BY source, rel", p):
-            w.writerow([r[0], r[1] or "", r[2] or "", r[3], r[4] or "", r[5] or "", ";".join(sl.csv_label(c) for c in (r[6] or "").split(";") if c), ";".join(sl.csv_label(c) for c in (r[7] or "").split(";") if c),
-                        {1: "match", 2: "partial", 3: "mismatch"}.get(r[8], ""), 1 if r[9] else 0, r[10]])
+            ai = ";".join(sl.csv_label(c) for c in (r[7] or "").split(";") if c)
+            if long:
+                codes = [c for c in (r[6] or "").split(";") if c] or [""]
+                for c in codes:
+                    w.writerow([r[1] or "", r[2] or "", r[3], r[4] or "", sl.csv_label(c) if c else "", r[5] or "", r[0], ai, 1 if r[9] else 0, r[10]])
+                    n_rows += 1
+            else:
+                w.writerow([r[0], r[1] or "", r[2] or "", r[3], r[4] or "", r[5] or "", ";".join(sl.csv_label(c) for c in (r[6] or "").split(";") if c), ai,
+                            {1: "match", 2: "partial", 3: "mismatch"}.get(r[8], ""), 1 if r[9] else 0, r[10]])
+                n_rows += 1
             n += 1
-    return dict(path=path, n=n)
+    return dict(path=path, n=n, n_rows=n_rows)
+
+
+# ---------- 学習と評価（組 = batch を単位に。gold など評価用の組と、round1 … の学習用の組） ----------
+def eval_batches(project) -> list[str]:
+    """評価用の組（学習には使わず、モデルの一致率を見るためだけの組。gold など）"""
+    return [str(x) for x in (project.data.get("eval_batches") or []) if str(x)]
+
+
+def set_eval_batches(project, names) -> list[str]:
+    have = {r[0] or "" for r in project.db.q("SELECT DISTINCT batch FROM items")}
+    names = [str(x) for x in (names or []) if str(x) and str(x) in have]
+    project.update_data(eval_batches=names)
+    return names
+
+
+def batches_info(project) -> list[dict]:
+    """組ごとの様子: 本数、確認済み、AI 判定済み、AI と不一致（確認済みのうち）、要確認、評価用か、選び方（取り込みの記録から）"""
+    db = project.db
+    ev = set(eval_batches(project))
+    units: dict[str, list] = defaultdict(list)
+    for rec in project.data.get("imports") or []:
+        if rec.get("n", 0) > 0 and rec.get("batch") is not None:
+            prm = rec.get("params") or {}
+            u = prm.get("unit") or (prm.get("params") or {}).get("unit") or prm.get("mode") or ""
+            units[rec["batch"]].append(dict(unit=u, n=rec.get("n"), n_units=len(prm.get("units") or [])))
+    out = []
+    for r in db.q("SELECT COALESCE(batch, ''), COUNT(*), SUM(status='verified'), SUM(det_state=1 AND auto_json IS NOT NULL), SUM(status='verified' AND agree=3), "
+                  "SUM(status='verified' AND agree=2), SUM(recheck=1), SUM(status='verified' AND det_state=1 AND cls_state=1 AND train_exclude=0) FROM items GROUP BY COALESCE(batch, '') ORDER BY 1"):
+        out.append(dict(batch=r[0], n=r[1], n_verified=r[2] or 0, n_ai=r[3] or 0, n_disagree=r[4] or 0, n_partial=r[5] or 0, n_recheck=r[6] or 0, n_ready=r[7] or 0,
+                        eval=r[0] in ev, imports=units.get(r[0]) or []))
+    return out
+
+
+def _compare_sets(pairs: list[tuple[set[str], list[str]]], order: dict[str, int] | None = None) -> dict:
+    """[(人の判定の集合, 比べる判定の列)] → 一致率。train.evaluate_items と同じ形: n, exact（集合が同じ）, partial（重なる）, first（比べる側の第 1 種が人の判定に入る）, low（比べる側なし）,
+    by_species（人の第 1 種ごと）, matrix（人の第 1 種 × 比べる側の第 1 種。なしは "(low)"）"""
+    from .judge import compare_codes
+    n = exact = partial = first = low = 0
+    by: dict[str, dict] = {}
+    matrix: dict[str, dict[str, int]] = {}
+    for human, other in pairs:
+        if not human:
+            continue
+        n += 1
+        h1 = sorted(human)[0]                      # 複数種のときは第 1 種（コード順）で集計
+        d = by.setdefault(h1, dict(n=0, exact=0, first=0, low=0))
+        d["n"] += 1
+        other = [c for c in other if c and c != "area"]
+        if not other:
+            low += 1
+            d["low"] += 1
+            matrix.setdefault(h1, {})["(low)"] = matrix.setdefault(h1, {}).get("(low)", 0) + 1
+            continue
+        a = compare_codes(human, other)
+        if a == 1:
+            exact += 1
+            d["exact"] += 1
+        if a in (1, 2):
+            partial += 1
+        if other[0] in human:
+            first += 1
+            d["first"] += 1
+        matrix.setdefault(h1, {})[other[0]] = matrix.setdefault(h1, {}).get(other[0], 0) + 1
+    key = (lambda c: (c == "(low)", order.get(c, len(order)), c)) if order else (lambda c: (c == "(low)", c))
+    by = dict(sorted(by.items(), key=lambda x: key(x[0])))
+    matrix = {h: dict(sorted(row.items(), key=lambda x: key(x[0]))) for h, row in sorted(matrix.items(), key=lambda x: key(x[0]))}
+    cols = sorted({c for row in matrix.values() for c in row} | set(matrix.keys()), key=key)
+    return dict(n=n, exact=exact, partial=partial, first=first, low=low, by_species=by, matrix=matrix, cols=cols)
+
+
+def batch_report(project, batch: str) -> dict:
+    """組（gold など）の評価: 目視（確認済みの判定）を正解として、
+    existing = 既存の判定（カタログの種 = 調査回のプロジェクトの判定か種名の CSV。手動の判定の誤り率）、
+    ai       = いまの AI の判定（items.auto_json。SpeciesNet か学習したモデル）を比べる。確認済みの動画だけが対象"""
+    from .detect import species_order
+    from .judge import human_codes
+    from .species import FIXED_CODES
+    db = project.db
+    rows = db.q("SELECT i.id, i.status, i.auto_json, c.species AS existing FROM items i LEFT JOIN catalog c ON c.item_id = i.id WHERE COALESCE(i.batch, '') = ? AND i.missing = 0", (batch,))
+    n_all = len(rows)
+    ver = [r for r in rows if r["status"] == "verified"]
+    ids = [r["id"] for r in ver]
+    js: dict[int, list[dict]] = {i: [] for i in ids}
+    for i0 in range(0, len(ids), 900):
+        part = ids[i0:i0 + 900]
+        for j in db.q(f"SELECT item_id, species, origin FROM judgements WHERE item_id IN ({','.join('?' * len(part))})", part):
+            js[j["item_id"]].append(dict(species=j["species"], origin=j["origin"]))
+    enabled = {r["code"] for r in project.species.rows if r.get("enabled")} | set(FIXED_CODES)
+    pairs_ex: list = []
+    pairs_ai: list = []
+    n_ai = n_existing = 0
+    models: Counter = Counter()
+    for r in ver:
+        human = human_codes("verified", js[r["id"]])
+        if not human:
+            continue
+        ex = [c for c in (r["existing"] or "").split(";") if c]
+        if ex:
+            n_existing += 1
+        pairs_ex.append((human, ex))
+        ai: list[str] = []
+        if r["auto_json"]:
+            try:
+                d = json.loads(r["auto_json"])
+                for x in d.get("species", []):
+                    code = x["species"] if x["species"] in enabled else "unknown"
+                    if code not in ai:
+                        ai.append(code)
+                if d.get("model"):
+                    models[str(d["model"])] += 1
+            except Exception:
+                ai = []
+        if ai:
+            n_ai += 1
+        pairs_ai.append((human, ai))
+    order = species_order(project)
+    return dict(batch=batch, n=n_all, n_verified=len(ver), n_existing=n_existing, n_ai=n_ai, models=dict(models.most_common(3)),
+                existing=_compare_sets(pairs_ex, order), ai=_compare_sets(pairs_ai, order), eval=batch in eval_batches(project))
 
 
 # ---------- 取り込みを取り消す（対象から外す。動画本体には触らない） ----------
@@ -1726,6 +1904,7 @@ def remove_items(project, batch: str | None = None, f: dict | None = None, all_i
         if progress:
             progress(n, len(ids), "")
     project.data.setdefault("imports", []).append(dict(at=now_iso(), batch=batch if batch is not None else ("*" if all_items else ""), params=dict(mode="remove", filters=f or {}), n=-n, counts={}, by_source={}))
+    project.data["eval_batches"] = [b for b in eval_batches(project) if db.scalar("SELECT 1 FROM items WHERE batch=? LIMIT 1", (b,))]      # なくなった組の「評価用」の印は消す
     project.save()
     return dict(n=n, n_requested=len(ids))
 

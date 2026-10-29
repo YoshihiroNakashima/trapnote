@@ -11,7 +11,7 @@
   - 種が複数の動画: 枠ごとに元のモデルの第 1 候補がその動画の種のどれかならそれ（違えば使わない）
   - 「動物なし」と確定した動画に枠があれば「動物なし」（誤検出を覚える）。「不明」「人」「車」だけの動画は使わない
   - 人の判定と AI が食い違っていた動画（agree = 3）と見直し済み（recheck）の枠は重み weight_hard 倍
-評価: 地点（station）のうち holdout_frac の割合を検証用に取り分け（学習に使わない）、動画 1 本の判定（第 2 段階と同じ p1 / p2 / K の規則）
+評価: 地点（station）のうち holdout_frac の割合（または横断プロジェクトの組 holdout_batches = gold など）を検証用に取り分け（学習に使わない）、動画 1 本の判定（第 2 段階と同じ p1 / p2 / K の規則）
   を人の判定と突き合わせて、学習前（元の SpeciesNet）と学習後の一致率を出す。検証用の地点には「学習から外す」対象も入れる。
   評価のあと、全部の地点で学習し直したものを保存する（models/<名前>/）"""
 from __future__ import annotations
@@ -173,7 +173,10 @@ def plan_counts(project) -> dict:
     n_feat = len([f for f in os.listdir(fdir) if f.endswith(".npz")]) if os.path.isdir(fdir) else 0
     stations = [dict(station=r["station"] or "", n=r["n"]) for r in db.q(f"SELECT station, COUNT(*) AS n FROM items WHERE {where} GROUP BY station ORDER BY station")]
     species = [dict(code=r["species"], n=r["n"]) for r in db.q(f"SELECT j.species, COUNT(DISTINCT j.item_id) AS n FROM judgements j JOIN items i ON i.id=j.item_id WHERE i.{where.replace(' AND ', ' AND i.')} GROUP BY j.species ORDER BY n DESC")]
+    batches = [dict(batch=r[0], n=r[1], n_ready=r[2] or 0, n_verified=r[3] or 0)          # 横断プロジェクトの組（gold など。検証用に選べる）
+               for r in db.q(f"SELECT batch, COUNT(*), SUM({where}), SUM(status='verified') FROM items WHERE batch IS NOT NULL AND batch != '' GROUP BY batch ORDER BY batch")]
     return dict(n_verified=n_verified, n_ready=n_ready, n_excluded=n_excl, n_hard=n_hard, n_features=n_feat, stations=stations, species=species,
+                batches=batches, eval_batches=[str(x) for x in (project.data.get("eval_batches") or [])],
                 name=project.name, dir=project.dir, root=project.root, speciesnet_model=project.setting("speciesnet_model"))
 
 
@@ -264,7 +267,7 @@ def collect(project, opts: dict, progress=None, stop=None) -> dict:
     s = opts
     min_conf = float(s.get("train_min_conf", 0.5))
     use_empty = bool(s.get("train_use_empty", True))
-    rows = db.q("SELECT id, rel_path, station, status, agree, recheck, train_exclude FROM items WHERE status='verified' AND missing=0 AND det_state=1 AND cls_state=1 ORDER BY station, id")
+    rows = db.q("SELECT id, rel_path, station, status, agree, recheck, train_exclude, batch FROM items WHERE status='verified' AND missing=0 AND det_state=1 AND cls_state=1 ORDER BY station, id")
     ids = [r["id"] for r in rows]
     js: dict[int, list[dict]] = {i: [] for i in ids}
     for chunk in range(0, len(ids), 900):
@@ -316,8 +319,8 @@ def collect(project, opts: dict, progress=None, stop=None) -> dict:
         for i in range(n):
             if labels[i] is not None and conf[i] < min_conf:
                 labels[i] = None
-        items[r["id"]] = dict(id=r["id"], rel_path=r["rel_path"], station=r["station"] or "", human=human, excluded=bool(r["train_exclude"]),
-                              hard=bool(r["agree"] == 3 or r["recheck"]), codes=codes, pc=pc, feats=feats, t=t, bbox=bbox, conf=conf, labels=labels)
+        items[r["id"]] = dict(id=r["id"], rel_path=r["rel_path"], station=r["station"] or "", batch=r["batch"] or "", human=human, excluded=bool(r["train_exclude"]),
+                              hard=bool(r["agree"] == 3 or r["recheck"]), codes=codes, pc=pc, feats=feats, t=t, bbox=bbox, conf=conf, labels=labels, holdout=False)
     return dict(items=items, n_verified=len(rows), n_nofeat=n_nofeat)
 
 
@@ -334,14 +337,37 @@ def split_stations(stations: list[str], frac: float, seed: int, explicit: list[s
     return set(st[:k])
 
 
-def build_dataset(items: dict, holdout: set[str], opts: dict) -> dict:
-    """学習に使う枠（検証用の地点と「学習から外す」対象は除く）を並べる。種ごとの枠数が少ない種は外す"""
+def mark_holdout(items: dict, holdout_stations: set[str], holdout_batches: list[str] | None = None) -> list:
+    """検証用の対象に印を付ける（it["holdout"]）: 検証用の地点にある対象と、検証用の組（gold など）の対象。返り値は検証用の id の列"""
+    hb = set(holdout_batches or [])
+    ids = []
+    for iid, it in items.items():
+        it["holdout"] = bool(it["station"] in holdout_stations or (hb and it.get("batch") in hb))
+        if it["holdout"]:
+            ids.append(iid)
+    return ids
+
+
+def pick_holdout(items: dict, opts: dict) -> tuple[set[str], list[str]]:
+    """検証用の地点と組を設定から決める。組（holdout_batches）があれば地点の割合は使わない（明示した地点だけ）"""
+    hb = [str(x) for x in (opts.get("holdout_batches") or []) if str(x)]
+    if hb:
+        holdout = set(opts.get("holdout_stations") or [])
+    else:
+        holdout = split_stations([it["station"] for it in items.values()], float(opts.get("train_holdout_frac", 0.2)), int(opts.get("train_seed", 1)), opts.get("holdout_stations"))
+    return holdout, hb
+
+
+def build_dataset(items: dict, holdout: set[str], opts: dict, use_marks: bool = True) -> dict:
+    """学習に使う枠（検証用の地点・組と「学習から外す」対象は除く）を並べる。種ごとの枠数が少ない種は外す。
+    holdout = 検証用の地点。use_marks なら検証用の印（it["holdout"] = 地点と組。mark_holdout）も外す（全部で学習し直すときは False）"""
     min_per = int(opts.get("train_min_per_class", 5))
     max_per = int(opts.get("train_max_per_class", 20000))
     w_hard = float(opts.get("train_weight_hard", 2.0))
+    skip = lambda it: it["excluded"] or it["station"] in holdout or (use_marks and it.get("holdout"))
     cnt = Counter()
     for it in items.values():
-        if it["excluded"] or it["station"] in holdout:
+        if skip(it):
             continue
         for lab in it["labels"]:
             if lab:
@@ -351,7 +377,7 @@ def build_dataset(items: dict, holdout: set[str], opts: dict) -> dict:
     cidx = {c: i for i, c in enumerate(classes)}
     samples = []      # (item_id, k, class_idx, weight)
     for it in items.values():
-        if it["excluded"] or it["station"] in holdout:
+        if skip(it):
             continue
         w = w_hard if it["hard"] else 1.0
         for k, lab in enumerate(it["labels"]):
@@ -563,7 +589,8 @@ def _run_train_a(project, opts, name, progress, stop, s, t0, col) -> dict:
     items = col["items"]
     if not items:
         raise RuntimeError("学習に使える対象がありません（確認済みで、検出・種判別が済んでいて、特徴量が保存されているもの）")
-    holdout = split_stations([it["station"] for it in items.values()], float(opts.get("train_holdout_frac", 0.2)), int(opts.get("train_seed", 1)), opts.get("holdout_stations"))
+    holdout, hb = pick_holdout(items, opts)
+    ev_ids = mark_holdout(items, holdout, hb)                 # 検証用 = 検証用の地点の対象 + 検証用の組（gold など）の対象
     ds = build_dataset(items, holdout, opts)
     if len(ds["classes"]) < 2:
         raise RuntimeError(f"学習に入れられる種が {len(ds['classes'])} つしかありません（種ごとに {opts.get('train_min_per_class', 5)} 枚以上の枠が要ります）")
@@ -594,28 +621,27 @@ def _run_train_a(project, opts, name, progress, stop, s, t0, col) -> dict:
 
     result = dict(kind="A", name=name, base_classifier=str(next(iter(items.values()))["codes"] and s.get("speciesnet_model")), trained_at=now_iso(),
                   classes=ds["classes"], counts=ds["counts"], dropped=ds["dropped"], n_items=ds["n_items"], n_crops=len(ds["samples"]),
-                  n_verified=col["n_verified"], n_nofeat=col["n_nofeat"], holdout_stations=sorted(holdout), base_mix=base_mix,
+                  n_verified=col["n_verified"], n_nofeat=col["n_nofeat"], holdout_stations=sorted(holdout), holdout_batches=hb, n_holdout=len(ev_ids), base_mix=base_mix,
                   settings={k: opts.get(k, TRAIN_DEFAULTS[k]) for k in TRAIN_DEFAULTS}, species_rule=dict(p1=s["species_p1"], p2=s["species_p2"], k=s["species_k"]),
                   project=source_label(project), sources=[dict(name=x["name"], dir=x["dir"], n_items=x["n_items"]) for x in col["sources"][1:]])
-    # 1) 検証用の地点を除いて学習 → 検証用の地点で学習前・後を比べる
-    if holdout:
+    # 1) 検証用（地点・組）を除いて学習 → 検証用で学習前・後を比べる
+    if ev_ids:
         head, rec = fit(ds["samples"], ds["classes"], "train")
-        ev_ids = [iid for iid, it in items.items() if it["station"] in holdout]
         before = evaluate_items(items, ev_ids, base_pred, s)
         after = evaluate_items(items, ev_ids, lambda it: head.apply(it["feats"], it["codes"], it["pc"]), s)
-        result.update(eval=dict(before=before, after=after, n_items=len(ev_ids), stations=sorted(holdout)), train_record=rec)
+        result.update(eval=dict(before=before, after=after, n_items=len(ev_ids), stations=sorted(holdout), batches=hb), train_record=rec)
         if progress:
             progress("eval", 1, 1, "")
     else:
         result.update(eval=None)
-    # 2) 全部の地点で学習し直して保存（「検証用の地点は入れない」なら、1) で学習したものをそのまま保存）
+    # 2) 全部で学習し直して保存（「検証用は入れない」か、検証用の組（gold）があるなら、1) で学習したものをそのまま保存 = gold を含まないモデル）
     if stop and stop():
         raise RuntimeError("止めました")
-    keep_out = bool(opts.get("train_final_without_holdout")) and bool(holdout)
+    keep_out = (bool(opts.get("train_final_without_holdout")) or bool(hb)) and bool(ev_ids)
     if keep_out:
         ds_all, head_all, rec_all = ds, head, rec
     else:
-        ds_all = build_dataset(items, set(), opts)
+        ds_all = build_dataset(items, set(), opts, use_marks=False)
         head_all, rec_all = fit(ds_all["samples"], ds_all["classes"], "train_all")
     result.update(classes=ds_all["classes"], counts=ds_all["counts"], dropped=ds_all["dropped"], n_items=ds_all["n_items"], n_crops=len(ds_all["samples"]), train_record_all=rec_all,
                   final_without_holdout=keep_out)
@@ -1024,13 +1050,14 @@ def _run_train_b(project, hub, opts, name, progress, stop, init_from, s, t0, ini
     items = col["items"]
     if not items:
         raise RuntimeError("学習に使える対象がありません（確認済みで、検出・種判別が済んでいるもの）")
-    holdout = split_stations([it["station"] for it in items.values()], float(opts.get("train_holdout_frac", 0.2)), int(opts.get("train_seed", 1)), opts.get("holdout_stations"))
+    holdout, hb = pick_holdout(items, opts)
+    ev_ids = mark_holdout(items, holdout, hb)
     ds = build_dataset(items, holdout, opts)
-    ds_all = build_dataset(items, set(), opts)
+    ds_all = build_dataset(items, set(), opts, use_marks=False)
     if len(ds_all["classes"]) < 2:
         raise RuntimeError(f"学習に入れられる種が {len(ds_all['classes'])} つしかありません")
-    # 枠の切り出し（学習に使う対象と、検証用の地点の対象）
-    need_ids = sorted({smp[0] for smp in ds_all["samples"]} | {iid for iid, it in items.items() if it["station"] in holdout})
+    # 枠の切り出し（学習に使う対象と、検証用の対象）
+    need_ids = sorted({smp[0] for smp in ds_all["samples"]} | set(ev_ids))
     ensure_crops(project, items, need_ids, lambda a, b, c: progress and progress("crops", a, b, c), stop)
     if stop and stop():
         raise RuntimeError("止めました")
@@ -1079,15 +1106,14 @@ def _run_train_b(project, hub, opts, name, progress, stop, init_from, s, t0, ini
         state, rec = finetune(base_model, device, tr, paths, len(classes), opts, va, lambda e, n, msg: progress and progress(tag, e, n, msg), stop)
         return classes, state, rec
 
-    result = dict(kind="B", name=name, base_classifier=s.get("speciesnet_model"), trained_at=now_iso(), holdout_stations=sorted(holdout),
+    result = dict(kind="B", name=name, base_classifier=s.get("speciesnet_model"), trained_at=now_iso(), holdout_stations=sorted(holdout), holdout_batches=hb, n_holdout=len(ev_ids),
                   n_verified=col["n_verified"], settings={k: opts.get(k, TRAIN_DEFAULTS[k]) for k in TRAIN_DEFAULTS}, species_rule=dict(p1=s["species_p1"], p2=s["species_p2"], k=s["species_k"]))
     if init_from:
         result.update(init_from=init_from, init_chain=list(init_info.get("init_chain") or []) + [init_from], init_project=init_info.get("project"))
     result.update(project=source_label(project), sources=[dict(name=x["name"], dir=x["dir"], n_items=x["n_items"]) for x in col["sources"][1:]])
     try:
-        if holdout and len(ds["classes"]) >= 2:
+        if ev_ids and len(ds["classes"]) >= 2:
             classes, state, rec = fit(ds, "train")
-            ev_ids = [iid for iid, it in items.items() if it["station"] in holdout]
 
             def pred(it):
                 pths = [crop_path(it.get("proj") or project, it["rel_path"], k) for k in range(len(it["t"]))]
@@ -1097,13 +1123,13 @@ def _run_train_b(project, hub, opts, name, progress, stop, init_from, s, t0, ini
                 return classes, classify_crops(base_model, device, ok, int(opts.get("train_batch_b", 16)))
             before = evaluate_items(items, ev_ids, base_pred, s)
             after = evaluate_items(items, ev_ids, pred, s)
-            result.update(eval=dict(before=before, after=after, n_items=len(ev_ids), stations=sorted(holdout)), train_record=rec)
+            result.update(eval=dict(before=before, after=after, n_items=len(ev_ids), stations=sorted(holdout), batches=hb), train_record=rec)
         else:
             result.update(eval=None)
         if stop and stop():
             raise RuntimeError("止めました")
-        keep_out = bool(opts.get("train_final_without_holdout")) and bool(holdout) and len(ds["classes"]) >= 2
-        if keep_out:                                   # 検証用の地点で学習したもの（いま本体に入っている重み）をそのまま保存する
+        keep_out = (bool(opts.get("train_final_without_holdout")) or bool(hb)) and bool(ev_ids) and len(ds["classes"]) >= 2
+        if keep_out:                                   # 検証用を除いて学習したもの（いま本体に入っている重み）をそのまま保存する（gold を含まないモデル）
             rec_all = rec
             ds_all = ds
         else:
