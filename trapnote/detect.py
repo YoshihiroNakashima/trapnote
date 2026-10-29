@@ -748,6 +748,34 @@ def existing_boxes(db, item_id: int) -> list[list]:
             for r in db.q("SELECT t_sec, category, conf, x, y, w, h FROM detections WHERE item_id=? ORDER BY t_sec, conf DESC", (item_id,))]
 
 
+def pick_crops(rows: list, a_th: float, max_crops: int, min_gap: float = 0.6, per_frame: int = 2) -> list[tuple[int, list]]:
+    """種判別に入れる動物の枠を選ぶ。信頼度の高い順だが、同じ場面に固まらないように分散させる:
+    選んだ枠と min_gap 秒未満しか離れていないフレームの枠は後回し、1 フレームからは per_frame 枠まで。
+    それでも max_crops に届かなければ残りから信頼度順に足す（静止画や短い動画では全部の枠を使う）。返り値 [(rows の添字, row)]"""
+    cands = sorted([(i, r) for i, r in enumerate(rows) if r[1] == "animal" and r[2] >= a_th], key=lambda x: -x[1][2])
+    if len(cands) <= max_crops or min_gap <= 0 and per_frame <= 0:
+        return cands[:max_crops]
+    chosen: list[tuple[int, list]] = []
+    taken: set[int] = set()
+    n_in_frame: dict[float, int] = {}
+    strong_th = max(a_th, 0.5)                           # 分散させるのは自信のある枠の中で（自信のない枠を場面の数合わせに拾わない）
+    for i, r in cands:
+        if len(chosen) >= max_crops or r[2] < strong_th:
+            break
+        t = float(r[0])
+        if per_frame > 0 and n_in_frame.get(t, 0) >= per_frame:
+            continue
+        if min_gap > 0 and any(0 < abs(t - ft) < min_gap for ft in n_in_frame):
+            continue
+        chosen.append((i, r)); taken.add(i); n_in_frame[t] = n_in_frame.get(t, 0) + 1
+    for i, r in cands:                                   # 足りなければ残りから信頼度順に
+        if len(chosen) >= max_crops:
+            break
+        if i not in taken:
+            chosen.append((i, r)); taken.add(i)
+    return chosen
+
+
 def process_item(project, hub: ModelHub, item: dict, classify: bool = True, frames=None, use_existing: bool = False) -> dict:
     """検出（と判別）を 1 本について行い、DB に書く。返り値は要約。frames は load_frames() で先に読んだもの（省略可）。
     use_existing なら detections 表にある枠（YOLO のラベルなど）をそのまま使い、検出はせずに種判別と特徴量だけ付ける（枠がなければ普通に検出）"""
@@ -806,7 +834,7 @@ def process_item(project, hub: ModelHub, item: dict, classify: bool = True, fram
     cls = None
     sp_by_idx: dict[int, tuple[str, float]] = {}
     if classify and summary["animal"]:
-        cands = sorted([(i, r) for i, r in enumerate(rows) if r[1] == "animal" and r[2] >= a_th], key=lambda x: -x[1][2])[:max_crops]
+        cands = pick_crops(rows, a_th, max_crops, float(s.get("crop_min_gap_sec", 0.6)), int(s.get("crop_per_frame", 2)))
         by_t = {t: im for t, im in frames}
         probs, feats = hub.classify([(by_t[r[0]], r[3:7]) for _, r in cands])
         if hub.local and hub.local.get("kind") == "B":

@@ -31,6 +31,8 @@ PROJECT_DEFAULTS = {
     "speciesnet_model": "kaggle:google/speciesnet/pyTorch/v4.0.3a/1",            # SpeciesNet の版（kaggle: / hf: / ローカルのフォルダ）
     "country": "JPN",                  # 撮影した国（ISO 3166-1 alpha-3）。SpeciesNet の geofence（その国にいない種のラベルを除く）に使う。空なら制限なし
     "max_crops": 12,                   # 1 本の動画で分類器に入れる枠の上限（信頼度の高い順）
+    "crop_min_gap_sec": 0.6,           # 枠を選ぶとき、同じ場面に固まらないようにフレーム間をあける秒数（0 で無効）
+    "crop_per_frame": 2,               # 1 フレームから選ぶ枠の上限（0 で無効）
     "detect_image_size": 0,            # MegaDetector に入れる画像の長辺（0 = モデルの既定。1280 など）
     "save_features": True,             # 枠ごとの特徴量を cache/features に保存する（第 3 段階の追加学習用）
     "detect_skip_verified": True,      # 確認済みの対象は検出を飛ばす（判定は変えない）

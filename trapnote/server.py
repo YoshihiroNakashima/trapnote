@@ -727,7 +727,7 @@ def make_app(session: Session) -> web.Application:
                 ps[k] = str(b[k])
         if "country" in b:
             ps["country"] = str(b.get("country") or "").strip().upper()[:3]
-        for k in ("frame_first_sec", "frame_first_fps", "animal_threshold", "person_threshold", "species_p1", "species_p2"):
+        for k in ("frame_first_sec", "frame_first_fps", "animal_threshold", "person_threshold", "species_p1", "species_p2", "crop_min_gap_sec"):
             if b.get(k) not in (None, ""):
                 ps[k] = float(b[k])
         if "frame_interval_sec" in b:          # 空か auto なら自動（GPU 0.2 秒 / CPU 0.5 秒）
@@ -738,7 +738,7 @@ def make_app(session: Session) -> web.Application:
                 f = 0.0
             ps["frame_interval_sec"] = f if f > 0 else "auto"
             ps["frame_interval_fixed"] = f > 0
-        for k in ("animal_min_frames", "person_min_frames", "species_k", "max_crops", "detect_image_size"):
+        for k in ("animal_min_frames", "person_min_frames", "species_k", "max_crops", "crop_per_frame", "detect_image_size"):
             if b.get(k) not in (None, ""):
                 ps[k] = int(b[k])
         for k in ("save_features", "detect_skip_verified"):
