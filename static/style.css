@@ -241,3 +241,14 @@ li.item .nbox { color: #6b7280; }
 .selnote { background: #eef2ff; color: #2a44b0; font-size: 12px; font-weight: 600; padding: 4px 8px; border-radius: 4px; border: 1px solid #c7d2fe; }
 .itempos { font-size: 13px; font-weight: 700; color: #2a44b0; background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 10px; padding: 1px 8px; white-space: nowrap; margin-left: 6px; }
 .headRight { display: flex; align-items: center; gap: 6px; }
+
+/* 横断プロジェクトの窓（段とカタログ） */
+.tabs { display: flex; gap: 4px; align-items: center; border-bottom: 1px solid #e4e6ea; margin: 6px 0 10px; }
+.tabs .tab { background: none; border: none; border-bottom: 2px solid transparent; padding: 6px 12px; cursor: pointer; color: var(--muted); font-size: 13px; }
+.tabs .tab.on { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+.cr-filters { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 6px 0; }
+.cr-filters select, .cr-filters input[type=text] { font-size: 12px; }
+.cr-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+.cr-pager { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 6px 0; }
+table.cr-table td, table.cr-table th { white-space: nowrap; }
+table.cr-table td.info { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }

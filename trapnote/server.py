@@ -14,7 +14,7 @@ from aiohttp import web
 
 from . import APP_ID, APP_NAME, BUILD, BUILD_TIME, VERSION, cross, detect, dialogs, export as export_mod, judge, media, merge as merge_mod, scan as scan_mod, timelapse, train, yolo
 from .config import DATA_DIR, STATIC_DIR, Settings, State
-from .jobs import ArchiveJob, CrossCopyJob, CrossImportJob, CrossSyncJob, DetectJob, Lane, MetaJob, ReclassifyJob, ScanJob, TrainJob, TranscodeJob, YoloExportJob, YoloImportJob
+from .jobs import ArchiveJob, CatalogBuildJob, CrossCopyJob, CrossImportJob, CrossSyncJob, DetectJob, Lane, MetaJob, ReclassifyJob, ScanJob, TrainJob, TranscodeJob, YoloExportJob, YoloImportJob
 from .paths import key, norm
 from .pattern import names_in, preview as pattern_preview
 from .project import PROJECT_DIRNAME, Project, find_project_for_root, is_project_dir
@@ -1064,7 +1064,8 @@ def make_app(session: Session) -> web.Application:
 
     async def cross_info(request):
         p = need_cross()
-        return jr(dict(sources=await io(cross.sources_info, p), imports=p.data.get("imports") or [], project=p.to_dict(),
+        return jr(dict(sources=await io(cross.sources_info, p), imports=p.data.get("imports") or [], project=p.to_dict(), catalog=p.data.get("catalog"),
+                       n_catalog=int(p.db.scalar("SELECT COUNT(*) FROM catalog") or 0), n_items=int(p.db.scalar("SELECT COUNT(*) FROM items") or 0),
                        batches=[dict(batch=r[0] or "", n=r[1]) for r in p.db.q("SELECT batch, COUNT(*) FROM items GROUP BY batch ORDER BY batch")]))
 
     async def cross_source_add(request):
@@ -1105,8 +1106,46 @@ def make_app(session: Session) -> web.Application:
     async def cross_import(request):
         p = need_cross()
         b = await _body(request)
-        S.bg.submit(CrossImportJob(b.get("params") or {}, str(b.get("batch") or "").strip()), front=True)
+        spec = dict(mode=b.get("mode") or "select", params=b.get("params") or {}, ids=b.get("ids") or [], filters=b.get("filters") or {})
+        S.bg.submit(CrossImportJob(spec, str(b.get("batch") or "").strip()), front=True)
         return jr(S.jobs_status())
+
+    async def cross_sources_add_under(request):
+        p = need_cross()
+        b = await _body(request)
+        try:
+            r = await io(cross.add_sources_under, p, str(b.get("path") or ""), (str(b.get("labels_csv") or "").strip() or None))
+        except (ValueError, FileNotFoundError) as e:
+            raise ApiError(str(e))
+        return jr(dict(r, state=await io(S.snapshot)))
+
+    async def cross_catalog_build(request):
+        need_cross()
+        S.bg.submit(CatalogBuildJob(), front=True)
+        return jr(S.jobs_status())
+
+    async def cross_catalog_counts(request):
+        p = need_cross()
+        b = await _body(request)
+        return jr(await io(cross.catalog_counts, p, b.get("filters") or {}))
+
+    async def cross_catalog_rows(request):
+        p = need_cross()
+        b = await _body(request)
+        return jr(await io(cross.catalog_rows, p, b.get("filters") or {}, str(b.get("sort") or "rel"), bool(b.get("desc")), int(b.get("offset") or 0), min(int(b.get("limit") or 200), 1000)))
+
+    async def cross_catalog_sample(request):
+        p = need_cross()
+        b = await _body(request)
+        r = await io(cross.catalog_sample, p, b.get("filters") or {}, b.get("params") or {})
+        r["ids"] = r["ids"][:0]               # 本数だけ返す（id の列は大きい）
+        return jr(r)
+
+    async def cross_catalog_export(request):
+        p = need_cross()
+        b = await _body(request)
+        path = norm(b.get("path") or os.path.join(p.dir, "exports", f"catalog_{time.strftime('%Y%m%d_%H%M')}.csv"))
+        return jr(await io(cross.export_catalog, p, path, b.get("filters") or {}))
 
     async def cross_sync_plan(request):
         p = need_cross()
@@ -1267,6 +1306,12 @@ def make_app(session: Session) -> web.Application:
     r.add_post("/api/cross/sources/add", cross_source_add)
     r.add_post("/api/cross/sources/remove", cross_source_remove)
     r.add_post("/api/cross/sources/labels", cross_source_labels)
+    r.add_post("/api/cross/sources/add_under", cross_sources_add_under)
+    r.add_post("/api/cross/catalog/build", cross_catalog_build)
+    r.add_post("/api/cross/catalog/counts", cross_catalog_counts)
+    r.add_post("/api/cross/catalog/rows", cross_catalog_rows)
+    r.add_post("/api/cross/catalog/sample", cross_catalog_sample)
+    r.add_post("/api/cross/catalog/export", cross_catalog_export)
     r.add_post("/api/cross/plan", cross_plan)
     r.add_post("/api/cross/import", cross_import)
     r.add_post("/api/cross/sync/plan", cross_sync_plan)

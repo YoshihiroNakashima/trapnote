@@ -102,6 +102,27 @@ def add_source(project, path: str, name: str | None = None, labels_csv: str | No
     return dict(name=nm, root=path, kind="tree", added=True)
 
 
+def add_sources_under(project, parent: str, labels_csv: str | None = None) -> dict:
+    """親フォルダの下の調査回フォルダをまとめて参照先に登録する。TrapNote のプロジェクトがあるフォルダはプロジェクト参照、
+    1 つもなければ親フォルダ自体を親フォルダ参照（kind = tree）として登録する"""
+    parent = norm(parent)
+    if not os.path.isdir(parent):
+        raise FileNotFoundError(f"フォルダがありません: {parent}")
+    added, skipped, errors = [], [], []
+    subs = sorted(e.name for e in os.scandir(parent) if e.is_dir() and not e.name.startswith(".") and e.name.lower() not in ("trapnote", "staytime"))
+    projs = [n for n in subs if _is_project_path(os.path.join(parent, n))]
+    if not projs:
+        r = add_source(project, parent, None, labels_csv)
+        return dict(added=[r["name"]] if r.get("added") else [], skipped=[] if r.get("added") else [r["name"]], errors=[], kind="tree", n_sub=len(subs))
+    for n in projs:
+        try:
+            r = add_source(project, os.path.join(parent, n), n)
+            (added if r.get("added") else skipped).append(r["name"])
+        except Exception as e:
+            errors.append(f"{n}: {e}")
+    return dict(added=added, skipped=skipped, errors=errors, kind="project", n_sub=len(subs), n_not_project=len(subs) - len(projs))
+
+
 def set_source_labels(project, name: str, labels_csv: str | None) -> dict:
     """親フォルダ参照に、既存の種名の CSV（Season, Station, File, Species[, DateTime]）を付ける・外す"""
     s = source_by_name(project, name)
@@ -533,9 +554,18 @@ def plan(project, params: dict) -> dict:
 # ---------- 取り込み ----------
 def import_items(project, params: dict, batch: str, progress=None, stop=None) -> dict:
     """select_items() で選んだ対象を参照先から写す。返り値 dict(n, n_already, counts, by_source)"""
-    from .train import crop_path, features_path
     sel = select_items(project, params, lambda name: progress and progress(0, 0, f"{name} を調べています"))
-    picked = sel["picked"]
+    n_done = import_rows(project, sel["picked"], batch, progress, stop)
+    rec = dict(at=now_iso(), batch=batch, params={k: v for k, v in params.items() if k != "csv_text"}, n=n_done, counts=sel["counts"], by_source=sel["by_source"],
+               n_csv=sel.get("n_csv"), n_unmatched=sel.get("n_unmatched"))
+    project.data.setdefault("imports", []).append(rec)
+    project.save()
+    return dict(n=n_done, n_already=sel["n_already"], counts=sel["counts"], by_source=sel["by_source"], n_csv=sel.get("n_csv"), n_unmatched=sel.get("n_unmatched"))
+
+
+def import_rows(project, picked: list, batch: str, progress=None, stop=None) -> int:
+    """picked = [(参照先の名前, プロジェクトのフォルダ or "", 行)] を写す。行はプロジェクト参照なら id（参照先の items.id）、親フォルダ参照なら src_kind = tree と rel"""
+    from .train import crop_path, features_path
     db = project.db
     cols = [r["name"] for r in db.q("PRAGMA table_info(items)")]
     copy_cols = [c for c in cols if c not in ITEM_COPY_SKIP]
@@ -605,11 +635,9 @@ def import_items(project, params: dict, batch: str, progress=None, stop=None) ->
                             progress(n_done, len(picked), rel)
         finally:
             src.close()
-    rec = dict(at=now, batch=batch, params={k: v for k, v in params.items() if k != "csv_text"}, n=n_done, counts=sel["counts"], by_source=sel["by_source"],
-               n_csv=sel.get("n_csv"), n_unmatched=sel.get("n_unmatched"))
-    project.data.setdefault("imports", []).append(rec)
-    project.save()
-    return dict(n=n_done, n_already=sel["n_already"], counts=sel["counts"], by_source=sel["by_source"], n_csv=sel.get("n_csv"), n_unmatched=sel.get("n_unmatched"))
+    if n_done:
+        _catalog_mark_imported(project)
+    return n_done
 
 
 def _import_tree_rows(project, name: str, rows: list[dict], batch: str, now: str, progress=None, stop=None) -> int:
@@ -646,6 +674,234 @@ def _import_tree_rows(project, name: str, rows: list[dict], batch: str, now: str
                 if progress and n % 50 == 0:
                     progress(n, len(rows), rel)
     return n
+
+
+# ---------- カタログ（参照先の全動画の目録。ここから取り込む対象を選ぶ） ----------
+def build_catalog(project, progress=None, stop=None) -> dict:
+    """参照先の全動画の目録を作り直す（メディアは持たない）。プロジェクト参照は items と判定から、親フォルダ参照は種名の CSV から"""
+    db = project.db
+    by_src: dict[str, int] = {}
+    with db.tx() as c:
+        c.execute("DELETE FROM catalog")
+    for s in project.sources():
+        if stop and stop():
+            break
+        name = s["name"]
+        if progress:
+            progress(0, 0, name)
+        rows: list[tuple] = []
+        if s.get("kind") == "tree":
+            root = norm(s.get("root") or "")
+            here = set(_tree_seasons(root)) if root and os.path.isdir(root) else set()
+            lab = _labels(project, s) if s.get("labels_csv") else None
+            for r in (lab["rows"].values() if lab else []):
+                if r["season"] not in here:
+                    continue
+                rows.append((name, None, f"{r['season']}/{r['station']}/{r['file']}", r["season"], r["station"], r["file"], r["dt"] or None,
+                             "auto" if r["species"] else "new", ";".join(sorted(r["species"])) or None, None, None, 0, None, None))
+        else:
+            try:
+                src = open_source(s["dir"])
+            except Exception as e:
+                log.warning("参照先 %s を開けません: %s", name, e)
+                continue
+            try:
+                hum: dict[int, list] = defaultdict(list)
+                for j in src.db.q("SELECT j.item_id, j.species, j.origin, i.status FROM judgements j JOIN items i ON i.id=j.item_id WHERE j.species != 'area'"):
+                    if j["status"] == "verified" or j["origin"] in HUMAN_ORIGINS:
+                        hum[j["item_id"]].append(j["species"])
+                for r in src.db.q("SELECT id, rel_path, season, station, name, COALESCE(datetime_corrected, datetime) AS dt, status, auto_json, agree, det_state, duration, size FROM items WHERE missing=0"):
+                    ai = None
+                    if r["auto_json"]:
+                        try:
+                            ai = ";".join(x["species"] for x in (json.loads(r["auto_json"]).get("species") or [])) or None
+                        except Exception:
+                            ai = None
+                    rows.append((name, r["id"], r["rel_path"], r["season"] or name, r["station"], r["name"], r["dt"], r["status"],
+                                 ";".join(sorted(set(hum.get(r["id"], [])))) or None, ai, r["agree"], r["det_state"], r["duration"], r["size"]))
+            finally:
+                src.close()
+        for i0 in range(0, len(rows), 5000):
+            if stop and stop():
+                break
+            with db.tx() as c:
+                c.executemany("INSERT OR IGNORE INTO catalog(source, src_id, rel, season, station, name, datetime, status, species, ai, agree, det_state, duration, size) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows[i0:i0 + 5000])
+            if progress:
+                progress(i0 + len(rows[i0:i0 + 5000]), len(rows), name)
+        by_src[name] = len(rows)
+    _catalog_mark_imported(project)
+    n = int(db.scalar("SELECT COUNT(*) FROM catalog") or 0)
+    project.data["catalog"] = dict(built_at=now_iso(), n=n, by_source=by_src)
+    project.save()
+    return dict(n=n, by_source=by_src)
+
+
+def _catalog_mark_imported(project) -> None:
+    """取り込み済みの対象に横断側の items.id を付ける（rel_path = 名前/rel で照合）"""
+    db = project.db
+    with db.tx() as c:
+        c.execute("UPDATE catalog SET item_id=(SELECT i.id FROM items i WHERE i.rel_path = catalog.source || '/' || catalog.rel)")
+
+
+def catalog_where(f: dict) -> tuple[str, list]:
+    w, p = ["1=1"], []
+    if f.get("source"):
+        w.append("source=?"); p.append(f["source"])
+    if f.get("season"):
+        w.append("season=?"); p.append(f["season"])
+    st = [x.strip() for x in str(f.get("station") or "").replace("、", ",").split(",") if x.strip()]
+    if st:
+        w.append(f"station IN ({','.join('?' * len(st))})"); p += st
+    ex = [x.strip() for x in str(f.get("exclude_stations") or "").replace("、", ",").split(",") if x.strip()] if isinstance(f.get("exclude_stations"), str) else list(f.get("exclude_stations") or [])
+    if ex:
+        w.append(f"(station IS NULL OR station NOT IN ({','.join('?' * len(ex))}))"); p += ex
+    sp = f.get("species")
+    if sp == "none":
+        w.append("species IS NULL")
+    elif sp == "any":
+        w.append("species IS NOT NULL")
+    elif sp:
+        w.append("(species = ? OR species LIKE ? OR species LIKE ? OR species LIKE ?)"); p += [sp, sp + ";%", "%;" + sp, "%;" + sp + ";%"]
+    if f.get("single_only"):
+        w.append("(species IS NULL OR species NOT LIKE '%;%')")
+    if f.get("status"):
+        w.append("status=?"); p.append(f["status"])
+    if f.get("imported") in ("1", 1, True):
+        w.append("item_id IS NOT NULL")
+    elif f.get("imported") in ("0", 0, False) and f.get("imported") is not None and f.get("imported") != "":
+        w.append("item_id IS NULL")
+    if f.get("agree"):
+        w.append({"agree": "agree=1", "disagree": "agree=3", "partial": "agree=2", "nohuman": "species IS NULL AND ai IS NOT NULL"}.get(f["agree"], "1=1"))
+    if f.get("text"):
+        w.append("(name LIKE ? OR rel LIKE ?)"); p += [f"%{f['text']}%", f"%{f['text']}%"]
+    rels = list(f.get("rels") or [])           # CSV の一覧（Season, Station, File）で絞る: 親フォルダ参照は 調査回/地点/ファイル、プロジェクト参照は 地点/ファイル
+    if f.get("csv_text"):
+        for row in parse_csv_list(f["csv_text"]):
+            if row.get("season") and row.get("station"):
+                rels.append(f"{row['season']}/{row['station']}/{row['file']}")
+            if row.get("station"):
+                rels.append(f"{row['station']}/{row['file']}")
+            rels.append(row["file"])
+    if rels:
+        rels = [r.lower() for r in rels][:5000]
+        w.append(f"(LOWER(rel) IN ({','.join('?' * len(rels))}) OR LOWER(name) IN ({','.join('?' * len(rels))}))"); p += rels + rels
+    return " AND ".join(w), p
+
+
+def catalog_counts(project, f: dict) -> dict:
+    db = project.db
+    where, p = catalog_where(f)
+    total = int(db.scalar(f"SELECT COUNT(*) FROM catalog WHERE {where}", p) or 0)
+    imported = int(db.scalar(f"SELECT COUNT(*) FROM catalog WHERE {where} AND item_id IS NOT NULL", p) or 0)
+    by_source = {r[0]: r[1] for r in db.q(f"SELECT source, COUNT(*) FROM catalog WHERE {where} GROUP BY source", p)}
+    by_status = {r[0] or "new": r[1] for r in db.q(f"SELECT status, COUNT(*) FROM catalog WHERE {where} GROUP BY status", p)}
+    seasons = [r[0] or "" for r in db.q(f"SELECT DISTINCT season FROM catalog WHERE {where} ORDER BY season", p)]
+    stations = [r[0] or "" for r in db.q(f"SELECT DISTINCT station FROM catalog WHERE {where} ORDER BY station", p)]
+    pivot: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    for r in db.q(f"SELECT species, season, COUNT(*) FROM catalog WHERE {where} GROUP BY species, season", p):
+        for code in (r[0] or "(none)").split(";"):
+            pivot[code][r[1] or ""] += r[2]
+    by_species = {k: sum(v.values()) for k, v in pivot.items()}
+    return dict(total=total, imported=imported, by_source=by_source, by_status=by_status, seasons=seasons, stations=stations,
+                pivot={k: dict(v) for k, v in pivot.items()}, by_species=by_species, built=project.data.get("catalog"))
+
+
+CAT_SORTS = {"rel": "source, rel", "datetime": "COALESCE(datetime, ''), rel", "station": "station, COALESCE(datetime, ''), rel", "species": "species, rel", "status": "status, rel", "season": "season, station, rel"}
+
+
+def catalog_rows(project, f: dict, sort: str = "rel", desc: bool = False, offset: int = 0, limit: int = 200) -> dict:
+    db = project.db
+    where, p = catalog_where(f)
+    order = CAT_SORTS.get(sort or "rel", CAT_SORTS["rel"])
+    if desc:
+        order = ", ".join(x.strip() + " DESC" for x in order.split(","))
+    rows = [dict(r) for r in db.q(f"SELECT id, source, src_id, rel, season, station, name, datetime, status, species, ai, agree, det_state, duration, item_id FROM catalog WHERE {where} ORDER BY {order} LIMIT ? OFFSET ?", (*p, int(limit), int(offset)))]
+    total = int(db.scalar(f"SELECT COUNT(*) FROM catalog WHERE {where}", p) or 0)
+    return dict(rows=rows, total=total, offset=int(offset))
+
+
+def catalog_sample(project, f: dict, params: dict) -> dict:
+    """カタログの絞り込みの中から、種ごとに n 本（地点 × 調査回の上限、同じ地点で gap 分以内の連続動画は 1 本、乱数の種）。
+    返り値 dict(ids, counts={code: n}, available={code: n})。params に n_per_species が 0 なら絞り込みの全部"""
+    db = project.db
+    where, p = catalog_where(dict(f, imported="0"))
+    rows = [dict(r) for r in db.q(f"SELECT id, source, season, station, datetime, species FROM catalog WHERE {where}", p)]
+    n_per = int(params.get("n_per_species") or 0)
+    if not n_per:
+        return dict(ids=[r["id"] for r in rows], counts={}, available={}, n=len(rows))
+    cap = int(params.get("cap") or 0)
+    gap_min = float(params.get("gap_min") or 0)
+    seed = int(params.get("seed") or 1)
+    want_sp = set(params.get("species") or [])
+    pool: dict[str, list[dict]] = defaultdict(list)
+    thinned = _thin([dict(r, dt=r["datetime"] or "") for r in rows if r["species"]], gap_min)
+    for r in thinned:
+        for code in r["species"].split(";"):
+            if not want_sp or code in want_sp:
+                pool[code].append(r)
+    rng = random.Random(seed)
+    ids: list[int] = []
+    seen: set[int] = set()
+    counts: dict[str, int] = {}
+    for code in sorted(pool):
+        cands = list(pool[code])
+        rng.shuffle(cands)
+        per_cell: dict[tuple, int] = defaultdict(int)
+        n_sp = 0
+        for r in cands:
+            if n_sp >= n_per:
+                break
+            cell = (r["source"], r["station"], r["season"])
+            if cap and per_cell[cell] >= cap:
+                continue
+            if r["id"] in seen:
+                continue
+            per_cell[cell] += 1
+            seen.add(r["id"]); ids.append(r["id"]); n_sp += 1
+        counts[code] = n_sp
+    return dict(ids=ids, counts=counts, available={k: len(v) for k, v in pool.items()}, n=len(ids))
+
+
+def catalog_import(project, ids: list[int], batch: str, record: dict | None = None, progress=None, stop=None) -> dict:
+    """カタログの行（id）を取り込む"""
+    db = project.db
+    picked = []
+    src_of = {s["name"]: s for s in project.sources()}
+    for i0 in range(0, len(ids), 900):
+        part = ids[i0:i0 + 900]
+        for r in db.q(f"SELECT id, source, src_id, rel, season, station, name, datetime, species FROM catalog WHERE id IN ({','.join('?' * len(part))}) AND item_id IS NULL", part):
+            s = src_of.get(r["source"])
+            if s is None:
+                continue
+            if s.get("kind") == "tree":
+                picked.append((r["source"], "", dict(id=None, rel=r["rel"], name=r["name"], station=r["station"] or "", season=r["season"] or "", dt=r["datetime"] or "",
+                                                     status="auto" if r["species"] else "new", species=set((r["species"] or "").split(";")) - {""}, src_name=r["source"], src_dir="", src_kind="tree", src_root=norm(s.get("root") or ""))))
+            else:
+                picked.append((r["source"], s["dir"], dict(id=r["src_id"], rel_path=r["rel"], name=r["name"], station=r["station"], season=r["season"])))
+    n = import_rows(project, picked, batch, progress, stop)
+    rec = dict(at=now_iso(), batch=batch, params=dict(record or {}, mode="catalog"), n=n, counts=(record or {}).get("counts") or {}, by_source={})
+    for name, _, _ in picked:
+        rec["by_source"][name] = rec["by_source"].get(name, 0) + 1
+    project.data.setdefault("imports", []).append(rec)
+    project.save()
+    return dict(n=n, n_requested=len(ids))
+
+
+def export_catalog(project, path: str, f: dict | None = None) -> dict:
+    """カタログ（参照先の全動画と判定）を 1 つの CSV に: Source, Season, Station, File, DateTime, Status, Species, AI, Agree, Imported, RelPathInSource"""
+    db = project.db
+    where, p = catalog_where(f or {})
+    sl = project.species
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    n = 0
+    with open(path, "w", encoding="utf-8-sig", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["Source", "Season", "Station", "File", "DateTime", "Status", "Species", "AI", "Agree", "Imported", "RelPathInSource"])
+        for r in db.q(f"SELECT source, season, station, name, datetime, status, species, ai, agree, item_id, rel FROM catalog WHERE {where} ORDER BY source, rel", p):
+            w.writerow([r[0], r[1] or "", r[2] or "", r[3], r[4] or "", r[5] or "", ";".join(sl.csv_label(c) for c in (r[6] or "").split(";") if c), ";".join(sl.csv_label(c) for c in (r[7] or "").split(";") if c),
+                        {1: "match", 2: "partial", 3: "mismatch"}.get(r[8], ""), 1 if r[9] else 0, r[10]])
+            n += 1
+    return dict(path=path, n=n)
 
 
 # ---------- 走査の代わり: 参照先の動画があるかを確かめる ----------

@@ -590,6 +590,7 @@ async function openProjectPath(path, create, kind) {
     await reloadList();
     hideOverlay();
     startJobsPolling();
+    if (S.project && S.project.kind === 'cross' && !S.total && typeof crossDialog === 'function') crossDialog();   // 横断で対象がまだなければ、参照先とカタログの窓から
   } catch (e) { hideOverlay(); toast(e.message, 'error'); }
 }
 async function pickPath(kind, initial, name) {

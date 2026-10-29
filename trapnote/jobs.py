@@ -539,11 +539,12 @@ class ReclassifyJob(Job):
 
 
 class CrossImportJob(Job):
-    """横断プロジェクト: 参照先から対象を取り込む（bg レーン）"""
+    """横断プロジェクト: 参照先から対象を取り込む（bg レーン）。
+    spec: dict(mode="select", params)（参照先を直接選ぶ）/ dict(mode="catalog", ids)（カタログの行）/ dict(mode="catalog_sample", filters, params)（カタログから種ごとに抽出）"""
 
-    def __init__(self, params: dict, batch: str):
-        super().__init__("cross_import", dict(mode=params.get("mode"), batch=batch), "参照先からの取り込み")
-        self.params = params
+    def __init__(self, spec: dict, batch: str):
+        super().__init__("cross_import", dict(mode=spec.get("mode"), batch=batch), "参照先からの取り込み")
+        self.spec = spec
         self.batch = batch
         self.result: dict | None = None
 
@@ -556,7 +557,19 @@ class CrossImportJob(Job):
         def prog(a, b, msg):
             self.done, self.total, self.current = a, b, msg or ""
         self.message = "選んでいます"
-        r = cross.import_items(project, self.params, self.batch, prog, self.stop_flag.is_set)
+        mode = self.spec.get("mode") or "select"
+        if mode == "catalog":
+            ids = [int(x) for x in (self.spec.get("ids") or [])]
+            r = cross.catalog_import(project, ids, self.batch, dict(ids_n=len(ids)), prog, self.stop_flag.is_set)
+        elif mode == "catalog_sample":
+            f, params = self.spec.get("filters") or {}, self.spec.get("params") or {}
+            smp = cross.catalog_sample(project, f, params)
+            r = cross.catalog_import(project, smp["ids"], self.batch, dict(filters=f, params=params, counts=smp["counts"]), prog, self.stop_flag.is_set)
+            r["counts"] = smp["counts"]
+        elif mode in ("species", "stations", "all", "csv"):           # spec 自体が select_items の params
+            r = cross.import_items(project, self.spec, self.batch, prog, self.stop_flag.is_set)
+        else:
+            r = cross.import_items(project, self.spec.get("params") or {}, self.batch, prog, self.stop_flag.is_set)
         self.result = r
         self.done = self.total = r["n"]
         self.message = f"{r['n']} 件を取り込みました" + (f"（取り込み済みで飛ばした {r['n_already']}）" if r.get("n_already") else "") + (f"（一覧で見つからなかった {r['n_unmatched']}）" if r.get("n_unmatched") else "")
@@ -566,6 +579,28 @@ class CrossImportJob(Job):
         d = super().status()
         d.update(result=self.result)
         return d
+
+
+class CatalogBuildJob(Job):
+    """横断プロジェクト: カタログ（参照先の全動画の目録）を作り直す"""
+
+    def __init__(self):
+        super().__init__("cross_catalog", {}, "カタログの作成")
+        self.result: dict | None = None
+
+    def run(self, ctx) -> None:
+        from . import cross
+        project = ctx.project
+        if project is None:
+            return
+
+        def prog(a, b, msg):
+            self.done, self.total, self.current = a, b, msg or ""
+        self.message = "参照先を読んでいます"
+        r = cross.build_catalog(project, prog, self.stop_flag.is_set)
+        self.result = r
+        self.done = self.total = r["n"]
+        self.message = f"カタログ {r['n']} 本（" + " · ".join(f"{k} {v}" for k, v in r["by_source"].items()) + "）"
 
 
 class CrossSyncJob(Job):

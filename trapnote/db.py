@@ -128,6 +128,26 @@ CREATE TABLE IF NOT EXISTS detections (                   -- 第 2 段階: フ�
 );
 CREATE INDEX IF NOT EXISTS idx_det_item ON detections(item_id);
 
+CREATE TABLE IF NOT EXISTS catalog (                      -- 横断プロジェクト: 参照先の全動画の目録（メディアは持たない。取り込む対象を選ぶ表）
+  id INTEGER PRIMARY KEY,
+  source TEXT NOT NULL,                  -- 参照先の名前
+  src_id INTEGER,                        -- プロジェクト参照: 参照先での items.id
+  rel TEXT NOT NULL,                     -- 参照先での相対パス
+  season TEXT, station TEXT, name TEXT NOT NULL,
+  datetime TEXT,
+  status TEXT,                           -- verified / auto / new（参照先での状態。親フォルダ参照は種名があれば auto）
+  species TEXT,                          -- 人の判定の種コード（; 区切り。なければ NULL）
+  ai TEXT,                               -- AI の判定の種コード（; 区切り）
+  agree INTEGER, det_state INTEGER, duration REAL, size INTEGER,
+  item_id INTEGER,                       -- 取り込み済みなら横断側の items.id
+  UNIQUE(source, rel)
+);
+CREATE INDEX IF NOT EXISTS idx_cat_season ON catalog(season);
+CREATE INDEX IF NOT EXISTS idx_cat_station ON catalog(station);
+CREATE INDEX IF NOT EXISTS idx_cat_species ON catalog(species);
+CREATE INDEX IF NOT EXISTS idx_cat_status ON catalog(status);
+CREATE INDEX IF NOT EXISTS idx_cat_item ON catalog(item_id);
+
 CREATE TABLE IF NOT EXISTS jobs (
   id INTEGER PRIMARY KEY,
   kind TEXT NOT NULL,                    -- meta | transcode | detect | classify | train | import ...
