@@ -143,7 +143,6 @@ CREATE TABLE IF NOT EXISTS catalog (                      -- 横断プロジェ�
   labels TEXT,                           -- 対応表を当てる前の表記（種名の CSV の値、または調査回プロジェクトの種コード。; 区切り）。対応表を変えたときにここから当て直す
   UNIQUE(source, rel)
 );
-CREATE INDEX IF NOT EXISTS idx_cat_labels ON catalog(labels);
 CREATE INDEX IF NOT EXISTS idx_cat_season ON catalog(season);
 CREATE INDEX IF NOT EXISTS idx_cat_station ON catalog(station);
 CREATE INDEX IF NOT EXISTS idx_cat_species ON catalog(species);
@@ -218,6 +217,7 @@ class Database:
                 self.migrate(int(ver))
                 self.set_meta("schema_version", str(SCHEMA_VERSION))
             # 移行で足した列の索引は、移行のあとで作る（古い表に対して SCHEMA の中で作ると失敗するため）
+            c.execute("CREATE INDEX IF NOT EXISTS idx_cat_labels ON catalog(labels)")
             c.execute("CREATE INDEX IF NOT EXISTS idx_items_fav ON items(favorite)")
             c.execute("CREATE INDEX IF NOT EXISTS idx_items_det ON items(det_state)")
             c.execute("CREATE INDEX IF NOT EXISTS idx_items_flag ON items(flag)")
