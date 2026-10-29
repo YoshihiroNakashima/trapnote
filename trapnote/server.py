@@ -1077,10 +1077,34 @@ def make_app(session: Session) -> web.Application:
             lab = s.get("labels") or {}
             if lab.get("pending") and not labels_job_queued(s["name"]):
                 S.bg.submit(LabelsJob(s["name"]), front=True)
-        return jr(dict(sources=sources, imports=p.data.get("imports") or [], project=p.to_dict(), catalog=p.data.get("catalog"),
+        cat = p.data.get("catalog") or None
+        if cat:
+            cat = {k: v for k, v in cat.items() if k != "code_names"}
+        return jr(dict(sources=sources, imports=p.data.get("imports") or [], project=p.to_dict(), catalog=cat, catalog_status=cross.catalog_status(p),
                        n_catalog=int(p.db.scalar("SELECT COUNT(*) FROM catalog") or 0), n_items=int(p.db.scalar("SELECT COUNT(*) FROM items") or 0),
                        n_sync=int(p.db.scalar("SELECT COUNT(*) FROM items WHERE src_id IS NOT NULL") or 0),
+                       n_label_map=len(cross.label_map(p)), label_map_at=p.data.get("label_map_at"),
                        batches=[dict(batch=r[0] or "", n=r[1]) for r in p.db.q("SELECT batch, COUNT(*) FROM items GROUP BY batch ORDER BY batch")]))
+
+    async def cross_labels(request):
+        """種名の対応表の画面の元（表記・本数・自動の当たり・いまの対応）"""
+        p = need_cross()
+        r = await io(cross.label_candidates, p)
+        for name in r["pending"]:                       # CSV をまだ読んでいない参照先は裏で読む
+            if not labels_job_queued(name):
+                S.bg.submit(LabelsJob(name), front=True)
+        return jr(dict(r, species=p.species.to_dict()))
+
+    async def cross_labels_save(request):
+        p = need_cross()
+        b = await _body(request)
+        try:
+            r = await io(cross.set_label_map, p, b.get("map") or {})
+        except ValueError as e:
+            raise ApiError(str(e))
+        if b.get("rebuild") and p.sources():
+            S.bg.submit(CatalogBuildJob(), front=True)
+        return jr(dict(r, jobs=S.jobs_status(), species=p.species.to_dict(), state=await io(S.snapshot)))
 
     async def cross_source_add(request):
         p = need_cross()
@@ -1321,6 +1345,8 @@ def make_app(session: Session) -> web.Application:
     r.add_post("/api/cross/sources/remove", cross_source_remove)
     r.add_post("/api/cross/sources/labels", cross_source_labels)
     r.add_post("/api/cross/sources/add_under", cross_sources_add_under)
+    r.add_get("/api/cross/labels", cross_labels)
+    r.add_post("/api/cross/labels/save", cross_labels_save)
     r.add_post("/api/cross/catalog/build", cross_catalog_build)
     r.add_post("/api/cross/catalog/counts", cross_catalog_counts)
     r.add_post("/api/cross/catalog/rows", cross_catalog_rows)

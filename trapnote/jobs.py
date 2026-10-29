@@ -564,8 +564,9 @@ class CrossImportJob(Job):
         elif mode == "catalog_sample":
             f, params = self.spec.get("filters") or {}, self.spec.get("params") or {}
             smp = cross.catalog_sample(project, f, params)
-            r = cross.catalog_import(project, smp["ids"], self.batch, dict(filters=f, params=params, counts=smp["counts"]), prog, self.stop_flag.is_set)
+            r = cross.catalog_import(project, smp["ids"], self.batch, dict(filters=f, params=params, counts=smp["counts"], unit=smp.get("unit"), units=smp.get("units") or []), prog, self.stop_flag.is_set)
             r["counts"] = smp["counts"]
+            r["units"] = smp.get("units") or []
         elif mode in ("species", "stations", "all", "csv"):           # spec 自体が select_items の params
             r = cross.import_items(project, self.spec, self.batch, prog, self.stop_flag.is_set)
         else:

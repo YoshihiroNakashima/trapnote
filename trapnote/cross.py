@@ -5,7 +5,9 @@
 - 取り込みは参照先から対象（メタデータ・判定・AI の判定・検出の枠・特徴量・枠の画像）を写す。動画本体は写さない（参照先の NAS などから直接読む）。
 - 選び方: 種ごとの本数（人の判定から。地点 × 調査回の上限、連続動画の間引き、地点の除外、乱数の種）/ 地点を丸ごと / 参照先を丸ごと / CSV の一覧。
   使った条件は project.json の imports に残す（論文の方法に書けるように）。
-- 書き戻し（横断で確定した判定を参照先へ）と再取得（参照先で直した判定を横断へ）は push / pull。"""
+- 書き戻し（横断で確定した判定を参照先へ）と再取得（参照先で直した判定を横断へ）は push / pull。
+- 種名の対応表（project.json の label_map: 表記 → 種コード）: 種名の CSV の値と調査回プロジェクトの判定の種コードを、横断の種リストのどの種と見なすか。
+  カタログ・取り込み・書き戻し・再取得のすべてに当てる。種名の CSV は生の表記で読んで cache/labels に残し、対応は読み込み時に当てる（_apply_map）。"""
 from __future__ import annotations
 
 import csv
@@ -136,7 +138,28 @@ def tree_season_project(root: str, season: str) -> str | None:
     return pdir if pdir and kind != "cross" else None
 
 
-def _tree_rows(project, s: dict, seasons: list[str] | None = None, progress=None, stop=None) -> tuple[list[dict], list[str]]:
+def _human_codes(project, src, lm: dict, code_names: dict | None = None, source: str = "") -> dict[int, list]:
+    """参照先プロジェクトの人の判定 {item_id: [種コード]}（対応表を当てたもの）。code_names に、横断の種リストにないコードの名前と本数を控える"""
+    hum: dict[int, list] = defaultdict(list)
+    raw_counts: Counter = Counter()
+    for j in src.db.q("SELECT j.item_id, j.species, j.origin, i.status FROM judgements j JOIN items i ON i.id=j.item_id WHERE j.species != 'area' AND i.missing=0"):
+        if j["status"] == "verified" or j["origin"] in HUMAN_ORIGINS:
+            hum[j["item_id"]].append(j["species"])
+            raw_counts[j["species"]] += 1
+    if code_names is not None and raw_counts:
+        known = project.species.by_code()
+        sb = src.species.by_code()
+        for code, n in raw_counts.items():
+            if code in known:
+                continue
+            d = code_names.setdefault(code, dict(ja=(sb.get(code) or {}).get("name_ja") or "", en=(sb.get(code) or {}).get("name_en") or "", n=0, source=source))
+            d["n"] += n
+    if lm:
+        hum = {k: map_codes(lm, v) for k, v in hum.items()}
+    return hum
+
+
+def _tree_rows(project, s: dict, seasons: list[str] | None = None, progress=None, stop=None, code_names: dict | None = None) -> tuple[list[dict], list[str]]:
     """親フォルダ参照の全動画の行。調査回フォルダにプロジェクトがあればその items と判定（src_dir / src_id 付き）、なければ種名の CSV の行。
     行: dict(season, station, file, rel=<season>/<station>/<file>, species(set), dt, status, ai, agree, det_state, duration, size, src_dir, src_id, src_rel)"""
     root = norm(s.get("root") or "")
@@ -145,6 +168,7 @@ def _tree_rows(project, s: dict, seasons: list[str] | None = None, progress=None
     all_seasons = _tree_seasons(root)
     want = [se for se in all_seasons if not seasons or se in set(seasons)]
     lab = _labels(project, s, (lambda a, b, msg: progress(0, len(want), f"種名の CSV: {msg}")) if progress else None, stop)
+    lm = label_map(project)
     by_season: dict[str, list[dict]] = defaultdict(list)
     for r in lab["rows"].values():
         by_season[r["season"]].append(r)
@@ -165,10 +189,7 @@ def _tree_rows(project, s: dict, seasons: list[str] | None = None, progress=None
         if src is not None:
             proj_seasons.append(se)
             try:
-                hum: dict[int, list] = defaultdict(list)
-                for j in src.db.q("SELECT j.item_id, j.species, j.origin, i.status FROM judgements j JOIN items i ON i.id=j.item_id WHERE j.species != 'area'"):
-                    if j["status"] == "verified" or j["origin"] in HUMAN_ORIGINS:
-                        hum[j["item_id"]].append(j["species"])
+                hum = _human_codes(project, src, lm, code_names, f"{s['name']}/{se}")
                 for r in src.db.q("SELECT id, rel_path, station, name, COALESCE(datetime_corrected, datetime) AS dt, status, auto_json, agree, det_state, duration, size FROM items WHERE missing=0"):
                     ai = None
                     if r["auto_json"]:
@@ -180,10 +201,19 @@ def _tree_rows(project, s: dict, seasons: list[str] | None = None, progress=None
                                     status=r["status"], ai=ai, agree=r["agree"], det_state=r["det_state"], duration=r["duration"], size=r["size"], src_dir=src.dir, src_id=r["id"], src_rel=r["rel_path"]))
             finally:
                 src.close()
-        else:
+        elif by_season.get(se):
             for r in by_season.get(se, []):
                 out.append(dict(season=se, station=r["station"], file=r["file"], rel=f"{se}/{r['station']}/{r['file']}", species=set(r["species"]), dt=r["dt"] or "",
                                 status="auto" if r["species"] else "new", ai=None, agree=None, det_state=0, duration=None, size=None, src_dir=None, src_id=None, src_rel=None))
+        else:                                   # プロジェクトも種名の CSV の行もない調査回: フォルダを見て動画を並べる（種名なし。新しい調査回など）
+            for st in _tree_stations(root, se):
+                if stop and stop():
+                    break
+                if progress:
+                    progress(i, len(want), f"{s['name']}/{se}/{st}")
+                for fn in _tree_station_files(root, se, st):
+                    out.append(dict(season=se, station=st, file=fn, rel=f"{se}/{st}/{fn}", species=set(), dt="", status="new", ai=None, agree=None, det_state=0,
+                                    duration=None, size=None, src_dir=None, src_id=None, src_rel=None))
     return out, proj_seasons
 
 
@@ -229,9 +259,185 @@ def set_source_labels(project, name: str, labels_csv: str | None, wait: bool = T
     return dict(ok=True, labels=dict(n=len(lab["rows"]), unmapped=lab["unmapped"][:20], species=lab["species"], files=[dict(path=f["path"], n=f["n"], error=f["error"]) for f in lab["files"]]))
 
 
-_LABELS: dict = {}       # name → (csv path, mtime, parsed)
+_LABELS: dict = {}       # name → (CSV の署名, 対応表の署名, 読んで対応を当てたもの)
 LABEL_ALIAS = {"season": ("season", "調査回", "期"), "station": ("station", "地点", "site"), "file": ("file", "filename", "name", "ファイル", "ファイル名"),
                "species": ("species", "種", "種名", "label"), "datetime": ("datetime", "date_time", "日時", "timestamp")}
+
+
+# ---------- 種名の対応表（この横断プロジェクトで、参照先に出てくる種名の表記をどの種と見なすか） ----------
+def label_map(project) -> dict[str, str]:
+    """project.json の label_map: 表記（小文字）→ 種コード。"" は「使わない」（その表記は判定なしとして扱う）。
+    表記は、種名の CSV の値（Kiji、B_Hiyodori など）か、調査回プロジェクトの判定の種コード（kiji など）"""
+    lm = project.data.get("label_map") or {}
+    return {str(k).strip().lower(): (str(v).strip().lower() if v else "") for k, v in lm.items() if str(k).strip()}
+
+
+def species_sig(sl) -> str:
+    """種リストのうち、表記の対応に効く部分（コード・名前・CSV 表記）の署名。「使う」の付け外しでは変わらない"""
+    import hashlib
+    rows = sorted((r["code"], r.get("name_ja") or "", r.get("name_en") or "", r.get("name_sci") or "", r.get("csv_label") or "") for r in sl.rows)
+    return hashlib.md5(json.dumps(rows, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
+def map_sig(project) -> str:
+    """対応表 + 種リストの署名（これが変わると、種名の CSV の読み直しはせずに対応だけ当て直す。カタログは作り直しが要る）"""
+    return json.dumps([sorted(label_map(project).items()), species_sig(project.species)], ensure_ascii=False)
+
+
+def auto_code(project, label: str) -> str | None:
+    """対応表を使わない自動の当たり: 種リストの CSV 表記・英名・和名・学名・コードとの完全一致 → 略称表 → 前方・部分一致"""
+    sl = project.species
+    return sl.code_for_label(label) or sl.guess_code(label)
+
+
+def resolve_label(project, label: str, lm: dict | None = None) -> str | None:
+    """種名の表記 → 種コード。対応表にあればそれ（"" なら None = 使わない）、なければ自動の当たり"""
+    s = (label or "").strip()
+    if not s:
+        return None
+    lm = label_map(project) if lm is None else lm
+    k = s.lower()
+    if k in lm:
+        return lm[k] or None
+    return auto_code(project, s)
+
+
+def map_code(lm: dict, code: str | None) -> str | None:
+    """調査回プロジェクトの判定の種コードに対応表を当てる（表記として登録されていればそれに。"" なら None）"""
+    if not code:
+        return None
+    k = code.strip().lower()
+    if k in lm:
+        return lm[k] or None
+    return code
+
+
+def map_codes(lm: dict, codes) -> list[str]:
+    out: list[str] = []
+    for c in codes:
+        m = map_code(lm, c)
+        if m and m not in out:
+            out.append(m)
+    return out
+
+
+def map_state(lm: dict, state: dict) -> dict:
+    """item_state() の判定の種に対応表を当てる（同じ種に重なれば先のものだけ残す）。何も変わらなければ同じ dict を返す"""
+    if not lm or not state:
+        return state
+    out, seen, changed = [], set(), False
+    for j in state.get("judgements") or []:
+        m = map_code(lm, j["species"])
+        if m != j["species"]:
+            changed = True
+        if not m or m in seen:
+            continue
+        seen.add(m)
+        out.append(dict(j, species=m) if m != j["species"] else j)
+    if not changed:
+        return state
+    st = dict(state, judgements=out)
+    if not out and st.get("status") == "auto":
+        st["status"] = "new"
+    return st
+
+
+def set_label_map(project, mapping: dict) -> dict:
+    """対応表を保存する（表記 → 種コード。"" は使わない）。選んだ種が「使わない」なら「使う」にする。読んだ種名の CSV は読み直さず、対応だけ当て直す"""
+    from .species import save_csv
+    sl = project.species
+    by = sl.by_code()
+    lm: dict[str, str] = {}
+    for k, v in (mapping or {}).items():
+        k = str(k).strip().lower()
+        if not k:
+            continue
+        v = str(v or "").strip().lower()
+        if v and v not in by:
+            raise ValueError(f"種リストにない種です: {v}")
+        lm[k] = v
+    project.data["label_map"] = lm
+    project.data["label_map_at"] = now_iso()
+    changed = False
+    for v in set(lm.values()):
+        r = by.get(v)
+        if r and not r.get("fixed") and not r.get("enabled"):
+            r["enabled"] = 1
+            changed = True
+    if changed:
+        save_csv(sl.path, sl.rows)
+    project.save()
+    _LABELS.clear()
+    return dict(ok=True, n=len(lm))
+
+
+def label_candidates(project) -> dict:
+    """対応表の画面の元: 参照先に出てくる種名の表記と、本数・出どころ・自動の当たり・いまの対応。
+    表記 = 種名の CSV の値（kind = csv）と、調査回プロジェクトの人の判定の種コード（kind = code。親フォルダ参照の中の調査回プロジェクトはカタログを作ったときに控えたもの）。
+    返り値 dict(rows=[dict(label, kind, n, sources={name: n}, auto, name_ja, name_en, mapped, current)], pending=[CSV をまだ読んでいない参照先], map, n_unresolved)"""
+    lm = label_map(project)
+    known = project.species.by_code()
+    rows_by: dict[str, dict] = {}
+    pending: list[str] = []
+
+    def add(label: str, kind: str, n: int, source: str, names: tuple | None = None):
+        k = label.strip().lower()
+        d = rows_by.get(k)
+        if d is None:
+            d = rows_by[k] = dict(label=label, kind=kind, n=0, sources={}, auto=(label if (kind == "code" and label in known) else auto_code(project, label)), name_ja="", name_en="")
+        d["n"] += n
+        d["sources"][source] = d["sources"].get(source, 0) + n
+        if names and not d["name_ja"] and not d["name_en"]:
+            d["name_ja"], d["name_en"] = names
+        if kind == "code" and d["kind"] == "csv":
+            d["kind"] = "both"
+    for s in project.sources():
+        name = s["name"]
+        if s.get("kind") == "tree":
+            if not labels_ready(project, s):
+                if label_files(s):
+                    pending.append(name)
+                continue
+            lab = _LABELS[name][2]
+            for label, n in lab["labels"].items():
+                add(label, "csv", n, name)
+        else:
+            try:
+                src = open_source(s["dir"])
+            except Exception:
+                continue
+            try:
+                sb = src.species.by_code()
+                for r in src.db.q("SELECT j.species, COUNT(DISTINCT j.item_id) FROM judgements j JOIN items i ON i.id=j.item_id "
+                                  "WHERE i.missing=0 AND j.species != 'area' AND (i.status='verified' OR j.origin IN ('csv','manual')) GROUP BY j.species"):
+                    sr = sb.get(r[0]) or {}
+                    add(r[0], "code", int(r[1]), name, (sr.get("name_ja") or "", sr.get("name_en") or ""))
+            finally:
+                src.close()
+    for code, info in ((project.data.get("catalog") or {}).get("code_names") or {}).items():
+        if code.lower() in rows_by:
+            continue
+        add(code, "code", int(info.get("n") or 0), info.get("source") or "", (info.get("ja") or "", info.get("en") or ""))
+    out = []
+    for k, d in rows_by.items():
+        d["mapped"] = lm[k] if k in lm else None          # None = 対応表にない（自動）、"" = 使わない
+        d["current"] = (lm[k] or None) if k in lm else d["auto"]
+        out.append(d)
+    out.sort(key=lambda d: (d["current"] is not None, -d["n"], d["label"].lower()))
+    return dict(rows=out, pending=pending, map=lm, n_unresolved=sum(1 for d in out if d["current"] is None), n_labels=len(out))
+
+
+def catalog_status(project) -> dict:
+    """カタログの様子と、作り直しが要るか（参照先が増減した・対応表か種リストが変わった）"""
+    cat = project.data.get("catalog") or {}
+    if not cat:
+        return dict(built=False, stale=False, reasons=[], n=0, built_at=None)
+    reasons = []
+    if sorted(cat.get("sources") or []) != sorted(s["name"] for s in project.sources()):
+        reasons.append("sources")
+    if (cat.get("map_sig") or "") != map_sig(project):
+        reasons.append("labels")
+    return dict(built=True, stale=bool(reasons), reasons=reasons, n=cat.get("n") or 0, built_at=cat.get("built_at"), by_source=cat.get("by_source") or {})
 
 
 def label_files(s: dict) -> list[tuple[str, str]]:
@@ -298,9 +504,10 @@ class _Counting:
         return line
 
 
-def _parse_label_file(project, path: str, season_default: str, rows: dict, unmapped: Counter, code_of: dict, progress=None, stop=None, intern: dict | None = None) -> dict:
+def _parse_label_file(project, path: str, season_default: str, rows: dict, labels: Counter, progress=None, stop=None, intern: dict | None = None) -> dict:
     """1 つの種名 CSV を rows に足す。返り値 dict(path, n, cols, error)。
-    行は LabelRow(season, station, file, species=tuple(code...), dt)。調査回・地点・種の組は同じ文字列オブジェクトを使い回す（数十万行でもメモリを抑える）"""
+    行は LabelRow(season, station, file, species=tuple(表記...), dt)。種は CSV の表記のまま（種コードへの対応は _apply_map で当てる。対応表を変えても読み直さなくてよい）。
+    labels に表記ごとの本数を数える。調査回・地点・種の組は同じ文字列オブジェクトを使い回す（数十万行でもメモリを抑える）"""
     from . import media
     from .export import _sniff, read_text_any
     label_fn = os.path.basename(path)
@@ -328,7 +535,6 @@ def _parse_label_file(project, path: str, season_default: str, rows: dict, unmap
                 break
     if "file" not in idx or "species" not in idx:
         return dict(path=path, n=0, cols=cols, error=f"File と Species の列がありません（見出し: {', '.join(h for h in header if h)[:120]}）")
-    sl = project.species
     z = bool(project.setting("z_is_utc"))
     intern = intern if intern is not None else {}
     i_file, i_sp = idx["file"], idx["species"]
@@ -353,9 +559,7 @@ def _parse_label_file(project, path: str, season_default: str, rows: dict, unmap
         label = (r[i_sp] or "").strip() if i_sp < len(r) else ""
         se = intern.setdefault(se, se)
         st = intern.setdefault(st, st)
-        if label not in code_of:
-            code_of[label] = (sl.code_for_label(label) or sl.guess_code(label)) if label else None
-        code = code_of[label]
+        label = intern.setdefault(label, label)
         k = (intern.setdefault(se.lower(), se.lower()), intern.setdefault(st.lower(), st.lower()), fn.lower())
         d = rows.get(k)
         if d is None:
@@ -363,20 +567,45 @@ def _parse_label_file(project, path: str, season_default: str, rows: dict, unmap
             n += 1
             if i_dt is not None and i_dt < len(r) and r[i_dt]:
                 d.dt = media.parse_dt_any(r[i_dt] or "", z) or ""
-        if code:
-            if code not in d["species"]:
-                tup = tuple(sorted(d["species"] + (code,)))
+        if label:
+            labels[label] += 1
+            if label not in d["species"]:
+                tup = d["species"] + (label,)
                 d["species"] = intern.setdefault(tup, tup)
-        elif label:
-            unmapped[label] += 1
     if progress:
         progress(total, total, f"{label_fn}: {k_row:,} 行")
     return dict(path=path, n=n, cols=cols, error=None)
 
 
+def _apply_map(project, raw: dict) -> dict:
+    """生の表記で読んだもの（rows の species は表記の tuple）に、対応表と自動の当たりを当てて species を種コードの tuple にする（rows はその場で書き換える）。
+    返り値 dict(rows, labels={表記: 本数}, code_of={表記: コード or None}, unmapped=[(表記, n)], species=[(code, n)], files, cols)"""
+    lm = label_map(project)
+    code_of = {lab: resolve_label(project, lab, lm) for lab in raw["labels"]}
+    intern: dict = {}
+    unmapped: Counter = Counter()
+    sp_counts: Counter = Counter()
+    for d in raw["rows"].values():
+        codes: list[str] = []
+        for lab in d.species:
+            c = code_of.get(lab)
+            if c:
+                if c not in codes:
+                    codes.append(c)
+            else:
+                unmapped[lab] += 1
+        if "empty" in codes and len(codes) > 1:
+            codes = [c for c in codes if c != "empty"]
+        tup = tuple(sorted(codes))
+        d.species = intern.setdefault(tup, tup)
+        for c in tup:
+            sp_counts[c] += 1
+    return dict(rows=raw["rows"], labels=raw["labels"], code_of=code_of, unmapped=unmapped.most_common(), species=sp_counts.most_common(), files=raw["files"], cols=raw["cols"])
+
+
 def _labels_sig(project, files: list[tuple[str, str]]) -> tuple:
-    sp = os.path.join(project.dir, "species.csv")
-    out = [("species", os.path.getmtime(sp) if os.path.isfile(sp) else 0, bool(project.setting("z_is_utc")))]
+    """読んだ種名 CSV の署名（ファイルのパス・更新時刻・サイズ、日時の読み方）。種リストと対応表は含めない（生の表記で読むので）"""
+    out = [("fmt", 2, bool(project.setting("z_is_utc")))]
     for p, _ in files:
         try:
             st = os.stat(p)
@@ -393,20 +622,21 @@ def _labels_cache_path(project, s: dict) -> str:
 
 
 def labels_ready(project, s: dict) -> bool:
-    """種名 CSV を読んだものが手元（メモリか cache/labels）にあるか。あればメモリに載せる。読んではいない"""
+    """種名 CSV を読んだものが手元（メモリか cache/labels）にあるか。あれば対応表を当ててメモリに載せる（1 秒ほど）。CSV は読まない"""
     import pickle
     files = label_files(s)
     sig = _labels_sig(project, files)
+    msig = map_sig(project)
     hit = _LABELS.get(s["name"])
-    if hit and hit[0] == sig:
+    if hit and hit[0] == sig and hit[1] == msig:
         return True
     cp = _labels_cache_path(project, s)
     if os.path.isfile(cp):
         try:
             with open(cp, "rb") as fh:
-                csig, out = pickle.load(fh)
-            if csig == sig:
-                _LABELS[s["name"]] = (sig, out)
+                csig, raw = pickle.load(fh)
+            if csig == sig and isinstance(raw, dict) and "labels" in raw:
+                _LABELS[s["name"]] = (sig, msig, _apply_map(project, raw))
                 return True
         except Exception as e:
             log.warning("種名 CSV のキャッシュを読めません（読み直します）: %s", e)
@@ -424,46 +654,46 @@ def labels_files_info(s: dict) -> list[dict]:
 
 
 def _labels(project, s: dict, progress=None, stop=None) -> dict:
-    """親フォルダ参照の既存の種名 CSV（指定した 1 つ、または自動で見つけたもの全部）を読む。ファイルが変わっていなければ覚えたもの（メモリ → cache/labels の pickle）を使う。
-    返り値 dict(rows={(season, station, file) の小文字: dict(season, station, file, species=tuple(code), dt)}, unmapped=[(label, n)], species=[(code, n)], files=[...], cols)"""
+    """親フォルダ参照の既存の種名 CSV（指定した 1 つ、または自動で見つけたもの全部）を読み、対応表を当てる。ファイルが変わっていなければ覚えたもの（メモリ → cache/labels の pickle。生の表記）を使う。
+    返り値 dict(rows={(season, station, file) の小文字: LabelRow(season, station, file, species=tuple(code), dt)}, labels={表記: n}, code_of, unmapped=[(label, n)], species=[(code, n)], files=[...], cols)"""
     import pickle
     if labels_ready(project, s):
-        return _LABELS[s["name"]][1]
+        return _LABELS[s["name"]][2]
     files = label_files(s)
     sig = _labels_sig(project, files)
     rows: dict[tuple, dict] = {}
-    unmapped: Counter = Counter()
-    code_of: dict[str, str | None] = {}
+    labels: Counter = Counter()
     intern: dict = {}
     used = []
     for path, se in files:
         if stop and stop():
             break
-        used.append(_parse_label_file(project, path, se, rows, unmapped, code_of, progress, stop, intern))
-    sp_counts: Counter = Counter()
-    for d in rows.values():
-        if "empty" in d["species"] and len(d["species"]) > 1:
-            tup = tuple(c for c in d["species"] if c != "empty")
-            d["species"] = intern.setdefault(tup, tup)
-        for c in d["species"]:
-            sp_counts[c] += 1
-    out = dict(rows=rows, unmapped=unmapped.most_common(), species=sp_counts.most_common(), files=used, cols=(used[0]["cols"] if used else {}))
+        used.append(_parse_label_file(project, path, se, rows, labels, progress, stop, intern))
+    raw = dict(rows=rows, labels=dict(labels), files=used, cols=(used[0]["cols"] if used else {}))
     if stop and stop():
-        return out                                   # 途中でやめたものは覚えない
-    _LABELS[s["name"]] = (sig, out)
+        return _apply_map(project, raw)              # 途中でやめたものは覚えない
     try:
         cp = _labels_cache_path(project, s)
         with open(cp + ".tmp", "wb") as fh:
-            pickle.dump((sig, out), fh, protocol=pickle.HIGHEST_PROTOCOL)
+            pickle.dump((sig, raw), fh, protocol=pickle.HIGHEST_PROTOCOL)
         os.replace(cp + ".tmp", cp)
     except Exception as e:
         log.warning("種名 CSV のキャッシュを書けません: %s", e)
+    out = _apply_map(project, raw)
+    _LABELS[s["name"]] = (sig, map_sig(project), out)
     return out
 
 
 def _tree_seasons(root: str) -> list[str]:
     try:
         return sorted(e.name for e in os.scandir(root) if e.is_dir() and not e.name.startswith(".") and e.name.lower() not in ("trapnote", "staytime"))
+    except OSError:
+        return []
+
+
+def _tree_stations(root: str, season: str) -> list[str]:
+    try:
+        return sorted(e.name for e in os.scandir(os.path.join(root, season)) if e.is_dir() and not e.name.startswith(".") and e.name.lower() not in ("trapnote", "staytime"))
     except OSError:
         return []
 
@@ -540,7 +770,7 @@ def tree_summary(project, s: dict, wait: bool = False) -> dict:
             for r in rows_here:
                 for c in r["species"]:
                     sp[c] += 1
-            d["labels"] = dict(n=len(lab["rows"]), n_here=len(rows_here), unmapped=lab["unmapped"][:20], n_unmapped=sum(n for _, n in lab["unmapped"]), cols=lab["cols"],
+            d["labels"] = dict(n=len(lab["rows"]), n_here=len(rows_here), unmapped=lab["unmapped"][:20], n_unmapped=sum(n for _, n in lab["unmapped"]), n_unmapped_labels=len(lab["unmapped"]), n_labels=len(lab["labels"]), cols=lab["cols"],
                                files=[dict(path=f["path"], n=f["n"], error=f["error"]) for f in lab["files"]], auto=not s.get("labels_csv"),
                                seasons=sorted({r["season"] for r in lab["rows"].values() if r["season"]}))
             d["species"] = [dict(code=c, n=n) for c, n in sp.most_common()]
@@ -633,6 +863,7 @@ def select_items(project, params: dict, progress=None) -> dict:
     already = {rel_key(r[0]) for r in project.db.q("SELECT rel_path FROM items")}
     csv_rows = parse_csv_list(params.get("csv_text") or "") if mode == "csv" else []
     pool: dict[str, list[dict]] = defaultdict(list)          # 種 → 候補（mode = species）
+    lm = label_map(project)
     for s in project.sources():
         name = s["name"]
         if name not in want_sources:
@@ -646,7 +877,9 @@ def select_items(project, params: dict, progress=None) -> dict:
         try:
             if mode == "species":
                 rows = _human_rows(src, only_verified)
-                cands = [r for r in rows.values() if r["station"] not in exclude_st]
+                for r in rows.values():
+                    r["species"] = set(map_codes(lm, r["species"]))
+                cands = [r for r in rows.values() if r["station"] not in exclude_st and r["species"]]
                 if params.get("single_only", True):
                     cands = [r for r in cands if len(r["species"]) <= 1]
                 for r in _thin(cands, float(params.get("gap_min") or 0)):
@@ -824,6 +1057,7 @@ def import_rows(project, picked: list, batch: str, progress=None, stop=None) -> 
         by_src[(name, sdir or "")].append(r)
     n_done = 0
     now = now_iso()
+    lm = label_map(project)
     for (name, sdir), rows in by_src.items():
         if stop and stop():
             break
@@ -849,7 +1083,7 @@ def import_rows(project, picked: list, batch: str, progress=None, stop=None) -> 
                         prefix = r.get("prefix") or ""                     # 親フォルダ参照の中の調査回プロジェクトなら <調査回>/ が付く
                         rel = f"{name}/{prefix}/{src_rel}" if prefix else f"{name}/{src_rel}"
                         vals = {c_: srow.get(c_) for c_ in copy_cols}
-                        st0 = item_state(src.db, sid)
+                        st0 = map_state(lm, item_state(src.db, sid))      # 判定の種コードに対応表を当てる（書き戻し・再取得の比較もこの形で）
                         vals.update(rel_path=rel, rel_key=rel_key(rel), folder=os.path.dirname(rel), season=srow.get("season") or prefix or name,
                                     src_dir=src.dir, src_id=sid, src_rel=src_rel, batch=batch or None, imported_at=now, src_updated_at=srow.get("updated_at"),
                                     src_sig=state_sig(st0, srow.get("train_exclude"), srow.get("recheck")), updated_at=now)
@@ -860,7 +1094,7 @@ def import_rows(project, picked: list, batch: str, progress=None, stop=None) -> 
                         nid = cur.lastrowid
                         _apply_state(c, nid, st0, None)
                         c.execute("UPDATE items SET status=?, verified_by=?, verified_at=?, agree=?, recheck=?, updated_at=? WHERE id=?",
-                                  (srow.get("status") or "new", srow.get("verified_by"), srow.get("verified_at"), srow.get("agree"), srow.get("recheck") or 0, now, nid))
+                                  (st0.get("status") or srow.get("status") or "new", srow.get("verified_by"), srow.get("verified_at"), srow.get("agree"), srow.get("recheck") or 0, now, nid))
                         c.executemany("INSERT INTO auto_results(item_id, species, confidence, model, created_at) VALUES(?,?,?,?,?)",
                                       [(nid, a["species"], a["confidence"], a["model"], a["created_at"]) for a in src.db.q("SELECT species, confidence, model, created_at FROM auto_results WHERE item_id=? ORDER BY id", (sid,))])
                         c.executemany("INSERT INTO detections(item_id, t_sec, category, conf, x, y, w, h, species, sp_conf) VALUES(?,?,?,?,?,?,?,?,?,?)",
@@ -930,6 +1164,9 @@ def build_catalog(project, progress=None, stop=None) -> dict:
     """参照先の全動画の目録を作り直す（メディアは持たない）。プロジェクト参照は items と判定から、親フォルダ参照は種名の CSV から"""
     db = project.db
     by_src: dict[str, int] = {}
+    code_names: dict[str, dict] = {}
+    lm = label_map(project)
+    msig = map_sig(project)
     with db.tx() as c:
         c.execute("DELETE FROM catalog")
     for s in project.sources():
@@ -940,7 +1177,7 @@ def build_catalog(project, progress=None, stop=None) -> dict:
             progress(0, 0, name)
         rows: list[tuple] = []
         if s.get("kind") == "tree":
-            trows, _ = _tree_rows(project, s, None, lambda a, b, msg: progress and progress(a, b, msg), stop)
+            trows, _ = _tree_rows(project, s, None, lambda a, b, msg: progress and progress(a, b, msg), stop, code_names)
             for r in trows:
                 rows.append((name, r["src_id"], r["rel"], r["season"], r["station"], r["file"], r["dt"] or None, r["status"],
                              ";".join(sorted(r["species"])) or None, r["ai"], r["agree"], r["det_state"] or 0, r["duration"], r["size"]))
@@ -951,10 +1188,7 @@ def build_catalog(project, progress=None, stop=None) -> dict:
                 log.warning("参照先 %s を開けません: %s", name, e)
                 continue
             try:
-                hum: dict[int, list] = defaultdict(list)
-                for j in src.db.q("SELECT j.item_id, j.species, j.origin, i.status FROM judgements j JOIN items i ON i.id=j.item_id WHERE j.species != 'area'"):
-                    if j["status"] == "verified" or j["origin"] in HUMAN_ORIGINS:
-                        hum[j["item_id"]].append(j["species"])
+                hum = _human_codes(project, src, lm, code_names, name)
                 for r in src.db.q("SELECT id, rel_path, season, station, name, COALESCE(datetime_corrected, datetime) AS dt, status, auto_json, agree, det_state, duration, size FROM items WHERE missing=0"):
                     ai = None
                     if r["auto_json"]:
@@ -976,9 +1210,11 @@ def build_catalog(project, progress=None, stop=None) -> dict:
         by_src[name] = len(rows)
     _catalog_mark_imported(project)
     n = int(db.scalar("SELECT COUNT(*) FROM catalog") or 0)
-    project.data["catalog"] = dict(built_at=now_iso(), n=n, by_source=by_src)
+    done = not (stop and stop())
+    project.data["catalog"] = dict(built_at=now_iso(), n=n, by_source=by_src, sources=[s["name"] for s in project.sources()] if done else [], map_sig=msig if done else "",
+                                   code_names=code_names)
     project.save()
-    return dict(n=n, by_source=by_src)
+    return dict(n=n, by_source=by_src, code_names=code_names)
 
 
 def _catalog_mark_imported(project) -> None:
@@ -1065,18 +1301,56 @@ def catalog_rows(project, f: dict, sort: str = "rel", desc: bool = False, offset
     return dict(rows=rows, total=total, offset=int(offset))
 
 
+SAMPLE_UNITS = ("all", "video", "species", "station", "season", "station_season")
+
+
+def _species_counts(rows: list[dict]) -> dict[str, int]:
+    c: Counter = Counter()
+    for r in rows:
+        for code in (r["species"] or "(none)").split(";"):
+            c[code] += 1
+    return dict(c)
+
+
 def catalog_sample(project, f: dict, params: dict) -> dict:
-    """カタログの絞り込みの中から、種ごとに n 本（地点 × 調査回の上限、同じ地点で gap 分以内の連続動画は 1 本、乱数の種）。
-    返り値 dict(ids, counts={code: n}, available={code: n})。params に n_per_species が 0 なら絞り込みの全部"""
+    """カタログの絞り込み（未取り込みのもの）から、乱数で選ぶ。params["unit"]:
+      all             絞り込みの全部
+      video           動画を n 本（同じ地点で gap_min 分以内の連続動画は 1 本に間引いてから）
+      species         種ごとに n 本（既存の種名から。地点 × 調査回の上限 cap、間引き gap_min。species=[code...] で種を限る）
+      station         地点を n か所選び、その地点の動画を全部（gold の地点など。参照先・調査回をまたいで同じ地点名は 1 か所）
+      season          調査回を n 回選び、その調査回の動画を全部
+      station_season  地点 × 調査回の組を n 組選び、その動画を全部
+    乱数の種 seed で同じ結果が再現できる。返り値 dict(ids, n, counts={code: n}, available={code: n}（種ごと）, units=[(名前, 本数)], n_units_available)"""
     db = project.db
     where, p = catalog_where(dict(f, imported="0"))
     rows = [dict(r) for r in db.q(f"SELECT id, source, season, station, datetime, species FROM catalog WHERE {where}", p)]
-    n_per = int(params.get("n_per_species") or 0)
-    if not n_per:
-        return dict(ids=[r["id"] for r in rows], counts={}, available={}, n=len(rows))
+    unit = params.get("unit") or ("species" if params.get("n_per_species") else "all")
+    if unit not in SAMPLE_UNITS:
+        raise ValueError(f"選び方が分かりません: {unit}")
+    n_want = int(params.get("n") or params.get("n_per_species") or 0)
+    if unit == "all" or (n_want <= 0 and unit != "species"):
+        return dict(ids=[r["id"] for r in rows], counts=_species_counts(rows), available={}, n=len(rows), units=[], n_units_available=0, unit="all")
     cap = int(params.get("cap") or 0)
     gap_min = float(params.get("gap_min") or 0)
     seed = int(params.get("seed") or 1)
+    rng = random.Random(seed)
+    if unit == "video":
+        cands = _thin([dict(r, dt=r["datetime"] or "") for r in rows], gap_min)
+        cands.sort(key=lambda r: r["id"])
+        rng.shuffle(cands)
+        picked = cands[:n_want]
+        return dict(ids=[r["id"] for r in picked], counts=_species_counts(picked), available=_species_counts(cands), n=len(picked), units=[], n_units_available=len(cands), unit=unit)
+    if unit in ("station", "season", "station_season"):
+        keyf = {"station": (lambda r: r["station"] or ""), "season": (lambda r: r["season"] or ""), "station_season": (lambda r: f"{r['season'] or ''}/{r['station'] or ''}")}[unit]
+        groups: dict[str, list[dict]] = defaultdict(list)
+        for r in rows:
+            groups[keyf(r)].append(r)
+        keys = sorted(k for k in groups if k and k != "/")
+        chosen = sorted(rng.sample(keys, min(n_want, len(keys))))
+        picked = [r for k in chosen for r in groups[k]]
+        return dict(ids=[r["id"] for r in picked], counts=_species_counts(picked), available={}, n=len(picked), units=[(k, len(groups[k])) for k in chosen], n_units_available=len(keys), unit=unit)
+    # unit == species
+    n_per = n_want
     want_sp = set(params.get("species") or [])
     pool: dict[str, list[dict]] = defaultdict(list)
     thinned = _thin([dict(r, dt=r["datetime"] or "") for r in rows if r["species"]], gap_min)
@@ -1084,17 +1358,17 @@ def catalog_sample(project, f: dict, params: dict) -> dict:
         for code in r["species"].split(";"):
             if not want_sp or code in want_sp:
                 pool[code].append(r)
-    rng = random.Random(seed)
     ids: list[int] = []
     seen: set[int] = set()
     counts: dict[str, int] = {}
     for code in sorted(pool):
         cands = list(pool[code])
+        cands.sort(key=lambda r: r["id"])
         rng.shuffle(cands)
         per_cell: dict[tuple, int] = defaultdict(int)
         n_sp = 0
         for r in cands:
-            if n_sp >= n_per:
+            if n_per and n_sp >= n_per:
                 break
             cell = (r["source"], r["station"], r["season"])
             if cap and per_cell[cell] >= cap:
@@ -1104,7 +1378,7 @@ def catalog_sample(project, f: dict, params: dict) -> dict:
             per_cell[cell] += 1
             seen.add(r["id"]); ids.append(r["id"]); n_sp += 1
         counts[code] = n_sp
-    return dict(ids=ids, counts=counts, available={k: len(v) for k, v in pool.items()}, n=len(ids))
+    return dict(ids=ids, counts=counts, available={k: len(v) for k, v in pool.items()}, n=len(ids), units=[], n_units_available=len(pool), unit=unit)
 
 
 def catalog_import(project, ids: list[int], batch: str, record: dict | None = None, progress=None, stop=None) -> dict:
@@ -1205,6 +1479,7 @@ def sync_plan(project, direction: str) -> dict:
     push: 横断で確認済みにした（取り込み後に更新された）対象のうち、参照先と内容が違うもの。参照先も取り込み後に変わっていれば衝突。
     pull: 参照先で取り込み後に更新された対象のうち、横断と違うもの。横断でも変えていれば衝突"""
     db = project.db
+    lm = label_map(project)
     out = dict(n_update=0, n_conflict=0, n_same=0, by_source={}, conflicts=[])
     for sdir in [r[0] for r in db.q("SELECT DISTINCT src_dir FROM items WHERE src_dir IS NOT NULL AND src_id IS NOT NULL ORDER BY src_dir")]:
         name = _label_of_dir(project, sdir)
@@ -1220,7 +1495,7 @@ def sync_plan(project, direction: str) -> dict:
             n_up = n_conf = n_same = 0
             for r in rows:
                 here = item_state(db, r["id"])
-                there = item_state(src.db, r["src_id"])
+                there = map_state(lm, item_state(src.db, r["src_id"]))      # 参照先の判定は対応表を当てた形で比べる
                 if not there:
                     continue
                 srow = src.db.q1("SELECT updated_at, train_exclude, recheck FROM items WHERE id=?", (r["src_id"],))
@@ -1261,6 +1536,7 @@ def sync_apply(project, direction: str, by: str, overwrite_conflicts: bool = Fal
     """sync_plan の「更新」を実際に書く。overwrite_conflicts なら衝突も push/pull の側で上書きする"""
     from .judge import update_agree
     db = project.db
+    lm = label_map(project)
     n_done = n_skip = 0
     for sdir in [r[0] for r in db.q("SELECT DISTINCT src_dir FROM items WHERE src_dir IS NOT NULL AND src_id IS NOT NULL ORDER BY src_dir")]:
         rows = db.q("SELECT id, src_id, rel_path, status, updated_at, imported_at, src_updated_at, src_sig, train_exclude, recheck FROM items WHERE src_dir=? AND src_id IS NOT NULL", (sdir,))
@@ -1275,7 +1551,7 @@ def sync_apply(project, direction: str, by: str, overwrite_conflicts: bool = Fal
                 if progress and n % 50 == 0:
                     progress(n, len(rows), r["rel_path"])
                 here = item_state(db, r["id"])
-                there = item_state(src.db, r["src_id"])
+                there = map_state(lm, item_state(src.db, r["src_id"]))      # 参照先の判定は対応表を当てた形で比べる・取り込む
                 if not there:
                     continue
                 srow = src.db.q1("SELECT updated_at, train_exclude, recheck FROM items WHERE id=?", (r["src_id"],))

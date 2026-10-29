@@ -253,3 +253,28 @@ li.item .nbox { color: #6b7280; }
 .cr-pager { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 6px 0; }
 table.cr-table td, table.cr-table th { white-space: nowrap; }
 table.cr-table td.info { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+/* 横断プロジェクトの窓: 5 つの段（手順）の帯、右下の「カタログを作る」、お知らせの箱、対応表 */
+.steps { display: flex; gap: 4px; align-items: stretch; margin: 8px 0 12px; border: 1px solid var(--border); border-radius: 8px; background: #fafbfc; padding: 4px; min-width: 820px; }
+.steps .stp { flex: 1; display: grid; grid-template-columns: 22px 1fr; grid-template-rows: auto auto; column-gap: 6px; align-items: center; text-align: left; background: none; border: 1px solid transparent; border-radius: 6px; padding: 5px 8px; min-width: 0; }
+.steps .stp:hover { background: #f0f2f8; }
+.steps .stp.on { background: #fff; border-color: var(--accent); box-shadow: 0 1px 4px rgba(59,91,219,.18); }
+.steps .stp .n { grid-row: 1 / span 2; width: 22px; height: 22px; border-radius: 11px; background: #c9cfdb; color: #fff; font-weight: 700; font-size: 12px; display: flex; align-items: center; justify-content: center; }
+.steps .stp.on .n { background: var(--accent); }
+.steps .stp.warn .n { background: var(--warn); }
+.steps .stp .l { font-weight: 600; font-size: 12.5px; line-height: 1.25; }
+.steps .stp .s { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.steps .stp.warn .s { color: #8a5a00; }
+.cr-foot { align-items: center; }
+.cr-foot #crFootInfo { margin-right: auto; }
+.callout { border: 1px solid #c7d2fe; background: #eef2ff; color: #2a44b0; border-radius: 6px; padding: 8px 12px; margin: 8px 0; font-size: 13px; }
+.callout.warn { border-color: #e0c060; background: #fff3cd; color: #7a5c00; }
+.callout.ok { border-color: #9fd6ab; background: #d9f2de; color: #1e6b2e; }
+.cr-sample-out { font-size: 12px; margin: 4px 0 8px; min-height: 1em; }
+.cr-sample-out b { font-size: 13px; }
+table.cr-labels tr.guess td:nth-child(2) b { color: #7a5c00; }
+table.cr-labels tr.nomatch td:nth-child(2) b { color: #b3261e; }
+table.cr-labels tr.mapped td:nth-child(2) b { color: #1e6b2e; }
+table.cr-labels select { max-width: 320px; font-size: 12px; }
+table.cr-labels td:first-child { width: 24px; }
+table.cr-src th { white-space: nowrap; }
+table.cr-labels th { position: sticky; top: 0; background: #fff; z-index: 1; }

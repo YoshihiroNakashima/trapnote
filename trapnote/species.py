@@ -60,6 +60,33 @@ SYNONYMS = {
     "empty": "empty", "none": "empty", "blank": "empty", "noanimal": "empty", "nothing": "empty", "null": "empty", "なし": "empty",
     "unknown": "unknown", "unk": "unknown", "unidentified": "unknown", "不明": "unknown", "area": "area", "有効範囲": "area",
 }
+# 鳥の種名（ローマ字・和名・学名の一部）を含む表記は「鳥類（種不明）」の当たりにする（Kiji、KijiHato、Shirohara、Phasianidae、B_Hiyodori など。対応表で変えられる）
+# 英数字の 5 文字以上と仮名・漢字は部分一致、4 文字は前方・後方一致、3 文字以下は完全一致（Banana が鳥にならないように）
+BIRD_HINTS = ("kiji", "hato", "bato", "tsugumi", "shirohara", "phasianidae", "bird", "aves", "tori", "dori", "mokin", "sagi", "kirei", "hiyodori", "karasu", "garasu", "kakesu",
+              "yamadori", "mejiro", "uguisu", "suzume", "mozu", "aoji", "kuroji", "akahara", "jyoubitaki", "joubitaki", "ruribitaki", "kojukei", "kamo", "gamo", "nosuri",
+              "sashiba", "fukurou", "fukuro", "kawasemi", "shijukara", "yamagara", "higara", "enaga", "komadori", "ikaru", "shime", "tsubame", "hibari", "kuina", "ban",
+              "corvus", "turdus", "passer", "columba", "streptopelia", "gallus", "accipiter", "ardea", "egretta", "strix",
+              "jay", "tit", "dove", "crow", "owl", "pigeon", "pheasant", "thrush", "bunting", "heron", "egret", "hawk", "eagle", "kite", "buzzard", "warbler", "bulbul",
+              "sparrow", "finch", "flycatcher", "robin", "wagtail", "woodpecker", "rail", "duck", "kingfisher", "cuckoo", "swallow", "starling", "grosbeak", "partridge",
+              "キジ", "ハト", "ツグミ", "シロハラ", "ヒヨドリ", "カラス", "カケス", "ヤマドリ", "メジロ", "ウグイス", "スズメ", "モズ", "アオジ", "クロジ", "アカハラ", "ジョウビタキ",
+              "ルリビタキ", "コジュケイ", "カモ", "ノスリ", "サシバ", "フクロウ", "カワセミ", "シジュウカラ", "ヤマガラ", "エナガ", "コマドリ", "イカル", "シメ", "ツバメ", "ヒバリ", "サギ", "鳥")
+
+
+def is_bird_label(key: str) -> bool:
+    """比較用に詰めた表記（_squash）が鳥の種名らしいか"""
+    for h in BIRD_HINTS:
+        if not h.isascii():
+            if h in key:
+                return True
+        elif len(h) >= 5:
+            if h in key:
+                return True
+        elif len(h) == 4:
+            if key.startswith(h) or key.endswith(h):
+                return True
+        elif key == h:
+            return True
+    return False
 
 
 def _norm_row(row: dict) -> dict:
@@ -212,6 +239,8 @@ class SpeciesList:
         for syn, code in SYNONYMS.items():          # 略称を含む（"SikaDeer2" など）
             if code in rows and len(syn) >= 4 and (key.startswith(syn) or syn in key):
                 return code
+        if "bird" in rows and is_bird_label(key):
+            return "bird"                           # 鳥の種名（Kiji、KijiHato、Shirohara、Phasianidae、キジバト など）
         for v, code in names.items():               # 名前の前方・部分一致（"Racc" → RaccoonDog）
             if len(key) >= 3 and (v.startswith(key) or key in v):
                 return code

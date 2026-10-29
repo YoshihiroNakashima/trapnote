@@ -23,7 +23,7 @@ log = logging.getLogger(__name__)
 ITEM_RE = re.compile(r"^(?P<folder>[^/]+)/images/(?P<name>[^/]+)$")
 NAME_RE = re.compile(r"^(?P<season>[A-Za-z]\d{6})_(?P<station>[A-Za-z]+\d+)_(?P<video>.+?)(?:_img(?P<frame>\d+)|_FPS_(?P<frame2>\d+)|_(?P<frame3>\d+))?$")   # N180712_BSN0870_IMG0047_img450 / N210415_BSN0553_IMG0472_FPS_0008 など
 BACK_NAMES = {"back", "background", "empty", "blank", "none", "negative"}
-BIRD_HINTS = ("kiji", "hato", "tsugumi", "shirohara", "phasianidae", "bird", "aves", "tori", "mokin", "sagi", "kirei")
+from .species import _squash, is_bird_label     # 鳥の種名の当たり（種リストの guess_code と同じ表）
 
 
 def _guess(sl, folder: str) -> str | None:
@@ -34,7 +34,7 @@ def _guess(sl, folder: str) -> str | None:
     if code:
         return code
     rows = sl.by_code()
-    if any(h in f for h in BIRD_HINTS) and "bird" in rows:
+    if is_bird_label(_squash(folder)) and "bird" in rows:
         return "bird"
     return None
 
