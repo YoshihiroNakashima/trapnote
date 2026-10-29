@@ -38,6 +38,7 @@ class Session:
         self.tc = Lane("transcode", self)
         self.ar = Lane("archive", self)
         self.ml = Lane("ml", self)
+        self.cr = Lane("cross", self)                 # 横断プロジェクトの長い処理（種名 CSV の読み込み・カタログの作成）。自分でプロジェクトを開くので、閉じても別のプロジェクトを開いても続く
         self._hub = None
         self._tc_lock = threading.Lock()
         self._transcoding: dict[int, threading.Event] = {}
@@ -313,14 +314,16 @@ class Session:
         return d
 
     def jobs_status(self) -> dict:
-        return dict(bg=self.bg.status(), transcode=self.tc.status(), archive=self.ar.status(), ml=self.ml.status(), transcoding=sorted(self.transcoding_ids()))
+        return dict(bg=self.bg.status(), transcode=self.tc.status(), archive=self.ar.status(), ml=self.ml.status(), cross=self.cr.status(), transcoding=sorted(self.transcoding_ids()))
 
     def close(self) -> None:
+        self.cr.stop_all()
         self.close_project()
         self.bg.close()
         self.tc.close()
         self.ar.close()
         self.ml.close()
+        self.cr.close()
         self.io.shutdown(wait=False)
 
 
@@ -691,6 +694,14 @@ def make_app(session: Session) -> web.Application:
             S.ar.stop_all()
         if lane in (None, "ml"):
             S.ml.stop_all()
+        if lane in (None, "cross"):
+            cur = S.cr.status()["current"]
+            if cur and cur.get("kind") == "cross_labels" and S.project and S.project.is_cross:     # 種名 CSV の読み込みを止めたら、勝手に読み直さない（読み込むボタンで）
+                src = cross.source_by_name(S.project, cur.get("name") or "")
+                if src is not None:
+                    src["labels_paused"] = True
+                    S.project.save()
+            S.cr.stop_all()
         return jr(S.jobs_status())
 
     # ---- 保存用の変換 ----
@@ -1067,16 +1078,25 @@ def make_app(session: Session) -> web.Application:
         return p
 
     def labels_job_queued(name: str) -> bool:
-        st = S.bg.status()
+        st = S.cr.status()
         return any(j and j["kind"] == "cross_labels" and j.get("name") == name for j in [st["current"]] + st["queued"])
+
+    def submit_labels(p, name: str) -> None:
+        if not labels_job_queued(name):
+            S.cr.submit(LabelsJob(name, p.dir), front=True)
 
     async def cross_info(request):
         p = need_cross()
         sources = await io(cross.sources_info, p)
-        for s in sources:                                   # 種名 CSV をまだ読んでいない親フォルダ参照は裏で読む（画面は待たない）
+        paused = {s["name"] for s in p.sources() if s.get("labels_paused")}
+        for s in sources:                                   # 種名 CSV をまだ読んでいない親フォルダ参照は裏で読む（画面は待たない。止めたものは「読み込む」を押すまで読まない）
             lab = s.get("labels") or {}
-            if lab.get("pending") and not labels_job_queued(s["name"]):
-                S.bg.submit(LabelsJob(s["name"]), front=True)
+            if lab.get("pending"):
+                if s["name"] in paused:
+                    lab["paused"] = True
+                elif not labels_job_queued(s["name"]):
+                    S.cr.submit(LabelsJob(s["name"], p.dir), front=True)
+                lab["reading"] = labels_job_queued(s["name"])
         cat = p.data.get("catalog") or None
         if cat:
             cat = {k: v for k, v in cat.items() if k != "code_names"}
@@ -1090,10 +1110,25 @@ def make_app(session: Session) -> web.Application:
         """種名の対応表の画面の元（表記・本数・自動の当たり・いまの対応）"""
         p = need_cross()
         r = await io(cross.label_candidates, p)
-        for name in r["pending"]:                       # CSV をまだ読んでいない参照先は裏で読む
-            if not labels_job_queued(name):
-                S.bg.submit(LabelsJob(name), front=True)
+        paused = {s["name"] for s in p.sources() if s.get("labels_paused")}
+        for name in r["pending"]:                       # CSV をまだ読んでいない参照先は裏で読む（止めてあるものは除く）
+            if name not in paused:
+                submit_labels(p, name)
+        r["paused"] = sorted(set(r["pending"]) & paused)
         return jr(dict(r, species=p.species.to_dict()))
+
+    async def cross_labels_read(request):
+        """種名 CSV の読み込みを（止めてあっても）始める"""
+        p = need_cross()
+        b = await _body(request)
+        name = str(b.get("name") or "")
+        src = cross.source_by_name(p, name)
+        if src is None:
+            raise ApiError(f"参照先がありません: {name}")
+        src.pop("labels_paused", None)
+        p.save()
+        submit_labels(p, name)
+        return jr(S.jobs_status())
 
     async def cross_labels_save(request):
         p = need_cross()
@@ -1103,10 +1138,7 @@ def make_app(session: Session) -> web.Application:
         except ValueError as e:
             raise ApiError(str(e))
         if b.get("rebuild") and p.sources():
-            yielded = S.bg.yield_current(("meta",))
-            S.bg.submit(CatalogBuildJob("auto"), front=True)
-            if yielded:
-                S.bg.submit(MetaJob())
+            S.cr.submit(CatalogBuildJob("auto", p.dir), front=True)
         return jr(dict(r, jobs=S.jobs_status(), species=p.species.to_dict(), state=await io(S.snapshot)))
 
     async def cross_source_add(request):
@@ -1170,10 +1202,7 @@ def make_app(session: Session) -> web.Application:
         if "scan_folders" in b:
             p.update_settings(dict(catalog_scan_folders=bool(b.get("scan_folders"))))
         mode = str(b.get("mode") or "full")
-        yielded = S.bg.yield_current(("meta",))             # メタデータの取得中なら順番を譲ってもらう（あとで続きをする）
-        S.bg.submit(CatalogBuildJob(mode if mode in ("auto", "full", "remap") else "full"), front=True)
-        if yielded:
-            S.bg.submit(MetaJob())
+        S.cr.submit(CatalogBuildJob(mode if mode in ("auto", "full", "remap") else "full", p.dir), front=True)
         return jr(S.jobs_status())
 
     async def cross_catalog_counts(request):
@@ -1360,6 +1389,7 @@ def make_app(session: Session) -> web.Application:
     r.add_post("/api/cross/sources/labels", cross_source_labels)
     r.add_post("/api/cross/sources/add_under", cross_sources_add_under)
     r.add_get("/api/cross/labels", cross_labels)
+    r.add_post("/api/cross/labels/read", cross_labels_read)
     r.add_post("/api/cross/labels/save", cross_labels_save)
     r.add_post("/api/cross/catalog/build", cross_catalog_build)
     r.add_post("/api/cross/catalog/counts", cross_catalog_counts)

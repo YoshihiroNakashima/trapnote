@@ -85,6 +85,7 @@ function crossTabSources(m, body) {
     if (l.error) return `<span class="ng" title="${esc(l.error)}">${esc(t('cross_labels_bad'))}</span>`;
     const files = l.files || [];
     if (!files.length) return `<span class="info">${esc(t('cross_no_labels'))}</span>`;
+    if (l.pending && l.paused) return `<span class="warn" title="${esc(files.map(f => f.path).join('\n'))}">${esc(t('cr_labels_paused'))} ${files.length} ${esc(l.auto ? t('cross_labels_auto') : t('cross_labels_given'))} · ${(l.size / 1048576).toFixed(l.size > 10485760 ? 0 : 1)} MB <button type="button" class="small" data-read="${esc(s.name)}">${esc(t('cr_labels_read'))}</button></span>`;
     if (l.pending) return `<span class="warn" title="${esc(files.map(f => f.path).join('\n'))}">${esc(t('cross_labels_reading'))} ${files.length} ${esc(l.auto ? t('cross_labels_auto') : t('cross_labels_given'))} · ${(l.size / 1048576).toFixed(l.size > 10485760 ? 0 : 1)} MB ${esc(t('cross_labels_reading_help'))}</span>`;
     const un = (l.unmapped || []).map(([v, n]) => `${v} (${n})`).join(', ');
     const bad = files.filter(f => f.error);
@@ -128,6 +129,7 @@ function crossTabSources(m, body) {
     if (await confirmModal(t('cross_title'), `${esc(t('cross_remove_q'))}: ${esc(b.dataset.rm)}`, t('cross_remove'), true)) { try { const r = await api('/api/cross/sources/remove', { name: b.dataset.rm }); setSnapshot(r.state); } catch (e) { toast(e.message, 'error'); } }
     crossDialog('sources');
   }; });
+  m.querySelectorAll('[data-read]').forEach(b => { b.onclick = async () => { try { const j = await api('/api/cross/labels/read', { name: b.dataset.read }); crossTrack(m, j, 'sources'); } catch (e) { toast(e.message, 'error'); } }; });
   m.querySelectorAll('[data-golabels]').forEach(a => { a.onclick = e => { e.preventDefault(); CR.tab = 'labels'; m.querySelectorAll('#crTabs .stp').forEach(x => x.classList.toggle('on', x.dataset.tab === 'labels')); crossRenderTab(m); }; });
 }
 
@@ -165,7 +167,7 @@ async function crossTabLabels(m, body) {
   };
   body.innerHTML = `<div class="note">${esc(t('cr_labels_help'))}</div>
     <details class="adv"><summary>${esc(t('cr_labels_rule_h'))}</summary><div class="note">${esc(t('cr_labels_rule'))}</div></details>
-    ${r.pending.length ? `<div class="callout warn">${esc(t('cross_labels_reading'))}: ${esc(r.pending.join(', '))} ${esc(t('cr_labels_pending'))}</div>` : ''}
+    ${r.pending.length ? `<div class="callout warn">${(r.paused || []).length ? `${esc(t('cr_labels_paused'))}: ${esc(r.paused.join(', '))} ${r.paused.map(n => `<button type="button" class="small" data-read="${esc(n)}">${esc(t('cr_labels_read'))}</button>`).join(' ')} ` : ''}${r.pending.some(n => !(r.paused || []).includes(n)) ? `${esc(t('cross_labels_reading'))}: ${esc(r.pending.filter(n => !(r.paused || []).includes(n)).join(', '))} ${esc(t('cr_labels_pending'))}` : ''}</div>` : ''}
     <div class="dt-counts"><span>${esc(t('cr_n_labels'))} <b>${r.n_labels}</b></span><span class="${r.n_unresolved ? 'ng' : ''}">${esc(t('tl_nomatch'))} <b>${r.n_unresolved}</b></span><span>${esc(t('cr_n_rules'))} <b>${Object.keys(r.map || {}).length}</b></span></div>
     <div class="cr-actions"><input type="text" id="crLabQ" placeholder="${esc(t('search'))}" value="${esc(CR.labelQ)}" spellcheck="false" style="width:150px">
       <span class="info">${esc(t('cr_bulk'))}</span><select id="crLabBulk">${spOpts('bird')}<option value="">${esc(t('cr_skip_label'))}</option><option value="__auto__">${esc(t('cr_auto'))}</option></select><button type="button" class="small" id="crLabApply">${esc(t('cr_bulk_apply'))}</button></div>
@@ -173,6 +175,7 @@ async function crossTabLabels(m, body) {
     <div class="cr-actions"><button type="button" class="primary" id="crLabSaveBuild">${esc(t('cr_save_build'))}</button><button type="button" id="crLabSave">${esc(t('cr_save_only'))}</button><span class="info">${esc(t('cr_save_help'))}</span></div>`;
   render();
   const q = sel => m.querySelector(sel);
+  m.querySelectorAll('[data-read]').forEach(b => { b.onclick = async () => { try { const j = await api('/api/cross/labels/read', { name: b.dataset.read }); crossTrack(m, j, 'labels'); } catch (e) { toast(e.message, 'error'); } }; });
   q('#crLabQ').oninput = () => { CR.labelQ = q('#crLabQ').value; render(); };
   q('#crLabApply').onclick = () => {
     const v = q('#crLabBulk').value;
@@ -390,11 +393,22 @@ function crossTabSync(m, body) {
 const crMine = j => j && (j.kind === 'cross_import' || j.kind === 'cross_sync' || j.kind === 'cross_copy' || j.kind === 'cross_catalog' || j.kind === 'cross_labels');
 
 // 処理を入れた直後に呼ぶ: 入れた処理の id を控え、終わったら after の段で窓を開き直す（入れた処理が既に終わっていれば次の表示で開き直る）
+// 横断の処理は cross レーン（種名 CSV・カタログ。プロジェクトを閉じても続く）と bg レーン（取り込み・書き戻し・コピー）に分かれる → 1 つにまとめて見る
+function crLanes(jobs) {
+  const bg = (jobs && jobs.bg) || {}, cr = (jobs && jobs.cross) || {};
+  const cur = (crMine(cr.current) ? cr.current : null) || (crMine(bg.current) ? bg.current : null);
+  const queued = (cr.queued || []).concat(bg.queued || []).filter(crMine);
+  const recent = (cr.recent || []).concat(bg.recent || []).filter(crMine).sort((a, b) => (b.id || 0) - (a.id || 0));
+  const other = cur ? null : (cr.current || bg.current || null);       // 自分の処理が待っているとき、いま動いている別の処理
+  const lane = cur ? (cur === cr.current ? 'cross' : 'bg') : (queued.length ? ((cr.queued || []).some(crMine) ? 'cross' : 'bg') : null);
+  return { cur, queued, recent, other, lane };
+}
+
 function crossTrack(m, jobs, after) {
   m._after = after;
   m._wasRunning = m._wasRunning || 'submitted';
-  const bg = (jobs && jobs.bg) || {};
-  const j = (crMine(bg.current) ? bg.current : null) || (bg.queued || []).find(crMine);
+  const L = crLanes(jobs);
+  const j = L.cur || L.queued[0];
   if (j && j.id != null) m._jobId = j.id;
   crossOnJobs(jobs);
   const st = m.querySelector('#crStatus');
@@ -404,26 +418,29 @@ function crossTrack(m, jobs, after) {
 function crossOnJobs(jobs) {
   const m = crossModalEl;
   if (!m || !document.body.contains(m) || !jobs || !jobs.bg) return;
-  const mine = crMine;
-  const cur = jobs.bg.current, rec = (jobs.bg.recent || []).find(mine);
-  const queued = (jobs.bg.queued || []).some(mine);
+  const L = crLanes(jobs);
+  const cur = L.cur, rec = L.recent[0], queued = L.queued.length > 0;
   const st = m.querySelector('#crStatus');
   if (m._recId === undefined) m._recId = rec ? rec.id : null;      // 窓を開いたときの最後の処理（これより新しい処理が終わったときだけ「終わった」と見なす）
-  const finished = !cur && !queued && m._wasRunning && rec && (m._jobId != null ? (jobs.bg.recent || []).some(x => x.id === m._jobId) : rec.id !== m._recId);
-  if (cur && mine(cur)) {
+  const finished = !cur && !queued && m._wasRunning && rec && (m._jobId != null ? L.recent.some(x => x.id === m._jobId) : rec.id !== m._recId);
+  const stopBtn = `<button type="button" class="small" id="crStop" title="${esc(t('cr_stop_tip'))}">${esc(t('jb_stop'))}</button>`;
+  if (cur) {
     const pct = cur.total ? Math.round(100 * cur.done / cur.total) : 0;
     const count = cur.kind === 'cross_labels' ? `${pct}%` : `${cur.done}${cur.total ? ' / ' + cur.total + ` (${pct}%)` : ''}`;
-    st.innerHTML = `<div><b>${esc(cur.label)}</b>: ${count}</div>${cur.total ? `<div class="prog"><div style="width:${pct}%"></div></div>` : ''}<div class="info">${esc(cur.current || '')}${cur.current && cur.message ? ' · ' : ''}${esc(cur.message || '')}</div>`;
+    st.innerHTML = `<div><b>${esc(cur.label)}</b>: ${count} ${stopBtn} <span class="info">${esc(t('cr_bg_note'))}</span></div>${cur.total ? `<div class="prog"><div style="width:${pct}%"></div></div>` : ''}<div class="info">${esc(cur.current || '')}${cur.current && cur.message ? ' · ' : ''}${esc(cur.message || '')}</div>`;
     m._wasRunning = m._wasRunning || cur.kind;
-  } else if (queued) {                         // 自分の処理は列にある: いま何が動いているかも出す（メタデータの取得や走査の後ろで待っていることがある）
-    const pct = cur && cur.total ? ` ${cur.done} / ${cur.total} (${Math.round(100 * cur.done / cur.total)}%)` : (cur && cur.done ? ` ${cur.done}` : '');
-    st.innerHTML = `<div><b>${esc(t('jb_queued'))}</b>${cur ? ` · ${esc(t('cr_now_running'))}: ${esc(cur.label)}${pct} <span class="info">${esc(cur.current || cur.message || '')}</span> · ${esc(t('cr_starts_after'))}` : ''}</div>`;
+  } else if (queued) {                         // 自分の処理は列にある: いま何が動いているかも出す（別の処理の後ろで待っていることがある）
+    const o = L.other;
+    const pct = o && o.total ? ` ${o.done} / ${o.total} (${Math.round(100 * o.done / o.total)}%)` : (o && o.done ? ` ${o.done}` : '');
+    st.innerHTML = `<div><b>${esc(t('jb_queued'))}</b>${o ? ` · ${esc(t('cr_now_running'))}: ${esc(o.label)}${pct} <span class="info">${esc(o.current || o.message || '')}</span> · ${esc(t('cr_starts_after'))}` : ''} ${stopBtn}</div>`;
     m._wasRunning = m._wasRunning || 'queued';
   } else if (finished) {                       // 待ち → 実行中 の切り替わりの一瞬（どちらにも見えない）では終わったと見なさない
     m._wasRunning = false;
     const after = m._after || CR.tab;
     crossModalEl = null;
     S._bgWasRunning = true;
-    crossDialog(after).then(() => { const mm = crossModalEl; if (mm && rec && mine(rec)) mm.querySelector('#crStatus').innerHTML = `<div><b>${esc(t('ar_result'))}</b> (${esc(t('jb_state_' + rec.state))}): ${esc(rec.message || rec.error || '')}</div>`; });
+    crossDialog(after).then(() => { const mm = crossModalEl; if (mm && rec) mm.querySelector('#crStatus').innerHTML = `<div><b>${esc(t('ar_result'))}</b> (${esc(t('jb_state_' + rec.state))}): ${esc(rec.message || rec.error || '')}</div>`; });
   }
+  const sb = st.querySelector('#crStop');
+  if (sb) sb.onclick = async () => { try { const j = await api('/api/jobs/stop', { lane: L.lane || 'cross' }); m._wasRunning = m._wasRunning || 'stopping'; crossOnJobs(j); } catch (e) { toast(e.message, 'error'); } };
 }

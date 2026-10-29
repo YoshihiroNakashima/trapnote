@@ -740,13 +740,16 @@ async function jobsDialog() {
     <div class="btn-row"><button type="button" class="small" id="jbStopAr">${esc(t('jb_stop'))}</button></div>
     <h4>${esc(t('jb_tc'))}</h4>${line(j.transcode.current)}${j.transcoding.length ? `<div class="note">⟳ ${j.transcoding.length}</div>` : ''}
     <div class="btn-row"><button type="button" class="small" id="jbStopTc">${esc(t('jb_stop'))}</button></div>
-    <h4>${esc(t('jb_recent'))}</h4>${(j.bg.recent || []).concat((j.ml && j.ml.recent) || [], j.archive.recent || [], j.transcode.recent || []).map(line).join('')}
+    ${j.cross ? `<h4>${esc(t('jb_cross'))}</h4><div class="note">${esc(t('jb_cross_help'))}</div>${line(j.cross.current)}${j.cross.queued.length ? `<div class="note">${t('jb_queued')}: ${j.cross.queued.map(x => esc(x.label)).join(', ')}</div>` : ''}
+    <div class="btn-row"><button type="button" class="small" id="jbStopCr">${esc(t('jb_stop'))}</button></div>` : ''}
+    <h4>${esc(t('jb_recent'))}</h4>${(j.bg.recent || []).concat((j.ml && j.ml.recent) || [], j.archive.recent || [], j.transcode.recent || [], (j.cross && j.cross.recent) || []).map(line).join('')}
     <div class="modal-actions"><button id="mCancel">${esc(t('close'))}</button></div>`);
   m.querySelector('#mCancel').onclick = closeModal;
   m.querySelector('#jbStopBg').onclick = async () => { await api('/api/jobs/stop', { lane: 'bg' }); jobsDialog(); };
   m.querySelector('#jbStopTc').onclick = async () => { await api('/api/jobs/stop', { lane: 'transcode' }); jobsDialog(); };
   m.querySelector('#jbStopAr').onclick = async () => { await api('/api/jobs/stop', { lane: 'archive' }); jobsDialog(); };
   m.querySelector('#jbStopMl').onclick = async () => { await api('/api/jobs/stop', { lane: 'ml' }); jobsDialog(); };
+  if (m.querySelector('#jbStopCr')) m.querySelector('#jbStopCr').onclick = async () => { await api('/api/jobs/stop', { lane: 'cross' }); jobsDialog(); };
   m.querySelector('#jbDetect').onclick = () => detectDialog();
   m.querySelector('#jbMeta').onclick = async () => { await api('/api/jobs/meta', {}); jobsDialog(); };
 }

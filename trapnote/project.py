@@ -199,6 +199,26 @@ class Project:
             self.data["root"] = self.root
         write_json(os.path.join(self.dir, PROJECT_JSON), self.data)
 
+    def update_data(self, **kv) -> None:
+        """project.json の一部の項目だけを書く（いまのファイルを読み直して項目を入れ替える）。
+        別の Project インスタンス（裏の処理が自分で開いたもの）と同じファイルを触るときに、相手の変更を消さないため"""
+        jp = os.path.join(self.dir, PROJECT_JSON)
+        cur = read_json(jp, None)
+        if not isinstance(cur, dict):
+            cur = dict(self.data)
+        cur.update(kv)
+        cur.update(app=APP_ID, version=VERSION, updated_at=self._now())
+        self.data.update(kv)
+        write_json(jp, cur)
+
+    def reload_data(self, *keys: str) -> None:
+        """project.json から項目を読み直す（裏の処理が別のインスタンスで書いたものを取り込む）"""
+        cur = read_json(os.path.join(self.dir, PROJECT_JSON), None)
+        if isinstance(cur, dict):
+            for k in keys:
+                if k in cur:
+                    self.data[k] = cur[k]
+
     def setting(self, k: str, default=None):
         return self.data.get("settings", {}).get(k, PROJECT_DEFAULTS.get(k, default))
 

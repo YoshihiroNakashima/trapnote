@@ -321,6 +321,7 @@ def set_source_labels(project, name: str, labels_csv: str | None, wait: bool = T
         s["labels_csv"] = labels_csv
     else:
         s.pop("labels_csv", None)
+    s.pop("labels_paused", None)
     project.save()
     _LABELS.pop(name, None)
     if not wait:
@@ -1378,9 +1379,8 @@ def build_catalog(project, progress=None, stop=None) -> dict:
     _catalog_mark_imported(project)
     n = int(db.scalar("SELECT COUNT(*) FROM catalog") or 0)
     done = not (stop and stop())
-    project.data["catalog"] = dict(built_at=now_iso(), n=n, by_source=by_src, sources=[s["name"] for s in project.sources()] if done else [], map_sig=msig if done else "",
-                                   code_names=code_names)
-    project.save()
+    project.update_data(catalog=dict(built_at=now_iso(), n=n, by_source=by_src, sources=[s["name"] for s in project.sources()] if done else [], map_sig=msig if done else "",
+                                     code_names=code_names))
     return dict(n=n, by_source=by_src, code_names=code_names)
 
 
@@ -1422,10 +1422,9 @@ def remap_catalog(project, progress=None, stop=None) -> dict:
         c.execute("CREATE INDEX IF NOT EXISTS idx_cat_species ON catalog(species)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_cat_status ON catalog(status)")
     if not (stop and stop()):
-        cat = project.data.get("catalog") or {}
+        cat = dict(project.data.get("catalog") or {})
         cat["map_sig"] = map_sig(project)
-        project.data["catalog"] = cat
-        project.save()
+        project.update_data(catalog=cat)
     return dict(n_changed=n_changed, n_combos=len(combos))
 
 

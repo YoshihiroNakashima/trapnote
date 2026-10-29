@@ -63,6 +63,8 @@ class Lane:
         self.closing = False
         self.thread.start()
 
+    _seq = 0
+
     def submit(self, job: Job, front: bool = False) -> Job:
         db = self.ctx.db()
         if db is not None:
@@ -70,6 +72,9 @@ class Lane:
                 job.id = db.job_create(job.kind, job.params)
             except Exception as e:
                 log.warning("ジョブを記録できません: %s", e)
+        if job.id is None:                            # プロジェクトが開いていないときも id を持つ（画面が「入れた処理が終わった」を id で見るため。負の数で DB の id と区別）
+            Lane._seq += 1
+            job.id = -Lane._seq
         with self.cv:
             (self.queue.appendleft if front else self.queue.append)(job)
             self.cv.notify()
@@ -101,7 +106,7 @@ class Lane:
 
     def _record(self, job: Job, **kw) -> None:
         db = self.ctx.db()
-        if db is None or job.id is None:
+        if db is None or job.id is None or job.id < 0:
             return
         try:
             db.job_update(job.id, **kw)
@@ -595,63 +600,99 @@ class CrossImportJob(Job):
         return d
 
 
-class CatalogBuildJob(Job):
+class CrossLaneJob(Job):
+    """横断プロジェクトの長い処理（種名 CSV の読み込み、カタログの作成）の土台。cross レーンで動き、開いているプロジェクトとは別に自分で横断プロジェクトを開くので、
+    その間に別のプロジェクトを開いて作業できる（プロジェクトを閉じても止まらない）。project.json は update_data で項目だけ書き、終わったら開いているプロジェクトに反映する"""
+
+    def __init__(self, kind: str, params: dict, label: str, pdir: str):
+        super().__init__(kind, params, label)
+        self.pdir = pdir
+
+    def open_project(self, ctx):
+        """常に自分で開く（開いているプロジェクトと同じでも。途中で閉じられたり別のプロジェクトを開かれたりしても続けられるように）→ (Project, 自分で開いた)"""
+        from .project import Project
+        return Project(self.pdir), True
+
+    def sync_live(self, ctx, *keys: str) -> None:
+        """終わったら、同じ横断プロジェクトが開いていれば project.json の項目を読み直させる"""
+        from .paths import key
+        live = getattr(ctx, "project", None)
+        if live is not None and key(live.dir) == key(self.pdir):
+            try:
+                live.reload_data(*keys)
+            except Exception as e:
+                log.warning("project.json の読み直しに失敗: %s", e)
+
+
+class CatalogBuildJob(CrossLaneJob):
     """横断プロジェクト: カタログ（参照先の全動画の目録）を作り直す。mode: full（全部作り直す）/ remap（対応表だけ当て直す）/ auto（対応表か種リストしか変わっていなければ remap、それ以外は full）"""
 
-    def __init__(self, mode: str = "full"):
-        super().__init__("cross_catalog", dict(mode=mode), "カタログの作成")
+    def __init__(self, mode: str = "full", pdir: str = ""):
+        super().__init__("cross_catalog", dict(mode=mode), "カタログの作成", pdir)
         self.mode = mode
         self.result: dict | None = None
 
     def run(self, ctx) -> None:
         from . import cross
-        project = ctx.project
-        if project is None:
-            return
+        project, owned = self.open_project(ctx)
+        try:
+            if not project.is_cross:
+                return
 
-        def prog(a, b, msg):
-            self.done, self.total, self.current = a, b, msg or ""
-        mode = self.mode
-        if mode == "auto":                       # 対応表（か種リスト）しか変わっていなければ当て直し。参照先が変わった・古い形式・まだない → 作り直し
-            st = cross.catalog_status(project)
-            mode = "remap" if (st["built"] and st["n"] and all(r == "labels" for r in st["reasons"])) else "full"
-        if mode == "remap":
-            self.label = "カタログの対応の当て直し"
-            self.message = "表記の組ごとに種を当て直しています"
-            r = cross.remap_catalog(project, prog, self.stop_flag.is_set)
+            def prog(a, b, msg):
+                self.done, self.total, self.current = a, b, msg or ""
+            mode = self.mode
+            if mode == "auto":                       # 対応表（か種リスト）しか変わっていなければ当て直し。参照先が変わった・古い形式・まだない → 作り直し
+                st = cross.catalog_status(project)
+                mode = "remap" if (st["built"] and st["n"] and all(r == "labels" for r in st["reasons"])) else "full"
+            if mode == "remap":
+                self.label = "カタログの対応の当て直し"
+                self.message = "表記の組ごとに種を当て直しています"
+                r = cross.remap_catalog(project, prog, self.stop_flag.is_set)
+                self.result = r
+                self.done = self.total = max(r["n_combos"], 1)
+                self.message = f"対応を当て直しました（変わった行 {r['n_changed']:,}）"
+                return
+            self.message = "参照先を読んでいます"
+            r = cross.build_catalog(project, prog, self.stop_flag.is_set)
             self.result = r
-            self.done = self.total = max(r["n_combos"], 1)
-            self.message = f"対応を当て直しました（変わった行 {r['n_changed']:,}）"
-            return
-        self.message = "参照先を読んでいます"
-        r = cross.build_catalog(project, prog, self.stop_flag.is_set)
-        self.result = r
-        self.done = self.total = r["n"]
-        self.message = f"カタログ {r['n']} 本（" + " · ".join(f"{k} {v}" for k, v in r["by_source"].items()) + "）"
+            self.done = self.total = r["n"]
+            self.message = ("止めました: " if self.stop_flag.is_set() else "") + f"カタログ {r['n']} 本（" + " · ".join(f"{k} {v}" for k, v in r["by_source"].items()) + "）"
+        finally:
+            if owned:
+                project.close()
+            self.sync_live(ctx, "catalog")
 
 
-class LabelsJob(Job):
+class LabelsJob(CrossLaneJob):
     """横断プロジェクト: 親フォルダ参照の種名 CSV を読む（数十万行・NAS だと分単位でかかるので裏で。読んだものは cache/labels に残す）"""
 
-    def __init__(self, name: str):
-        super().__init__("cross_labels", dict(name=name), f"種名の CSV の読み込み（{name}）")
+    def __init__(self, name: str, pdir: str = ""):
+        super().__init__("cross_labels", dict(name=name), f"種名の CSV の読み込み（{name}）", pdir)
         self.name = name
 
     def run(self, ctx) -> None:
         from . import cross
-        project = ctx.project
-        if project is None or not project.is_cross:
-            return
-        s = cross.source_by_name(project, self.name)
-        if s is None or s.get("kind") != "tree":
-            return
+        project, owned = self.open_project(ctx)
+        try:
+            if not project.is_cross:
+                return
+            s = cross.source_by_name(project, self.name)
+            if s is None or s.get("kind") != "tree":
+                return
 
-        def prog(a, b, msg):
-            self.done, self.total, self.current = a, b, msg or ""
-        self.message = "大きな CSV では数分かかります"
-        lab = cross._labels(project, s, prog, self.stop_flag.is_set)
-        self.done = self.total = max(self.total, 1)
-        self.message = f"{len(lab['rows']):,} 件（{', '.join(os.path.basename(f['path']) for f in lab['files'])}）" + (f" · 対応しない種名 {sum(n for _, n in lab['unmapped'])}" if lab["unmapped"] else "")
+            def prog(a, b, msg):
+                self.done, self.total, self.current = a, b, msg or ""
+            self.message = "大きな CSV では数分かかります"
+            lab = cross._labels(project, s, prog, self.stop_flag.is_set)
+            self.done = self.total = max(self.total, 1)
+            if self.stop_flag.is_set():
+                self.message = "止めました（読んだ分は捨てました）"
+                return
+            self.message = f"{len(lab['rows']):,} 件（{', '.join(os.path.basename(f['path']) for f in lab['files'])}）" + (f" · 対応しない種名 {sum(n for _, n in lab['unmapped'])}" if lab["unmapped"] else "")
+        finally:
+            if owned:
+                project.close()
 
     def status(self) -> dict:
         return dict(super().status(), name=self.name)

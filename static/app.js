@@ -542,14 +542,14 @@ function jobLine(j) {
 }
 function renderJobs(jobs) {
   if (!jobs) return;
-  const cur = (jobs.ml && jobs.ml.current) || (jobs.archive && jobs.archive.current) || (jobs.bg && jobs.bg.current) || (jobs.transcode && jobs.transcode.current);
+  const cur = (jobs.ml && jobs.ml.current) || (jobs.archive && jobs.archive.current) || (jobs.bg && jobs.bg.current) || (jobs.cross && jobs.cross.current) || (jobs.transcode && jobs.transcode.current);
   const el = $('#jobInfo');
   el.textContent = cur ? jobLine(cur) : t('jb_title');
   el.style.opacity = cur ? '1' : '.6';
   const tc = new Set(jobs.transcoding || []);
   if ([...tc].join() !== [...S.transcoding].join()) { S.transcoding = tc; renderWindow(true); }
   const metaDone = jobs.bg && !jobs.bg.current && jobs.bg.recent && jobs.bg.recent[0] && (Date.now() / 1000 - (S._lastJobSeen || 0) > 0);
-  if ((jobs.bg && jobs.bg.current) || (jobs.archive && jobs.archive.current) || (jobs.ml && jobs.ml.current)) S._bgWasRunning = true;
+  if ((jobs.bg && jobs.bg.current) || (jobs.archive && jobs.archive.current) || (jobs.ml && jobs.ml.current) || (jobs.cross && jobs.cross.current)) S._bgWasRunning = true;
   else if (S._bgWasRunning) { S._bgWasRunning = false; refreshFacets().then(() => reloadList(true)); if (S.cur) refreshCurrent(); }
   if (jobs.ml && jobs.ml.current && jobs.ml.current.done !== S._mlDone) {      // 検出が進んだら一覧の自動判定の表示を更新（2 秒ごと）
     S._mlDone = jobs.ml.current.done;
