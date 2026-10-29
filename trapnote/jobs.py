@@ -145,6 +145,45 @@ class Lane:
 
 
 # ---------- 具体的なジョブ ----------
+def apply_meta(c, iid: int, m: dict | None, err: str | None) -> None:
+    """ffprobe の結果 m（media.probe）を items に書く（失敗なら meta_state=2）。CSV 由来の日時は残す。時刻の修正のずれは保つ"""
+    if m is None:
+        c.execute("UPDATE items SET meta_state=2, meta_error=?, updated_at=? WHERE id=?", (err, now_iso(), iid))
+        return
+    off = c.execute("SELECT time_offset_sec, datetime_source, datetime FROM items WHERE id=?", (iid,)).fetchone()
+    c.execute("UPDATE items SET duration=?, width=?, height=?, fps=?, n_frames=?, vcodec=?, acodec=?, container=?, "
+              "datetime=COALESCE(CASE WHEN datetime_source='csv' THEN datetime END, ?), "
+              "datetime_source=CASE WHEN datetime_source='csv' THEN 'csv' ELSE ? END, "
+              "meta_state=1, meta_error=NULL, updated_at=? WHERE id=?",
+              (m["duration"], m["width"], m["height"], m["fps"], m["n_frames"], m["vcodec"], m["acodec"], m["container"],
+               m["datetime"], m["datetime_source"], now_iso(), iid))
+    if off and off[0] is not None:       # 修正のずれを保ったまま修正後を計算し直す
+        base = off[2] if off[1] == "csv" else m["datetime"]
+        c.execute("UPDATE items SET datetime_corrected=? WHERE id=?", (media.shift_dt(base, off[0]), iid))
+
+
+def ensure_meta(project, item_id: int, ffmpeg_path: str = "") -> dict | None:
+    """対象のメタデータがまだなら、その場で ffprobe して書く（横断プロジェクトは取り込んだ全動画のメタデータを前もって取らず、開いたとき・検出するときに 1 本ずつ取る）。
+    返り値は items の行（dict）か None"""
+    db = project.db
+    r = db.q1("SELECT id, rel_path, kind, meta_state, missing FROM items WHERE id=?", (item_id,))
+    if r is None:
+        return None
+    if r["meta_state"] == 1 or r["kind"] != "video" or r["missing"]:
+        return dict(r)
+    src = project.abs_path(r["rel_path"])
+    if not os.path.isfile(src):
+        return dict(r)
+    ffmpeg, ffprobe = media.find_ffmpeg(ffmpeg_path)
+    try:
+        m, err = media.probe(src, ffmpeg, ffprobe, bool(project.setting("z_is_utc"))), None
+    except Exception as e:
+        m, err = None, f"{type(e).__name__}: {e}"
+    with db.tx() as c:
+        apply_meta(c, item_id, m, err)
+    return dict(db.q1("SELECT id, rel_path, kind, meta_state, missing, duration, fps FROM items WHERE id=?", (item_id,)))
+
+
 class MetaJob(Job):
     """メタデータ（長さ、解像度、fps、日時）を未取得の対象について取る。ffprobe は別プロセスなので並列にする"""
 
@@ -183,19 +222,7 @@ class MetaJob(Job):
                 return
             with db.tx() as c:
                 for iid, m, err in pending:
-                    if m is None:
-                        c.execute("UPDATE items SET meta_state=2, meta_error=?, updated_at=? WHERE id=?", (err, now_iso(), iid))
-                    else:
-                        off = c.execute("SELECT time_offset_sec, datetime_source, datetime FROM items WHERE id=?", (iid,)).fetchone()
-                        c.execute("UPDATE items SET duration=?, width=?, height=?, fps=?, n_frames=?, vcodec=?, acodec=?, container=?, "
-                                  "datetime=COALESCE(CASE WHEN datetime_source='csv' THEN datetime END, ?), "
-                                  "datetime_source=CASE WHEN datetime_source='csv' THEN 'csv' ELSE ? END, "
-                                  "meta_state=1, meta_error=NULL, updated_at=? WHERE id=?",
-                                  (m["duration"], m["width"], m["height"], m["fps"], m["n_frames"], m["vcodec"], m["acodec"], m["container"],
-                                   m["datetime"], m["datetime_source"], now_iso(), iid))
-                        if off and off[0] is not None:       # 修正のずれを保ったまま修正後を計算し直す
-                            base = off[2] if off[1] == "csv" else m["datetime"]
-                            c.execute("UPDATE items SET datetime_corrected=? WHERE id=?", (media.shift_dt(base, off[0]), iid))
+                    apply_meta(c, iid, m, err)
             pending = []
 
         step = max(1, self.workers) * 4                      # ex.map は全部を先に投げてしまい「止める」が効かないので、少しずつ投げる
@@ -374,11 +401,12 @@ class DetectJob(Job):
             where.append("cls_state=0" if use_existing else "det_state=0")     # 既存の枠を使うとき: 種判別がまだのもの（編集した枠など）だけ。やり直しなら全部
         if s.get("detect_skip_verified", True) and not opt.get("include_verified") and not use_existing:
             where.append("status<>'verified'")
-        rows = db.q(f"SELECT id, rel_path, kind, duration, fps, det_json FROM items WHERE {' AND '.join(where)} ORDER BY station, id", tuple(params))
+        rows = db.q(f"SELECT id, rel_path, kind, duration, fps, det_json, meta_state FROM items WHERE {' AND '.join(where)} ORDER BY station, id", tuple(params))
         self.total = len(rows)
         if not rows:
             self.message = "対象がありません"
             return
+        ffmpeg_path = ctx.settings.get("ffmpeg_path", "")
         # モデル
         def prog(done, total):
             self.dl_done, self.dl_total = done, total
@@ -408,7 +436,12 @@ class DetectJob(Job):
                 ex = detect.existing_boxes(db, row["id"])
                 if ex:
                     times = sorted({x[0] for x in ex})
-            return detect.load_frames(project, dict(row), hub.device, times)
+            item = dict(row)
+            if row["kind"] == "video" and row["meta_state"] != 1:          # メタデータがまだ（横断で取り込んだ動画など）なら、ここで取る（長さが分からないとフレームを選べない）
+                got = ensure_meta(project, row["id"], ffmpeg_path)
+                if got:
+                    item.update(duration=got.get("duration"), fps=got.get("fps"))
+            return detect.load_frames(project, item, hub.device, times)
         for k, r in enumerate(rows):
             if self.stop_flag.is_set():
                 break
@@ -719,7 +752,6 @@ class CrossRemoveJob(Job):
         self.result = r
         self.done = self.total = r["n"]
         self.message = f"{r['n']:,} 件を対象から外しました（動画は消していません）"
-        ctx.after_scan(dict(changed=r["n"]))
 
 
 class CrossSyncJob(Job):

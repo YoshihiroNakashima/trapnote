@@ -51,7 +51,9 @@ class Session:
         return self.project.db if self.project else None
 
     def after_scan(self, res: dict) -> None:
-        if self.project and (res.get("added") or res.get("changed") or self.project.db.scalar("SELECT COUNT(*) FROM items WHERE meta_state=0 AND missing=0")):
+        if self.project is None or self.project.is_cross:   # 横断プロジェクトは取り込んだ全動画のメタデータを前もって取らない（NAS で数十万本だと何時間もかかる）。開いたとき・検出するときに 1 本ずつ取る
+            return
+        if res.get("added") or res.get("changed") or self.project.db.scalar("SELECT COUNT(*) FROM items WHERE meta_state=0 AND missing=0"):
             self.bg.submit(MetaJob())
 
     # ---------- プロジェクト ----------
@@ -135,10 +137,16 @@ class Session:
             return dict(ready=True, direct=True, made=False)
         if not os.path.isfile(src):
             raise ApiError("ファイルがありません", 404)
-        if it["meta_state"] != 1:
+        if it["meta_state"] != 1:                     # メタデータがまだなら、ここで取って覚える（横断プロジェクトの取り込んだ動画など）
             ffmpeg, ffprobe = media.find_ffmpeg(self.settings.get("ffmpeg_path", ""))
             m = media.probe(src, ffmpeg, ffprobe, bool(self.project.setting("z_is_utc")))
             it.update(vcodec=m["vcodec"], acodec=m["acodec"], container=m["container"])
+            try:
+                from .jobs import apply_meta
+                with self.project.db.tx() as c:
+                    apply_meta(c, item_id, m, None)
+            except Exception as e:
+                log.debug("メタデータの保存に失敗: %s", e)
         codec = self.settings.get("transcode_codec", "h264")
         if codec == "h264" and media.direct_playable(it["vcodec"], it["acodec"], it["container"]):
             return dict(ready=True, direct=True, made=False)
@@ -468,9 +476,15 @@ def make_app(session: Session) -> web.Application:
 
     async def item_detail(request):
         p = S.need()
-        d = await io(judge.detail, p.db, int(request.match_info["id"]))
+        iid = int(request.match_info["id"])
+        d = await io(judge.detail, p.db, iid)
         if d is None:
             raise ApiError("対象がありません", 404)
+        if d.get("meta_state") != 1 and d.get("kind") == "video" and not d.get("missing"):     # メタデータがまだなら、開いたときに 1 本だけ取る（横断プロジェクトの取り込んだ動画など）
+            from .jobs import ensure_meta
+            got = await io(ensure_meta, p, iid, S.settings.get("ffmpeg_path", ""))
+            if got and got.get("meta_state") == 1:
+                d = await io(judge.detail, p.db, iid)
         d["abs_path"] = p.abs_path(d["rel_path"])
         d["exists"] = os.path.isfile(d["abs_path"])
         S.state.last_item[p.dir] = d["id"]
