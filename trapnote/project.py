@@ -20,6 +20,7 @@ PROJECT_JSON = "project.json"
 
 PROJECT_DEFAULTS = {
     "pattern": "{station}/{file}",     # フォルダ名のパターン
+    "season_name": "",                 # パターンに {season} がないときの調査回の名前（空ならルートのフォルダ名。ルート = 調査回のフォルダという置き方のため）
     "skip_names": ["TrapNote", "StayTime", "output_rfdetr", "history", "deleted"],
     # 第 2 段階（検出・判別）の設定
     "md_model": "auto",                # MegaDetector: auto（GPU なら MDv1000-redwood、なければ MDv1000-spruce）/ MDv1000-redwood / spruce / larch / cedar / MDv5a / MDv5b / モデルファイルのパス
@@ -75,8 +76,27 @@ def find_project_for_root(root: str) -> str | None:
     return norm(p) if is_project_dir(p) else None
 
 
+def resolve_root_of(pdir: str, data: dict | None = None) -> str | None:
+    """プロジェクトのフォルダ pdir のルート（この PC での動画のフォルダ）。Project を開かずに決める（横断プロジェクトの参照先の解決にも使う）。
+    既定の置き方（<ルート>/TrapNote）なら親フォルダ → roots[この PC] → 存在する roots のどれか"""
+    pdir = norm(pdir)
+    if data is None:
+        data = read_json(os.path.join(pdir, PROJECT_JSON), None) or {}
+    roots = data.get("roots") or {}
+    parent = os.path.dirname(pdir)
+    if os.path.basename(pdir) == PROJECT_DIRNAME and os.path.isdir(parent):
+        return norm(parent)
+    r = roots.get(hostname())
+    if r and os.path.isdir(r):
+        return norm(r)
+    for r in roots.values():
+        if r and os.path.isdir(r):
+            return norm(r)
+    return None
+
+
 class Project:
-    def __init__(self, pdir: str, root: str | None = None, create: bool = False):
+    def __init__(self, pdir: str, root: str | None = None, create: bool = False, kind: str | None = None):
         self.dir = norm(pdir)
         jp = os.path.join(self.dir, PROJECT_JSON)
         self.data = read_json(jp, None)
@@ -85,6 +105,9 @@ class Project:
                 raise FileNotFoundError(f"プロジェクトがありません: {jp}")
             self.data = dict(app=APP_ID, version=VERSION, name=os.path.basename(os.path.dirname(self.dir)) or "project",
                              roots={}, root="", settings=dict(PROJECT_DEFAULTS), created_at=self._now())
+            if kind == "cross":
+                self.data.update(kind="cross", sources=[], imports=[])
+        self._src_roots: dict[str, str | None] = {}     # 横断プロジェクト: 参照先の名前 → ルート（この PC で解決したもの）
         self.data.setdefault("roots", {})
         self.data.setdefault("settings", {})
         for k, v in PROJECT_DEFAULTS.items():
@@ -115,18 +138,47 @@ class Project:
         → roots[hostname] → 存在する roots のどれか"""
         roots = self.data.get("roots") or {}
         parent = os.path.dirname(self.dir)
-        at_default = os.path.basename(self.dir) == PROJECT_DIRNAME and os.path.isdir(parent)
         r = roots.get(hostname())
-        if at_default and r and os.path.isdir(r) and key(r) != key(parent):
+        if os.path.basename(self.dir) == PROJECT_DIRNAME and os.path.isdir(parent) and r and os.path.isdir(r) and key(r) != key(parent):
             log.info("プロジェクト %s は %s から %s に移されたようなので、ルートを親フォルダにします", self.dir, r, parent)
-        if at_default:
-            return norm(parent)
-        if r and os.path.isdir(r):
-            return norm(r)
-        for r in roots.values():
-            if r and os.path.isdir(r):
-                return norm(r)
-        return None
+        return resolve_root_of(self.dir, self.data)
+
+    # ---------- 横断プロジェクト（ほかのプロジェクトの動画を参照する） ----------
+    @property
+    def kind(self) -> str:
+        return self.data.get("kind") or "folder"
+
+    @property
+    def is_cross(self) -> bool:
+        return self.kind == "cross"
+
+    def sources(self) -> list[dict]:
+        return list(self.data.get("sources") or [])
+
+    def source_root(self, name: str) -> str | None:
+        """参照先プロジェクト name のルート（この PC で解決。一度解決したら覚える）"""
+        if name in self._src_roots:
+            return self._src_roots[name]
+        root = None
+        for s in self.sources():
+            if s.get("name") == name:
+                root = resolve_root_of(s["dir"])
+                break
+        self._src_roots[name] = root
+        return root
+
+    def forget_source_roots(self) -> None:
+        self._src_roots = {}
+
+    def abs_path(self, rel: str) -> str:
+        """対象の相対パス → この PC での絶対パス。横断プロジェクトでは先頭の要素が参照先プロジェクトの名前"""
+        from .paths import abs_of
+        if self.is_cross:
+            name, _, rest = rel.replace("\\", "/").partition("/")
+            root = self.source_root(name) if rest else None
+            if root:
+                return abs_of(rest, root)
+        return abs_of(rel, self.root or "")
 
     def set_root(self, root: str, save: bool = True) -> None:
         self.data.setdefault("roots", {})[hostname()] = norm(root)
@@ -167,7 +219,8 @@ class Project:
         return os.path.join(self.dir, "cache", kind)
 
     def to_dict(self) -> dict:
-        return dict(dir=self.dir, name=self.name, root=self.root, roots=self.data.get("roots", {}),
+        return dict(dir=self.dir, name=self.name, root=self.root, roots=self.data.get("roots", {}), kind=self.kind,
+                    sources=[dict(name=s.get("name"), dir=s.get("dir"), root=self.source_root(s.get("name"))) for s in self.sources()] if self.is_cross else [],
                     settings=self.data.get("settings", {}), created_at=self.data.get("created_at"),
                     updated_at=self.data.get("updated_at"), is_default_place=(key(os.path.dirname(self.dir)) == key(self.root or "")))
 

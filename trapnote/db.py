@@ -55,6 +55,13 @@ CREATE TABLE IF NOT EXISTS items (
   recheck INTEGER NOT NULL DEFAULT 0,    -- 人の判定と AI の判定が食い違っていたものを、人が見直して確定した（第 3 段階の追加学習で重みを付ける）
   train_exclude INTEGER NOT NULL DEFAULT 0,  -- 学習から外す（人の目にしか分からない動画、地点ごと不適など。評価には使う）
   n_boxes INTEGER NOT NULL DEFAULT 0,        -- 枠の数（1 フレームに入る動物の枠の最大数。閾値以上のもの。絞り込みと並べ替えに）
+  src_dir TEXT,                          -- 横断プロジェクト: 参照先プロジェクトのフォルダ
+  src_id INTEGER,                        -- 横断プロジェクト: 参照先での対象の id
+  src_rel TEXT,                          -- 横断プロジェクト: 参照先での相対パス
+  batch TEXT,                            -- 横断プロジェクト: 取り込みの組（gold、round1 など）
+  imported_at TEXT,                      -- 横断プロジェクト: 取り込んだ日時
+  src_updated_at TEXT,                   -- 横断プロジェクト: 取り込んだときの参照先の updated_at
+  src_sig TEXT,                          -- 横断プロジェクト: 取り込み・書き戻し・再取得したときの判定の署名（どちらが変わったかの判断に）
   updated_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_items_station ON items(station);
@@ -196,6 +203,7 @@ class Database:
             # フォルダ・地点ごとの件数（facets）を索引だけで数えるための複合索引（数十万件でも 1 秒以内に）
             c.execute("CREATE INDEX IF NOT EXISTS idx_items_folder_cov ON items(missing, folder, status, favorite)")
             c.execute("CREATE INDEX IF NOT EXISTS idx_items_station_cov ON items(missing, station, status)")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_items_batch ON items(batch)")
 
     def migrate(self, from_ver: int) -> None:
         """版が上がったときの移行"""
@@ -237,6 +245,10 @@ class Database:
         if from_ver < 9 and "n_boxes" not in cols:
             c.execute("ALTER TABLE items ADD COLUMN n_boxes INTEGER NOT NULL DEFAULT 0")
             c.execute(N_BOXES_SQL_ALL, (0.2,))
+        if from_ver < 10:
+            for col, typ in (("src_dir", "TEXT"), ("src_id", "INTEGER"), ("src_rel", "TEXT"), ("batch", "TEXT"), ("imported_at", "TEXT"), ("src_updated_at", "TEXT"), ("src_sig", "TEXT")):
+                if col not in cols:
+                    c.execute(f"ALTER TABLE items ADD COLUMN {col} {typ}")
 
     # ---------- 小道具 ----------
     def get_meta(self, k: str):

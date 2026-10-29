@@ -34,6 +34,8 @@ def build_where(f: dict) -> tuple[str, list]:
         w.append("items.station = ?"); p.append(f["station"])
     if f.get("season"):
         w.append("items.season = ?"); p.append(f["season"])
+    if f.get("batch"):                               # 横断プロジェクト: 取り込みの組
+        w.append("items.batch = ?"); p.append(f["batch"])
     if f.get("folder"):
         w.append("items.folder = ?"); p.append(f["folder"])
     if f.get("folder_prefix"):
@@ -278,12 +280,13 @@ def facets(db: Database) -> dict:
     agree = {1: v[9], 2: v[10], 3: v[11]}
     auto_n, recheck_n, excluded = v[12], v[13], v[14]
     missing = int(db.scalar("SELECT COUNT(*) FROM items WHERE missing=1") or 0)
+    batches = [r[0] for r in db.q("SELECT DISTINCT batch FROM items WHERE batch IS NOT NULL AND batch != '' ORDER BY batch")]
     sp_counts = {r[0]: r[1] for r in db.q("SELECT species, COUNT(DISTINCT item_id) FROM judgements GROUP BY species")}
     folders = [dict(folder=r[0], n=r[1], verified=r[2], favorite=r[3]) for r in
                db.q("SELECT folder, COUNT(*), SUM(status='verified'), SUM(favorite) FROM items WHERE missing=0 GROUP BY folder ORDER BY folder")]
     by_station = [dict(station=r[0], total=r[1], verified=r[2]) for r in
                   db.q("SELECT COALESCE(station,''), COUNT(*), SUM(status='verified') FROM items WHERE missing=0 GROUP BY station ORDER BY station")]
-    return dict(stations=stations, seasons=seasons, assignees=assignees, counts=counts, total=total, missing=missing,
+    return dict(stations=stations, seasons=seasons, assignees=assignees, batches=batches, counts=counts, total=total, missing=missing,
                 meta_pending=meta_pending, species_counts=sp_counts, by_station=by_station, folders=folders, favorites=favorites, corrected=corrected,
                 det_done=det_done, low=low, agree=dict(match=agree.get(1, 0), partial=agree.get(2, 0), mismatch=agree.get(3, 0), auto=auto_n, rechecked=recheck_n), excluded=excluded)
 
@@ -577,7 +580,7 @@ def delete_items(project, item_ids: list[int], to_trash: bool = True) -> dict:
         rows = db.q(f"SELECT id, rel_path FROM items WHERE id IN ({qs})", part)
         done = []
         for r in rows:
-            src = abs_of(r["rel_path"], project.root)
+            src = project.abs_path(r["rel_path"])
             try:
                 if os.path.isfile(src):
                     if to_trash and send2trash is not None:

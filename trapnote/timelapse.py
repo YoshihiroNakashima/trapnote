@@ -15,7 +15,7 @@ from collections import Counter
 
 from . import media
 from .db import now_iso
-from .paths import abs_of, norm, rel_key, rel_of
+from .paths import norm, rel_key, rel_of
 from .species import FIXED_CODES
 
 log = logging.getLogger(__name__)
@@ -547,7 +547,7 @@ def export_timelapse(project, ddb_path: str, f: dict | None = None, species_styl
         ins = f"INSERT INTO DataTable({', '.join('[' + c + ']' for c in col_names)}) VALUES({', '.join('?' * len(col_names))})"
         batch = []
         for it, js, fv, auto in _iter_items(db, f or {}):
-            ab = abs_of(it["rel_path"], project.root)
+            ab = project.abs_path(it["rel_path"])
             rel = rel_of(ab, base_dir)
             if os.path.isabs(rel) or rel.startswith("..") or rel == ab:    # .ddb のフォルダの外
                 n_skip += 1

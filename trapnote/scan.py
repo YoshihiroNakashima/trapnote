@@ -52,11 +52,20 @@ def walk_media(root: str, skip_names, progress=None, cancel=None) -> list[tuple[
     return found
 
 
+def default_season(project) -> str | None:
+    """パターンに {season} がないときの調査回: 設定 season_name、なければルートのフォルダ名（ルート = 調査回のフォルダという置き方）"""
+    from .pattern import names_in
+    if "season" in names_in(project.setting("pattern") or ""):
+        return None
+    return (project.setting("season_name") or "").strip() or (os.path.basename(norm(project.root).rstrip("/")) if project.root else None) or None
+
+
 def register(project, found, progress=None) -> dict:
     """走査の結果を data.sqlite に反映する。新規は追加、消えたものは missing=1、戻ってきたものは missing=0。
     サイズや更新時刻が変わったものはメタデータを取り直す（判定は残す）"""
     db = project.db
     comp = compile_pattern(project.setting("pattern") or "")
+    season0 = default_season(project)
     existing = {r["rel_key"]: (r["id"], r["size"], r["mtime"], r["missing"]) for r in db.q("SELECT id, rel_key, size, mtime, missing FROM items")}
     # 保存用の変換で置き換えたあとに残した元のファイル（AVI）は、もう対象にしない
     converted = {rel_key(r[0]) for r in db.q("SELECT orig_rel_path FROM items WHERE orig_rel_path IS NOT NULL")}
@@ -71,7 +80,7 @@ def register(project, found, progress=None) -> dict:
         ex = existing.get(rk)
         if ex is None:
             pat = extract(rp, comp)
-            new_rows.append((rp, rk, fn, k, folder, size, mtime, pat.get("season") or None, pat.get("station") or None,
+            new_rows.append((rp, rk, fn, k, folder, size, mtime, pat.get("season") or season0, pat.get("station") or None,
                              json.dumps({a: b for a, b in pat.items() if a not in ("season", "station")}, ensure_ascii=False), now))
         else:
             iid, osize, omtime, omissing = ex
@@ -102,6 +111,7 @@ def apply_pattern(project) -> int:
     comp = compile_pattern(pattern)
     names = names_in(pattern)
     rows = db.q("SELECT id, rel_path, season, station, pattern_json FROM items")
+    season0 = default_season(project)
     upd = []
     for r in rows:
         pat = extract(r["rel_path"], comp)
@@ -112,7 +122,7 @@ def apply_pattern(project) -> int:
         keep = {k: v for k, v in old.items() if k not in pat}        # 画像名などから付けた値（YOLO の取り込み）は残す
         keep.update({a: b for a, b in pat.items() if a not in ("season", "station")})
         # パターンに {season} / {station} がなければ、画像名などから付けてある季節・地点はそのまま残す
-        season = (pat.get("season") or None) if "season" in names else r["season"]
+        season = (pat.get("season") or None) if "season" in names else (r["season"] or season0)
         station = (pat.get("station") or None) if "station" in names else r["station"]
         upd.append((season, station, json.dumps(keep, ensure_ascii=False), r["id"]))
     with db.tx() as c:

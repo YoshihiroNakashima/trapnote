@@ -28,7 +28,7 @@ from collections import Counter
 import numpy as np
 
 from .db import now_iso
-from .paths import abs_of, cache_name
+from .paths import cache_name
 from .project import PROJECT_DEFAULTS
 
 log = logging.getLogger(__name__)
@@ -694,7 +694,7 @@ def ensure_crops(project, items: dict, ids: list[int], progress=None, stop=None)
             progress(n, len(ids), it["rel_path"])
         if not need:
             continue
-        src = abs_of(it["rel_path"], pr.root)
+        src = pr.abs_path(it["rel_path"])
         try:
             if src.lower().endswith((".jpg", ".jpeg", ".png")):
                 frames = read_image(src)

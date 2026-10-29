@@ -17,7 +17,6 @@ from concurrent.futures import ThreadPoolExecutor
 
 from . import media
 from .db import now_iso
-from .paths import abs_of
 
 log = logging.getLogger(__name__)
 
@@ -152,12 +151,11 @@ class MetaJob(Job):
         else:
             rows = db.q("SELECT id, rel_path, kind FROM items WHERE meta_state=0 AND missing=0 ORDER BY id")
         self.total = len(rows)
-        root = project.root
         pending = []
         last_flush = time.time()
 
         def one(r):
-            p = abs_of(r["rel_path"], root)
+            p = project.abs_path(r["rel_path"])
             try:
                 m = media.probe(p, ffmpeg, ffprobe, z)
                 return (r["id"], m, None)
@@ -260,13 +258,12 @@ class ArchiveJob(Job):
         z = bool(project.setting("z_is_utc"))
         rows = ctx.archive_targets(self.item_ids)
         self.total = len(rows)
-        root = project.root
         for r in rows:
             if self.stop_flag.is_set():
                 break
             iid, rel = r["id"], r["rel_path"]
             self.current = rel
-            src = abs_of(rel, root)
+            src = project.abs_path(rel)
             try:
                 if not os.path.isfile(src):
                     raise FileNotFoundError("元のファイルがありません")
@@ -541,6 +538,92 @@ class ReclassifyJob(Job):
         return d
 
 
+class CrossImportJob(Job):
+    """横断プロジェクト: 参照先から対象を取り込む（bg レーン）"""
+
+    def __init__(self, params: dict, batch: str):
+        super().__init__("cross_import", dict(mode=params.get("mode"), batch=batch), "参照先からの取り込み")
+        self.params = params
+        self.batch = batch
+        self.result: dict | None = None
+
+    def run(self, ctx) -> None:
+        from . import cross
+        project = ctx.project
+        if project is None:
+            return
+
+        def prog(a, b, msg):
+            self.done, self.total, self.current = a, b, msg or ""
+        self.message = "選んでいます"
+        r = cross.import_items(project, self.params, self.batch, prog, self.stop_flag.is_set)
+        self.result = r
+        self.done = self.total = r["n"]
+        self.message = f"{r['n']} 件を取り込みました" + (f"（取り込み済みで飛ばした {r['n_already']}）" if r.get("n_already") else "") + (f"（一覧で見つからなかった {r['n_unmatched']}）" if r.get("n_unmatched") else "")
+        ctx.after_scan(dict(added=r["n"]))
+
+    def status(self) -> dict:
+        d = super().status()
+        d.update(result=self.result)
+        return d
+
+
+class CrossSyncJob(Job):
+    """横断プロジェクト: 判定の書き戻し（push: 横断 → 参照先）/ 再取得（pull: 参照先 → 横断）"""
+
+    def __init__(self, direction: str, by: str | None, overwrite: bool):
+        super().__init__("cross_sync", dict(direction=direction), "判定の書き戻し" if direction == "push" else "判定の再取得")
+        self.direction = direction
+        self.by = by
+        self.overwrite = overwrite
+        self.result: dict | None = None
+
+    def run(self, ctx) -> None:
+        from . import cross
+        project = ctx.project
+        if project is None:
+            return
+
+        def prog(a, b, msg):
+            self.done, self.total, self.current = a, b, msg or ""
+        r = cross.sync_apply(project, self.direction, self.by or "", self.overwrite, prog, self.stop_flag.is_set)
+        self.result = r
+        self.message = f"{r['n']} 件を{'書き戻し' if self.direction == 'push' else '再取得し'}ました" + (f"（衝突で飛ばした {r['n_skipped']}）" if r["n_skipped"] else "")
+
+    def status(self) -> dict:
+        d = super().status()
+        d.update(result=self.result)
+        return d
+
+
+class CrossCopyJob(Job):
+    """横断プロジェクト: 対象の動画をフォルダへ写す"""
+
+    def __init__(self, out_dir: str, filters: dict | None):
+        super().__init__("cross_copy", dict(out_dir=out_dir), "動画のコピー")
+        self.out_dir = out_dir
+        self.filters = filters
+        self.result: dict | None = None
+
+    def run(self, ctx) -> None:
+        from . import cross
+        project = ctx.project
+        if project is None:
+            return
+
+        def prog(a, b, msg):
+            self.done, self.total, self.current = a, b, msg or ""
+        r = cross.copy_videos(project, self.out_dir, self.filters, prog, self.stop_flag.is_set)
+        self.result = r
+        self.done = self.total = r["n"]
+        self.message = f"{r['n']} 本を {r['out_dir']} に写しました" + (f"（見つからない {r['n_missing']}）" if r["n_missing"] else "")
+
+    def status(self) -> dict:
+        d = super().status()
+        d.update(result=self.result)
+        return d
+
+
 class YoloImportJob(Job):
     """YOLO 形式の学習データ（<種>/images + <種>/labels）の取り込み（bg レーン。枚数が多いので裏で）"""
 
@@ -612,6 +695,18 @@ class ScanJob(Job):
         from . import scan as scan_mod
         project = ctx.project
         if project is None or not project.root:
+            return
+        if project.is_cross:                              # 横断プロジェクトは走査しない: 参照先の動画があるかだけ確かめる
+            from . import cross
+            self.label = "動画の確認"
+            self.message = "参照先の動画を確かめています"
+
+            def prog2(a, b, where):
+                self.done, self.total, self.current = a, b, where
+            res = cross.check_missing(project, prog2, self.stop_flag.is_set)
+            self.done = self.total = res["found"]
+            self.message = f"{res['found']} 件（見つからない {res['gone']}、戻った {res['back']}）"
+            ctx.after_scan(res)
             return
         self.message = "走査中"
 

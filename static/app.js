@@ -107,12 +107,17 @@ function renderTarget() {
   if (!S.project || !S.project.root) { el.textContent = t('no_project'); return; }
   const f = S.facets || {};
   const c = f.counts || {};
-  const parts = [`${esc(S.project.name)}`, `${esc(S.project.root)}`, `${f.total ?? 0} ${t('items')}`, `${t('verified')} ${c.verified || 0} / ${f.total ?? 0}`];
+  const cross = S.project.kind === 'cross';
+  const parts = [`${esc(S.project.name)}${cross ? ` <span class="chip human" title="${esc(t('cross_chip_tip'))}">${esc(t('cross_chip'))}</span>` : ''}`,
+    cross ? `${t('cross_sources_n')} ${(S.project.sources || []).length}` : `${esc(S.project.root)}`, `${f.total ?? 0} ${t('items')}`, `${t('verified')} ${c.verified || 0} / ${f.total ?? 0}`];
   if (f.missing) parts.push(`<span style="color:#c0392b">${t('missing')} ${f.missing}</span>`);
   if (f.meta_pending) parts.push(`${t('meta_pending')} ${f.meta_pending}`);
   if (f.corrected) parts.push(`⏱ ${f.corrected}`);
   if (S.snap && S.snap.conflicts_n) parts.push(`<span style="color:#c0392b">${t('conflicts_badge')} ${S.snap.conflicts_n}</span>`);
   el.innerHTML = parts.join(' · ');
+  // 横断プロジェクトでは「参照先と取り込み」を出し、参照先の動画を書き換える機能（保存用の変換）と走査前提の読み込みは隠す
+  $('#btnCross').classList.toggle('hidden', !cross);
+  ['#btnArchive', '#btnTimelapse', '#btnImport'].forEach(sel => $(sel).classList.toggle('hidden', cross));
 }
 
 // ---------- 絞り込み ----------
@@ -125,6 +130,9 @@ function renderFilters() {
   fillSelect($('#fStation'), [['', t('all_stations')]].concat((f.stations || []).map(s => [s, s])), S.filter.station);
   fillSelect($('#fSeason'), [['', t('all_seasons')]].concat((f.seasons || []).map(s => [s, s])), S.filter.season);
   $('#fSeason').classList.toggle('hidden', !(f.seasons || []).length);
+  const bt = (f.batches || []).filter(Boolean);
+  fillSelect($('#fBatch'), [['', t('all_batches')]].concat(bt.map(b => [b, b])), S.filter.batch);
+  $('#fBatch').classList.toggle('hidden', !bt.length);
   fillSelect($('#fStatus'), [['', t('all_status')], ['new', t('st_new')], ['auto', t('st_auto')], ['verified', t('st_verified')], ['unverified', t('st_unverified')]], S.filter.status);
   const sc = f.species_counts || {};
   const spOpts = [['', t('all_species')], ['none', t('sp_none')], ['any', t('sp_any')]];
@@ -223,13 +231,14 @@ function renderCounts() {
   if (active.length) $('#counts').innerHTML += ` <span class="cnt st-filter clickable" id="cntFilter" title="${esc(active.join(' · '))}">${esc(t('filter_on'))} ${active.length} ✕</span>`;
   const cf = $('#cntFilter');
   if (cf) cf.onclick = clearFilters;
-  ['fStation', 'fSeason', 'fStatus', 'fSpecies', 'fAssignee', 'fDet'].forEach(id => { const el = $('#' + id); if (el) el.classList.toggle('active', !!el.value); });
+  ['fStation', 'fSeason', 'fBatch', 'fStatus', 'fSpecies', 'fAssignee', 'fDet'].forEach(id => { const el = $('#' + id); if (el) el.classList.toggle('active', !!el.value); });
   $('#fText').classList.toggle('active', !!S.filter.text);
 }
 function activeFilterNames() {
   const f = S.filter, out = [];
   if (f.station) out.push(`${t('filter_station')}: ${f.station}`);
   if (f.season) out.push(`${t('filter_season')}: ${f.season}`);
+  if (f.batch) out.push(`${t('filter_batch')}: ${f.batch}`);
   if (f.status) out.push(`${t('filter_status')}: ${t('st_' + f.status)}`);
   if (f.species) out.push(`${t('filter_species')}: ${f.species === 'none' ? t('sp_none') : f.species === 'any' ? t('sp_any') : spLabel(f.species)}`);
   if (f.assignee) out.push(`${t('filter_assignee')}: ${f.assignee}`);
@@ -243,7 +252,7 @@ function activeFilterNames() {
   return out;
 }
 function clearFilters() {   // フォルダの選択（木）はそのまま
-  Object.assign(S.filter, { station: '', season: '', status: '', species: '', assignee: '', text: '', favorite: '', det: '', flag: '', agree: '', exclude: '', boxes: '' });
+  Object.assign(S.filter, { station: '', season: '', batch: '', status: '', species: '', assignee: '', text: '', favorite: '', det: '', flag: '', agree: '', exclude: '', boxes: '' });
   $('#fText').value = '';
   renderFilters(); saveUi(); reloadList();
 }
@@ -551,6 +560,7 @@ function renderJobs(jobs) {
   if (typeof trainOnJobs === 'function') trainOnJobs(jobs);
   if (typeof yoloOnJobs === 'function') yoloOnJobs(jobs);
   if (typeof yoloExportOnJobs === 'function') yoloExportOnJobs(jobs);
+  if (typeof crossOnJobs === 'function') crossOnJobs(jobs);
 }
 async function pollJobs() {
   try { const j = await api('/api/jobs'); renderJobs(j); } catch (e) { /* 終了中など */ }
@@ -558,11 +568,11 @@ async function pollJobs() {
 function startJobsPolling() { clearInterval(S.jobsTimer); S.jobsTimer = setInterval(pollJobs, 2000); }
 
 // ---------- プロジェクト ----------
-async function openProjectPath(path, create) {
+async function openProjectPath(path, create, kind) {
   if (!path) return;
   showOverlay(t('loading'));
   try {
-    const r = await api('/api/project/open', { path, create: !!create });
+    const r = await api('/api/project/open', { path, create: !!create, kind: kind || undefined });
     if (r.needs_create) {                       // プロジェクトがなければ作って開く（確認しない）
       toast(t('created_project'));
       return openProjectPath(path, true);
@@ -591,6 +601,7 @@ function wire() {
   $('#btnOpen').onclick = () => openProjectDialog();
   $('#pathInput').addEventListener('keydown', e => { if (e.key === 'Enter') { const p = $('#pathInput').value.trim(); if (p) openProjectPath(p); } });
   $('#btnRescan').onclick = async () => { if (!S.project) return; await api('/api/project/rescan', {}); toast(t('rescan') + '…'); };
+  $('#btnCross').onclick = () => S.project && crossDialog();
   $('#btnArchive').onclick = () => S.project && archiveDialog();
   $('#btnDetect').onclick = () => S.project && detectDialog();
   $('#btnTrain').onclick = () => S.project && trainDialog();
@@ -602,7 +613,7 @@ function wire() {
   $('#jobInfo').onclick = () => jobsDialog();
   $('#btnLang').onclick = async () => { const lang = LANG === 'ja' ? 'en' : 'ja'; S.settings = await api('/api/settings', { language: lang }); LANG = lang; applyLang(); renderFilters(); renderWindow(true); renderCounts(); renderTree(); if (S.cur) { renderItemHead(S.cur); renderSpeciesPanel(); renderFieldsPanel(); } renderTarget(); };
   $('#btnQuit').onclick = quitApp;
-  ['fStation', 'fSeason', 'fStatus', 'fSpecies', 'fAssignee'].forEach(id => {
+  ['fStation', 'fSeason', 'fBatch', 'fStatus', 'fSpecies', 'fAssignee'].forEach(id => {
     $('#' + id).addEventListener('change', () => { S.filter[id.slice(1).toLowerCase()] = $('#' + id).value; saveUi(); reloadList(); });
   });
   $('#fFav').addEventListener('change', () => { S.filter.favorite = $('#fFav').checked ? '1' : ''; saveUi(); reloadList(); });

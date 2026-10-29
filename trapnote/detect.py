@@ -27,7 +27,7 @@ import urllib.request
 import numpy as np
 
 from .db import N_BOXES_SQL_ONE, now_iso
-from .paths import abs_of, cache_name
+from .paths import cache_name
 from .project import PROJECT_DEFAULTS
 
 log = logging.getLogger(__name__)
@@ -733,7 +733,7 @@ def frame_interval(s: dict, device: str | None) -> float:
 def load_frames(project, item: dict, device: str | None = None, times: list[float] | None = None):
     """対象のフレームを読む（検出の前に別スレッドで先に読んでおける）。device は間隔の自動（GPU 0.2 秒 / CPU 0.5 秒）のため。
     times を渡せばその秒だけ（既存の枠に種判別を付けるとき）"""
-    src = abs_of(item["rel_path"], project.root)
+    src = project.abs_path(item["rel_path"])
     s = project_settings(project)
     if item["kind"] == "image":
         return read_image(src)

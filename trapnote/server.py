@@ -12,10 +12,10 @@ from concurrent.futures import ThreadPoolExecutor
 
 from aiohttp import web
 
-from . import APP_ID, APP_NAME, BUILD, BUILD_TIME, VERSION, detect, dialogs, export as export_mod, judge, media, merge as merge_mod, scan as scan_mod, timelapse, train, yolo
+from . import APP_ID, APP_NAME, BUILD, BUILD_TIME, VERSION, cross, detect, dialogs, export as export_mod, judge, media, merge as merge_mod, scan as scan_mod, timelapse, train, yolo
 from .config import DATA_DIR, STATIC_DIR, Settings, State
-from .jobs import ArchiveJob, DetectJob, Lane, MetaJob, ReclassifyJob, ScanJob, TrainJob, TranscodeJob, YoloExportJob, YoloImportJob
-from .paths import abs_of, key, norm
+from .jobs import ArchiveJob, CrossCopyJob, CrossImportJob, CrossSyncJob, DetectJob, Lane, MetaJob, ReclassifyJob, ScanJob, TrainJob, TranscodeJob, YoloExportJob, YoloImportJob
+from .paths import key, norm
 from .pattern import names_in, preview as pattern_preview
 from .project import PROJECT_DIRNAME, Project, find_project_for_root, is_project_dir
 
@@ -54,12 +54,15 @@ class Session:
             self.bg.submit(MetaJob())
 
     # ---------- プロジェクト ----------
-    def open_project(self, path: str, create: bool = False) -> dict:
+    def open_project(self, path: str, create: bool = False, kind: str | None = None) -> dict:
         path = norm(path)
         if os.path.isfile(path) and os.path.basename(path).lower() == "project.json":
             path = os.path.dirname(path)
         if not os.path.isdir(path):
-            raise ApiError(f"フォルダがありません: {path}")
+            if kind == "cross" and create:                # 横断プロジェクトの置き場は作ってよい（動画のフォルダではない）
+                os.makedirs(path, exist_ok=True)
+            else:
+                raise ApiError(f"フォルダがありません: {path}")
         if is_project_dir(path):
             pdir, root = path, None
         else:
@@ -72,7 +75,7 @@ class Session:
                 return dict(needs_create=True, path=path)
         self.close_project()
         try:
-            self.project = Project(pdir, root=root, create=create)
+            self.project = Project(pdir, root=root, create=create, kind=kind)
         except FileNotFoundError as e:
             raise ApiError(str(e))
         if not self.project.root:
@@ -115,7 +118,7 @@ class Session:
         r = p.db.q1("SELECT id, rel_path, kind, vcodec, acodec, container, meta_state FROM items WHERE id=?", (item_id,))
         if r is None:
             raise ApiError("対象がありません", 404)
-        return dict(r), abs_of(r["rel_path"], p.root)
+        return dict(r), p.abs_path(r["rel_path"])
 
     def ensure_playable(self, item_id: int, wait: bool, no_mjpeg: bool = False) -> dict:
         """再生できる状態にする。direct: 元のファイルをそのまま再生。mjpeg: MJPEG の AVI を画面側がそのまま読む（変換なし）。
@@ -345,7 +348,7 @@ async def _body(request) -> dict:
     return json.loads(text) if text.strip() else {}
 
 
-FILTER_KEYS = ("station", "season", "folder", "folder_prefix", "status", "kind", "species", "date_from", "date_to", "assignee", "flag", "missing", "text", "include_missing", "favorite", "corrected", "det", "agree", "exclude", "boxes")
+FILTER_KEYS = ("station", "season", "folder", "folder_prefix", "status", "kind", "species", "date_from", "date_to", "assignee", "flag", "missing", "text", "include_missing", "favorite", "corrected", "det", "agree", "exclude", "boxes", "batch")
 
 
 def _filters(src) -> dict:
@@ -394,7 +397,7 @@ def make_app(session: Session) -> web.Application:
             raise ApiError("いま開いています")
         S.opening = True
         try:
-            res = await io(S.open_project, b.get("path", ""), bool(b.get("create")))
+            res = await io(S.open_project, b.get("path", ""), bool(b.get("create")), ("cross" if b.get("kind") == "cross" else None))
         finally:
             S.opening = False
         res["state"] = await io(S.snapshot)
@@ -418,8 +421,9 @@ def make_app(session: Session) -> web.Application:
         old_pattern = p.setting("pattern")
         if "name" in b:
             p.rename(str(b.pop("name")))
+        old_season = p.setting("season_name")
         s = p.update_settings(b)
-        if "pattern" in b and b["pattern"] != old_pattern:
+        if ("pattern" in b and b["pattern"] != old_pattern) or ("season_name" in b and b["season_name"] != old_season):
             n = await io(scan_mod.apply_pattern, p)
             log.info("パターンを %s に変え、%d 件に当て直しました", b["pattern"], n)
         return jr(dict(settings=s, state=await io(S.snapshot)))
@@ -458,7 +462,7 @@ def make_app(session: Session) -> web.Application:
         d = await io(judge.detail, p.db, int(request.match_info["id"]))
         if d is None:
             raise ApiError("対象がありません", 404)
-        d["abs_path"] = abs_of(d["rel_path"], p.root)
+        d["abs_path"] = p.abs_path(d["rel_path"])
         d["exists"] = os.path.isfile(d["abs_path"])
         S.state.last_item[p.dir] = d["id"]
         return jr(d)
@@ -693,6 +697,8 @@ def make_app(session: Session) -> web.Application:
     async def archive_start(request):
         p = S.need()
         b = await _body(request)
+        if p.is_cross:
+            raise ApiError("横断プロジェクトでは保存用の変換はできません（参照先の動画を書き換えてしまうため。調査回のプロジェクトで行ってください）")
         if S.ar.status()["current"]:
             raise ApiError("保存用の変換はもう動いています")
         opts = dict(codec=b.get("codec") or p.setting("archive_codec"), crf=int(b.get("crf") or p.setting("archive_crf")),
@@ -1049,6 +1055,76 @@ def make_app(session: Session) -> web.Application:
         S.bg.submit(YoloImportJob(mapping, dict(as_verified=b.get("as_verified", True), set_station=b.get("set_station", True), overwrite_verified=b.get("overwrite_verified"), station_only=b.get("station_only")), user()), front=True)
         return jr(S.jobs_status())
 
+    # ---- 横断プロジェクト ----
+    def need_cross():
+        p = S.need()
+        if not p.is_cross:
+            raise ApiError("横断プロジェクトではありません")
+        return p
+
+    async def cross_info(request):
+        p = need_cross()
+        return jr(dict(sources=await io(cross.sources_info, p), imports=p.data.get("imports") or [], project=p.to_dict(),
+                       batches=[dict(batch=r[0] or "", n=r[1]) for r in p.db.q("SELECT batch, COUNT(*) FROM items GROUP BY batch ORDER BY batch")]))
+
+    async def cross_source_add(request):
+        p = need_cross()
+        b = await _body(request)
+        try:
+            r = await io(cross.add_source, p, str(b.get("path") or ""))
+        except (ValueError, FileNotFoundError) as e:
+            raise ApiError(str(e))
+        return jr(dict(r, state=await io(S.snapshot)))
+
+    async def cross_source_remove(request):
+        p = need_cross()
+        b = await _body(request)
+        try:
+            r = await io(cross.remove_source, p, str(b.get("name") or ""))
+        except ValueError as e:
+            raise ApiError(str(e))
+        return jr(dict(r, state=await io(S.snapshot)))
+
+    async def cross_plan(request):
+        p = need_cross()
+        b = await _body(request)
+        try:
+            return jr(await io(cross.plan, p, b.get("params") or {}))
+        except (ValueError, FileNotFoundError) as e:
+            raise ApiError(str(e))
+
+    async def cross_import(request):
+        p = need_cross()
+        b = await _body(request)
+        S.bg.submit(CrossImportJob(b.get("params") or {}, str(b.get("batch") or "").strip()), front=True)
+        return jr(S.jobs_status())
+
+    async def cross_sync_plan(request):
+        p = need_cross()
+        b = await _body(request)
+        return jr(await io(cross.sync_plan, p, "pull" if b.get("direction") == "pull" else "push"))
+
+    async def cross_sync(request):
+        p = need_cross()
+        b = await _body(request)
+        S.bg.submit(CrossSyncJob("pull" if b.get("direction") == "pull" else "push", user(), bool(b.get("overwrite"))), front=True)
+        return jr(S.jobs_status())
+
+    async def cross_export_list(request):
+        p = need_cross()
+        b = await _body(request)
+        path = norm(b.get("path") or os.path.join(p.dir, "exports", f"list_{time.strftime('%Y%m%d_%H%M')}.csv"))
+        return jr(await io(cross.export_list, p, path, _filters(b.get("filters") or {})))
+
+    async def cross_copy(request):
+        p = need_cross()
+        b = await _body(request)
+        out = norm(b.get("out_dir") or "")
+        if not out:
+            raise ApiError("写す先のフォルダを指定してください")
+        S.bg.submit(CrossCopyJob(out, _filters(b.get("filters") or {})), front=True)
+        return jr(S.jobs_status())
+
     async def yolo_export(request):
         p = S.need()
         b = await _body(request)
@@ -1178,6 +1254,15 @@ def make_app(session: Session) -> web.Application:
     r.add_get("/api/yolo/preview", yolo_preview)
     r.add_post("/api/yolo/import", yolo_import)
     r.add_post("/api/yolo/export", yolo_export)
+    r.add_get("/api/cross/info", cross_info)
+    r.add_post("/api/cross/sources/add", cross_source_add)
+    r.add_post("/api/cross/sources/remove", cross_source_remove)
+    r.add_post("/api/cross/plan", cross_plan)
+    r.add_post("/api/cross/import", cross_import)
+    r.add_post("/api/cross/sync/plan", cross_sync_plan)
+    r.add_post("/api/cross/sync", cross_sync)
+    r.add_post("/api/cross/export_list", cross_export_list)
+    r.add_post("/api/cross/copy", cross_copy)
     r.add_post("/api/export/md_json", export_md_json)
     r.add_post("/api/detect/plan", detect_plan)
     r.add_post("/api/detect/start", detect_start)

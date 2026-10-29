@@ -18,7 +18,6 @@ import re
 from collections import Counter
 
 from .db import now_iso
-from .paths import abs_of
 
 log = logging.getLogger(__name__)
 ITEM_RE = re.compile(r"^(?P<folder>[^/]+)/images/(?P<name>[^/]+)$")
@@ -205,7 +204,7 @@ def export_yolo(project, out_dir: str, f: dict | None = None, per_species: bool 
         folder = (label_of.get(first, first) if first else "Unlabeled") if per_species else ""
         folder = re.sub(r'[\\/:*?"<>|]+', "_", folder)
         dets = db.q("SELECT t_sec, category, conf, x, y, w, h, species FROM detections WHERE item_id=? ORDER BY t_sec, id", (it["id"],))
-        src = abs_of(it["rel_path"], project.root)
+        src = project.abs_path(it["rel_path"])
         stem = os.path.splitext(os.path.basename(it["rel_path"]))[0]
 
         def cls_of(d) -> int | None:
