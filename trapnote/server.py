@@ -432,13 +432,14 @@ def make_app(session: Session) -> web.Application:
             raise ApiError("対象が選ばれていません")
         if not out:
             raise ApiError("写す先のフォルダを指定してください")
-        if key(out) == key(str(APP_DIR)) or key(norm(os.path.join(out, PROJECT_DIRNAME))) == key(str(APP_DIR)):
-            raise ApiError("そこには写せません（<写す先>/TrapNote がアプリのフォルダになってしまう）。ドライブの直下ではなく、フォルダを 1 つ作って指定してください（例: H:/Copies/gold_sub）")
+        pname = str(b.get("project_dirname") or "").strip() or PROJECT_DIRNAME
+        if key(out) == key(str(APP_DIR)) or key(norm(os.path.join(out, pname))) == key(str(APP_DIR)):
+            raise ApiError("そこには写せません（プロジェクトのフォルダがアプリのフォルダになってしまう）。ドライブの直下ではなく、フォルダを 1 つ作って指定してください（例: H:/Copies/gold_sub）")
         for base in (p.root, p.dir):
             if base and (key(out) == key(base) or key(out).startswith(key(base).rstrip("/") + "/")):
                 raise ApiError("写す先に、いまのプロジェクトのフォルダ（動画のフォルダとその中）は指定できません")
         yielded = S.bg.yield_current(("meta", "scan"))
-        S.bg.submit(SubsetExportJob(ids, out, b.get("copy_videos", True) is not False), front=True)
+        S.bg.submit(SubsetExportJob(ids, out, b.get("copy_videos", True) is not False, pname), front=True)
         if yielded == "meta":
             S.bg.submit(MetaJob())
         return jr(S.jobs_status())

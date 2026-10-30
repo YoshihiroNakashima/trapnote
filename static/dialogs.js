@@ -1108,19 +1108,24 @@ async function subsetDialog(ids) {
   const m = showModal(`<h3>${esc(t('sub_title'))}</h3><div class="note">${esc(t('sub_help'))}</div>
     <div class="dt-counts"><span>${esc(t('items'))} <b>${ids.length}</b></span></div>
     ${pathRow('subDir', t('sub_dir'), 'folder', '', t('sub_dir_help'))}
+    <div class="form-row"><label>${esc(t('sub_name'))}</label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><input type="text" id="subName" spellcheck="false" style="width:220px" placeholder="TrapNote"> <span class="info">${esc(t('sub_name_help'))}</span></span></div>
     <div class="form-row"><label></label><label class="chk"><input type="checkbox" id="subVideos" checked> ${esc(t('sub_videos'))}</label></div>
     <div id="subStatus"></div>
     <div class="modal-actions"><button id="mCancel">${esc(t('close'))}</button><button id="subStop" class="danger-outline hidden" title="${esc(t('sub_stop_tip'))}">${esc(t('jb_stop'))}</button><button id="mOk" class="primary">${esc(t('sub_run'))}</button></div>`);
   subsetModalEl = m;
   wirePicks(m);
   histWire(m.querySelector('#subDir'), 'subset_dir');
+  const nameOf = p => p.replace(/[\\/]+$/, '').split(/[\\/]/).filter(Boolean).pop() || '';
+  const autoName = () => { if (!m.querySelector('#subName').dataset.edited) { const n = nameOf(m.querySelector('#subDir').value.trim()); m.querySelector('#subName').value = n ? `TrapNote_${n}` : ''; } };
+  m.querySelector('#subDir').addEventListener('input', autoName); m.querySelector('#subDir').addEventListener('change', autoName);
+  m.querySelector('#subName').addEventListener('input', () => { m.querySelector('#subName').dataset.edited = '1'; });
   m.querySelector('#mCancel').onclick = () => { subsetModalEl = null; closeModal(); };
   m.querySelector('#subStop').onclick = async () => { try { const j = await api('/api/jobs/stop', { lane: 'bg' }); m.querySelector('#subStop').disabled = true; subsetOnJobs(j); } catch (e) { toast(e.message, 'error'); } };
   m.querySelector('#mOk').onclick = async () => {
     const out = m.querySelector('#subDir').value.trim();
     if (!out) { toast(t('cross_need_dir'), 'error'); return; }
     try {
-      const j = await api('/api/export/subset', { ids, out_dir: out, copy_videos: m.querySelector('#subVideos').checked });
+      const j = await api('/api/export/subset', { ids, out_dir: out, copy_videos: m.querySelector('#subVideos').checked, project_dirname: m.querySelector('#subName').value.trim() });
       histRemember('subset_dir', out);
       S._bgWasRunning = true; m._running = true; m.querySelector('#mOk').disabled = true;
       subsetOnJobs(j);

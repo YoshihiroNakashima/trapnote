@@ -291,3 +291,33 @@ def test_cross_project_own_folder(tmp_path):
         assert p2.name == "merge"
     finally:
         p2.close()
+
+
+def test_export_subset_named_folder(tmp_path):
+    """プロジェクトのフォルダ名を自分で決める: <写す先>/<名前> にでき、写す先（動画のフォルダ）を開けば見つかり、走査でもそのフォルダは対象外"""
+    from trapnote import scan
+    from trapnote.project import find_project_for_root, resolve_root_of
+    make_nas(tmp_path)
+    p = make_cross(tmp_path)
+    try:
+        _import(p, {"station": "BSN0812", "season": "N240128"}, dict(unit="station", n=1, seed=1), "gold")
+        ids = [r[0] for r in p.db.q("SELECT id FROM items ORDER BY id LIMIT 3")]
+        out = str(tmp_path / "out" / "gold_sub")
+        r = cross.export_subset(p, ids, out, project_dirname="TrapNote_gold_sub")
+        pdir = os.path.join(out, "TrapNote_gold_sub")
+        assert r["n"] == 3 and cross.norm(r["project_dir"]) == cross.norm(pdir) and not os.path.isdir(os.path.join(out, "TrapNote"))
+        assert find_project_for_root(out) == cross.norm(pdir) and resolve_root_of(pdir) == cross.norm(out)
+        d = Project(pdir)
+        try:
+            assert d.root == cross.norm(out) and d.data.get("root_is_parent")
+            found = scan.walk_media(out, d.setting("skip_names"))
+            assert len(found) == 3 and all(f[0].startswith("PRM_N/") for f in found)       # プロジェクトのフォルダの中（cache など）は拾わない
+        finally:
+            d.close()
+        # 同じ写す先に別の名前で足そうとしても、既にあるプロジェクトに足す
+        r2 = cross.export_subset(p, [r_[0] for r_ in p.db.q("SELECT id FROM items ORDER BY id LIMIT 4")], out, project_dirname="Other")
+        assert r2["n"] == 1 and r2["n_skipped"] == 3 and cross.norm(r2["project_dir"]) == cross.norm(pdir) and not os.path.isdir(os.path.join(out, "Other"))
+        with pytest.raises(ValueError):
+            cross.export_subset(p, ids, str(tmp_path / "out" / "x"), project_dirname="a/b")
+    finally:
+        p.close()

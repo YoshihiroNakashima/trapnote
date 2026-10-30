@@ -74,8 +74,22 @@ def is_project_dir(path: str) -> bool:
 
 
 def find_project_for_root(root: str) -> str | None:
+    """動画のフォルダ root の中のプロジェクト: <root>/TrapNote、なければ root 直下で「ルートは親」の印（root_is_parent。書き出しで名前を付けたプロジェクト）のあるフォルダ"""
     p = os.path.join(root, PROJECT_DIRNAME)
-    return norm(p) if is_project_dir(p) else None
+    if is_project_dir(p):
+        return norm(p)
+    try:
+        with os.scandir(root) as it:
+            subs = sorted(e.name for e in it if e.is_dir(follow_symlinks=False) and not e.name.startswith("."))
+    except OSError:
+        return None
+    for d in subs:
+        q = os.path.join(root, d)
+        if is_project_dir(q):
+            data = read_json(os.path.join(q, PROJECT_JSON), None) or {}
+            if data.get("root_is_parent") and data.get("kind") != "cross":
+                return norm(q)
+    return None
 
 
 def resolve_root_of(pdir: str, data: dict | None = None) -> str | None:
@@ -86,7 +100,7 @@ def resolve_root_of(pdir: str, data: dict | None = None) -> str | None:
         data = read_json(os.path.join(pdir, PROJECT_JSON), None) or {}
     roots = data.get("roots") or {}
     parent = os.path.dirname(pdir)
-    if os.path.basename(pdir) == PROJECT_DIRNAME and os.path.isdir(parent):
+    if (os.path.basename(pdir) == PROJECT_DIRNAME or data.get("root_is_parent")) and os.path.isdir(parent):      # 既定の置き方か、名前を付けたプロジェクト（書き出し）
         return norm(parent)
     r = roots.get(hostname())
     if r and os.path.isdir(r):
@@ -144,7 +158,7 @@ class Project:
         roots = self.data.get("roots") or {}
         parent = os.path.dirname(self.dir)
         r = roots.get(hostname())
-        if os.path.basename(self.dir) == PROJECT_DIRNAME and os.path.isdir(parent) and r and os.path.isdir(r) and key(r) != key(parent):
+        if (os.path.basename(self.dir) == PROJECT_DIRNAME or self.data.get("root_is_parent")) and os.path.isdir(parent) and r and os.path.isdir(r) and key(r) != key(parent):
             log.info("プロジェクト %s は %s から %s に移されたようなので、ルートを親フォルダにします", self.dir, r, parent)
         return resolve_root_of(self.dir, self.data)
 

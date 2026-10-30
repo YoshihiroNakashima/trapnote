@@ -24,6 +24,9 @@ def walk_media(root: str, skip_names, progress=None, cancel=None) -> list[tuple[
         if "info.json" in filenames and "frames.csv" in filenames:    # areacheck の滞在時間パイプラインの出力は対象外
             dirnames[:] = []
             continue
+        if norm(dirpath) != root and "project.json" in filenames:       # 名前を変えたプロジェクトのフォルダ（書き出しで付けた名前など）も対象外
+            dirnames[:] = []
+            continue
         rel_dir = rel_of(norm(dirpath), root)
         if rel_dir == norm(dirpath):
             rel_dir = ""

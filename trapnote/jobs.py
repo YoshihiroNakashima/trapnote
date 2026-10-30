@@ -815,11 +815,12 @@ class CrossCopyJob(Job):
 class SubsetExportJob(Job):
     """選んだ対象を動画と判定ごと別のフォルダへ写し、そこに新しいプロジェクトを作る（bg レーン。どのプロジェクトからでも）"""
 
-    def __init__(self, ids: list[int], out_dir: str, copy_videos: bool = True):
+    def __init__(self, ids: list[int], out_dir: str, copy_videos: bool = True, project_dirname: str = ""):
         super().__init__("subset_export", dict(out_dir=out_dir, n=len(ids)), "別のフォルダへ写す")
         self.ids = ids
         self.out_dir = out_dir
         self.copy_videos = copy_videos
+        self.project_dirname = project_dirname
         self.result: dict | None = None
 
     def run(self, ctx) -> None:
@@ -830,7 +831,7 @@ class SubsetExportJob(Job):
 
         def prog(a, b, msg):
             self.done, self.total, self.current = a, b, msg or ""
-        r = cross.export_subset(project, self.ids, self.out_dir, self.copy_videos, prog, self.stop_flag.is_set)
+        r = cross.export_subset(project, self.ids, self.out_dir, self.copy_videos, prog, self.stop_flag.is_set, self.project_dirname)
         self.result = r
         self.done = r["n"] + r["n_missing"] + r["n_skipped"]
         self.total = len(self.ids)

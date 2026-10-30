@@ -2098,21 +2098,28 @@ def export_list(project, path: str, f: dict | None = None) -> dict:
     return dict(path=path, n=len(rows))
 
 
-def export_subset(project, ids: list[int], out_dir: str, copy_videos_too: bool = True, progress=None, stop=None) -> dict:
-    """選んだ対象を、動画と判定ごと別のフォルダへ写して、そこに新しい（調査回型の）プロジェクトを作る: <out_dir>/<相対パス> に動画、<out_dir>/TrapNote に
+def export_subset(project, ids: list[int], out_dir: str, copy_videos_too: bool = True, progress=None, stop=None, project_dirname: str = "") -> dict:
+    """選んだ対象を、動画と判定ごと別のフォルダへ写して、そこに新しい（調査回型の）プロジェクトを作る: <out_dir>/<相対パス> に動画、<out_dir>/<project_dirname> に
     種リスト・追加項目・設定・対象（メタデータ・判定・追加項目の値・AI の判定・枠・特徴量・枠の画像）。配布や手元の複製、別の PC での作業に。
+    project_dirname は自分で決められる（空なら TrapNote）。TrapNote 以外の名前のときは project.json に root_is_parent を付け、動画のフォルダ（out_dir）を開けば見つかるようにする。
     out_dir に既にプロジェクトがあれば、そこに足す（同じ相対パスの対象は飛ばす）。どのプロジェクト（調査回・横断）からでも使える"""
     from .judge import item_state
-    from .project import PROJECT_DIRNAME, Project, is_project_dir
+    from .project import PROJECT_DIRNAME, Project, find_project_for_root, is_project_dir
     from .train import crop_path, features_path
     out_dir = norm(out_dir)
+    project_dirname = (project_dirname or "").strip() or PROJECT_DIRNAME
+    if project_dirname != safe_name(project_dirname) or project_dirname in (".", ".."):
+        raise ValueError(f"プロジェクトのフォルダ名に使えない文字があります: {project_dirname}")
     if os.path.dirname(out_dir.rstrip("/")) in ("", out_dir.rstrip("/")):
         raise ValueError("ドライブの直下には写せません（<写す先>/TrapNote がアプリのフォルダと重なりかねない）。フォルダを 1 つ作って指定してください（例: H:/Copies/gold_sub）")
     for base in (project.root, project.dir):
         if base and (key(out_dir) == key(base) or key(out_dir).startswith(key(base).rstrip("/") + "/")):
             raise ValueError("写す先に、いまのプロジェクトのフォルダ（動画のフォルダとその中）は指定できません")
     os.makedirs(out_dir, exist_ok=True)
-    pdir = os.path.join(out_dir, PROJECT_DIRNAME)
+    pdir = os.path.join(out_dir, project_dirname)
+    have = find_project_for_root(out_dir)                              # 既にそのフォルダにプロジェクトがあれば（名前が違っても）そこに足す
+    if have and key(have) != key(pdir):
+        pdir = have
     fresh = not is_project_dir(pdir)
     dst = Project(pdir, root=out_dir, create=True)
     try:
@@ -2127,6 +2134,8 @@ def export_subset(project, ids: list[int], out_dir: str, copy_videos_too: bool =
             dst.update_settings(keep)
             dst.data["name"] = os.path.basename(out_dir) or dst.name
             dst.data["exported_from"] = dict(project=project.name, dir=project.dir, at=now_iso())
+            if os.path.basename(pdir) != PROJECT_DIRNAME:
+                dst.data["root_is_parent"] = True                     # 名前を付けたプロジェクト: ルートは親（動画のフォルダ）。開くときは動画のフォルダでも見つかる
             dst.save()
         db, ddb = project.db, dst.db
         cols = [r["name"] for r in db.q("PRAGMA table_info(items)")]
