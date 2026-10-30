@@ -2106,8 +2106,11 @@ def export_subset(project, ids: list[int], out_dir: str, copy_videos_too: bool =
     from .project import PROJECT_DIRNAME, Project, is_project_dir
     from .train import crop_path, features_path
     out_dir = norm(out_dir)
-    if key(out_dir) == key(project.root or "") or key(out_dir) == key(project.dir):
-        raise ValueError("写す先に、いまのプロジェクトのフォルダは指定できません")
+    if os.path.dirname(out_dir.rstrip("/")) in ("", out_dir.rstrip("/")):
+        raise ValueError("ドライブの直下には写せません（<写す先>/TrapNote がアプリのフォルダと重なりかねない）。フォルダを 1 つ作って指定してください（例: H:/Copies/gold_sub）")
+    for base in (project.root, project.dir):
+        if base and (key(out_dir) == key(base) or key(out_dir).startswith(key(base).rstrip("/") + "/")):
+            raise ValueError("写す先に、いまのプロジェクトのフォルダ（動画のフォルダとその中）は指定できません")
     os.makedirs(out_dir, exist_ok=True)
     pdir = os.path.join(out_dir, PROJECT_DIRNAME)
     fresh = not is_project_dir(pdir)
@@ -2131,61 +2134,74 @@ def export_subset(project, ids: list[int], out_dir: str, copy_videos_too: bool =
         copy_cols = [c for c in cols if c in dcols and c not in ITEM_COPY_SKIP - {"batch"}]
         now = now_iso()
         n = n_miss = n_skip = 0
-        for i0 in range(0, len(ids), 100):
+        stopped = False
+        # 1 本ずつ（動画のコピーは長いので、「止める」は 1 本ごとに効く。写し終えた分はそのまま残り、やり直せば続きから）
+        for sid in [int(x) for x in ids]:
             if stop and stop():
+                stopped = True
                 break
-            chunk = [int(x) for x in ids[i0:i0 + 100]]
+            srow = db.q1("SELECT * FROM items WHERE id=?", (sid,))
+            if srow is None:
+                continue
+            srow = dict(srow)
+            rel = srow["rel_path"]
+            if progress:
+                progress(n + n_miss + n_skip, len(ids), rel)
+            if ddb.scalar("SELECT 1 FROM items WHERE rel_key=? LIMIT 1", (rel_key(rel),)):       # 写してあるものは飛ばす（動画も触らない）
+                n_skip += 1
+                continue
+            if copy_videos_too:                                   # 動画: <out_dir>/<相対パス>（横断なら <参照先>/<参照先での相対パス>）
+                src_f = project.abs_path(rel)
+                dst_f = os.path.join(out_dir, *rel.split("/"))
+                if not os.path.isfile(src_f):
+                    n_miss += 1
+                    continue
+                if not (os.path.isfile(dst_f) and os.path.getsize(dst_f) == os.path.getsize(src_f)):
+                    os.makedirs(os.path.dirname(dst_f), exist_ok=True)
+                    tmp = dst_f + ".part"                             # 途中で止めても中途半端なファイルを残さない
+                    try:
+                        shutil.copy2(src_f, tmp)
+                        os.replace(tmp, dst_f)
+                    except BaseException:
+                        try:
+                            os.remove(tmp)
+                        except OSError:
+                            pass
+                        raise
             with ddb.tx() as c:
-                for sid in chunk:
-                    srow = db.q1("SELECT * FROM items WHERE id=?", (sid,))
-                    if srow is None:
-                        continue
-                    srow = dict(srow)
-                    rel = srow["rel_path"]
-                    if progress and (n + n_miss + n_skip) % 10 == 0:
-                        progress(n + n_miss + n_skip, len(ids), rel)
-                    if copy_videos_too:                                   # 動画: <out_dir>/<相対パス>（横断なら <参照先>/<参照先での相対パス>）
-                        src_f = project.abs_path(rel)
-                        dst_f = os.path.join(out_dir, *rel.split("/"))
-                        if not os.path.isfile(src_f):
-                            n_miss += 1
-                            continue
-                        if not (os.path.isfile(dst_f) and os.path.getsize(dst_f) == os.path.getsize(src_f)):
-                            os.makedirs(os.path.dirname(dst_f), exist_ok=True)
-                            shutil.copy2(src_f, dst_f)
-                    vals = {k: srow.get(k) for k in copy_cols}
-                    vals.update(rel_path=rel, rel_key=rel_key(rel), folder=os.path.dirname(rel), src_dir=None, src_id=None, src_rel=None, updated_at=now,
-                                orig_rel_path=srow.get("orig_rel_path"), orig_size=srow.get("orig_size"), archived_at=srow.get("archived_at"))
-                    vals = {k: v for k, v in vals.items() if k in dcols}
-                    names = list(vals.keys())
-                    cur = c.execute(f"INSERT OR IGNORE INTO items({', '.join(names)}) VALUES({', '.join('?' * len(names))})", [vals[k] for k in names])
-                    if cur.rowcount == 0:
-                        n_skip += 1
-                        continue
-                    nid = cur.lastrowid
-                    st0 = item_state(db, sid)                                   # 判定・追加項目の値・メモ・担当・状態
-                    _apply_state(c, nid, st0, None)
-                    c.execute("UPDATE items SET status=?, verified_by=?, verified_at=?, agree=?, recheck=?, updated_at=? WHERE id=?",
-                              (st0.get("status") or srow.get("status") or "new", srow.get("verified_by"), srow.get("verified_at"), srow.get("agree"), srow.get("recheck") or 0, now, nid))
-                    c.executemany("INSERT INTO auto_results(item_id, species, confidence, model, created_at) VALUES(?,?,?,?,?)",
-                                  [(nid, a["species"], a["confidence"], a["model"], a["created_at"]) for a in db.q("SELECT species, confidence, model, created_at FROM auto_results WHERE item_id=? ORDER BY id", (sid,))])
-                    c.executemany("INSERT INTO detections(item_id, t_sec, category, conf, x, y, w, h, species, sp_conf) VALUES(?,?,?,?,?,?,?,?,?,?)",
-                                  [(nid, d["t_sec"], d["category"], d["conf"], d["x"], d["y"], d["w"], d["h"], d["species"], d["sp_conf"])
-                                   for d in db.q("SELECT t_sec, category, conf, x, y, w, h, species, sp_conf FROM detections WHERE item_id=? ORDER BY id", (sid,))])
-                    fa, fb = features_path(project, rel), features_path(dst, rel)
-                    if os.path.isfile(fa) and not os.path.isfile(fb):
-                        try:
-                            shutil.copyfile(fa, fb)
-                        except OSError as e:
-                            log.warning("特徴量を写せません %s: %s", fa, e)
-                    ca, cb = os.path.dirname(crop_path(project, rel, 0)), os.path.dirname(crop_path(dst, rel, 0))
-                    if os.path.isdir(ca) and not os.path.isdir(cb):
-                        try:
-                            shutil.copytree(ca, cb)
-                        except OSError as e:
-                            log.warning("枠の画像を写せません %s: %s", ca, e)
-                    n += 1
-        return dict(n=n, n_missing=n_miss, n_skipped=n_skip, out_dir=out_dir, project_dir=dst.dir, fresh=fresh)
+                vals = {k: srow.get(k) for k in copy_cols}
+                vals.update(rel_path=rel, rel_key=rel_key(rel), folder=os.path.dirname(rel), src_dir=None, src_id=None, src_rel=None, updated_at=now,
+                            orig_rel_path=srow.get("orig_rel_path"), orig_size=srow.get("orig_size"), archived_at=srow.get("archived_at"))
+                vals = {k: v for k, v in vals.items() if k in dcols}
+                names = list(vals.keys())
+                cur = c.execute(f"INSERT OR IGNORE INTO items({', '.join(names)}) VALUES({', '.join('?' * len(names))})", [vals[k] for k in names])
+                if cur.rowcount == 0:
+                    n_skip += 1
+                    continue
+                nid = cur.lastrowid
+                st0 = item_state(db, sid)                                   # 判定・追加項目の値・メモ・担当・状態
+                _apply_state(c, nid, st0, None)
+                c.execute("UPDATE items SET status=?, verified_by=?, verified_at=?, agree=?, recheck=?, updated_at=? WHERE id=?",
+                          (st0.get("status") or srow.get("status") or "new", srow.get("verified_by"), srow.get("verified_at"), srow.get("agree"), srow.get("recheck") or 0, now, nid))
+                c.executemany("INSERT INTO auto_results(item_id, species, confidence, model, created_at) VALUES(?,?,?,?,?)",
+                              [(nid, a["species"], a["confidence"], a["model"], a["created_at"]) for a in db.q("SELECT species, confidence, model, created_at FROM auto_results WHERE item_id=? ORDER BY id", (sid,))])
+                c.executemany("INSERT INTO detections(item_id, t_sec, category, conf, x, y, w, h, species, sp_conf) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                              [(nid, d["t_sec"], d["category"], d["conf"], d["x"], d["y"], d["w"], d["h"], d["species"], d["sp_conf"])
+                               for d in db.q("SELECT t_sec, category, conf, x, y, w, h, species, sp_conf FROM detections WHERE item_id=? ORDER BY id", (sid,))])
+                fa, fb = features_path(project, rel), features_path(dst, rel)
+                if os.path.isfile(fa) and not os.path.isfile(fb):
+                    try:
+                        shutil.copyfile(fa, fb)
+                    except OSError as e:
+                        log.warning("特徴量を写せません %s: %s", fa, e)
+                ca, cb = os.path.dirname(crop_path(project, rel, 0)), os.path.dirname(crop_path(dst, rel, 0))
+                if os.path.isdir(ca) and not os.path.isdir(cb):
+                    try:
+                        shutil.copytree(ca, cb)
+                    except OSError as e:
+                        log.warning("枠の画像を写せません %s: %s", ca, e)
+                n += 1
+        return dict(n=n, n_missing=n_miss, n_skipped=n_skip, out_dir=out_dir, project_dir=dst.dir, fresh=fresh, stopped=stopped, n_left=len(ids) - n - n_miss - n_skip)
     finally:
         dst.close()
 

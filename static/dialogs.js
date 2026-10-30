@@ -1110,11 +1110,12 @@ async function subsetDialog(ids) {
     ${pathRow('subDir', t('sub_dir'), 'folder', '', t('sub_dir_help'))}
     <div class="form-row"><label></label><label class="chk"><input type="checkbox" id="subVideos" checked> ${esc(t('sub_videos'))}</label></div>
     <div id="subStatus"></div>
-    <div class="modal-actions"><button id="mCancel">${esc(t('close'))}</button><button id="mOk" class="primary">${esc(t('sub_run'))}</button></div>`);
+    <div class="modal-actions"><button id="mCancel">${esc(t('close'))}</button><button id="subStop" class="danger-outline hidden" title="${esc(t('sub_stop_tip'))}">${esc(t('jb_stop'))}</button><button id="mOk" class="primary">${esc(t('sub_run'))}</button></div>`);
   subsetModalEl = m;
   wirePicks(m);
   histWire(m.querySelector('#subDir'), 'subset_dir');
   m.querySelector('#mCancel').onclick = () => { subsetModalEl = null; closeModal(); };
+  m.querySelector('#subStop').onclick = async () => { try { const j = await api('/api/jobs/stop', { lane: 'bg' }); m.querySelector('#subStop').disabled = true; subsetOnJobs(j); } catch (e) { toast(e.message, 'error'); } };
   m.querySelector('#mOk').onclick = async () => {
     const out = m.querySelector('#subDir').value.trim();
     if (!out) { toast(t('cross_need_dir'), 'error'); return; }
@@ -1131,13 +1132,17 @@ function subsetOnJobs(jobs) {
   if (!m || !document.body.contains(m) || !jobs || !jobs.bg) return;
   const el = m.querySelector('#subStatus'); if (!el) return;
   const cur = jobs.bg.current, rec = (jobs.bg.recent || []).find(x => x.kind === 'subset_export');
+  const stopBtn = m.querySelector('#subStop');
   if (cur && cur.kind === 'subset_export') {
     const pct = cur.total ? Math.round(100 * cur.done / cur.total) : 0;
     el.innerHTML = `<div><b>${esc(t('ar_running'))}</b>: ${cur.done} / ${cur.total} (${pct}%)</div><div class="prog"><div style="width:${pct}%"></div></div><div class="info">${esc(cur.current || '')}</div>`;
     m._running = true;
+    stopBtn.classList.remove('hidden'); stopBtn.disabled = false;
   } else if (m._running && rec) {
     m._running = false;
-    el.innerHTML = `<div class="${rec.state === 'done' ? 'ok' : 'ng'}"><b>${esc(t('ar_result'))}</b>: ${esc(rec.message || rec.error || '')}</div>${rec.state === 'done' && rec.result ? `<div class="btn-row"><button type="button" class="small" id="subOpen">${esc(t('sub_open'))}</button></div>` : ''}`;
+    stopBtn.classList.add('hidden');
+    const r = rec.result || {};
+    el.innerHTML = `<div class="${rec.state === 'done' && !r.stopped ? 'ok' : 'warn'}"><b>${esc(t('ar_result'))}</b>: ${esc(rec.message || rec.error || '')}</div>${r.project_dir ? `<div class="btn-row"><button type="button" class="small" id="subOpen">${esc(t('sub_open'))}</button></div>` : ''}`;
     m.querySelector('#mOk').disabled = false;
     const b = el.querySelector('#subOpen'); if (b) b.onclick = () => { subsetModalEl = null; closeModal(); openProjectPath(rec.result.project_dir); };
   }

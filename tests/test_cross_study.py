@@ -257,6 +257,18 @@ def test_export_subset(tmp_path):
         assert r2["n"] == 1 and r2["n_skipped"] == 3 and not r2["fresh"]
         with pytest.raises(ValueError):
             cross.export_subset(p, ids, p.root)
+        with pytest.raises(ValueError):                                             # 動画のフォルダの中も不可
+            cross.export_subset(p, ids, os.path.join(p.root, "sub"))
+        with pytest.raises(ValueError):                                             # ドライブの直下も不可
+            cross.export_subset(p, ids, "/")
+        # 途中で止める: 2 本目まで写したところで止まり、残りの数が返る。やり直せば続きから（写してあるものは飛ばす）
+        out2 = str(tmp_path / "out" / "subset2")
+        calls = []
+        r3 = cross.export_subset(p, ids + [items["IMG_0003.AVI"]], out2, True, None, lambda: len(calls) >= 2 or calls.append(1))
+        assert r3["stopped"] and r3["n"] == 2 and r3["n_left"] == 2
+        assert not any(f.endswith(".part") for _, _, fs in os.walk(out2) for f in fs)
+        r4 = cross.export_subset(p, ids + [items["IMG_0003.AVI"]], out2)
+        assert not r4["stopped"] and r4["n"] == 2 and r4["n_skipped"] == 2 and r4["n_left"] == 0
     finally:
         p.close()
 

@@ -832,8 +832,10 @@ class SubsetExportJob(Job):
             self.done, self.total, self.current = a, b, msg or ""
         r = cross.export_subset(project, self.ids, self.out_dir, self.copy_videos, prog, self.stop_flag.is_set)
         self.result = r
-        self.done = self.total = r["n"]
-        self.message = f"{r['n']} 本を {r['out_dir']} に写しました（プロジェクト {r['project_dir']}）" + (f"（見つからない {r['n_missing']}）" if r["n_missing"] else "") + (f"（写してあった {r['n_skipped']}）" if r["n_skipped"] else "")
+        self.done = r["n"] + r["n_missing"] + r["n_skipped"]
+        self.total = len(self.ids)
+        self.message = (f"止めました: {r['n']} 本を写したところまで（残り {r['n_left']}。同じ写す先でやり直せば続きから）" if r.get("stopped") else f"{r['n']} 本を {r['out_dir']} に写しました") \
+            + f"（プロジェクト {r['project_dir']}）" + (f"（見つからない {r['n_missing']}）" if r["n_missing"] else "") + (f"（写してあった {r['n_skipped']}）" if r["n_skipped"] else "")
 
     def status(self) -> dict:
         d = super().status()
