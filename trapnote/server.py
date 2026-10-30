@@ -300,7 +300,7 @@ class Session:
         return dict(n_all=n_all, n_todo=n_todo, n_todo_unverified=n_todo_nv, n_done=n_done, n_failed=n_fail, n_low=n_low, pending_meta=pending_meta,
                     env=env, local_models=[dict(name=m["name"], kind=m.get("kind")) for m in train.list_models(p)], settings={k: p.setting(k) for k in ("md_model", "classifier", "speciesnet_model", "frame_first_sec", "frame_first_fps", "frame_interval_sec",
                                                                    "animal_threshold", "animal_min_frames", "person_threshold", "person_min_frames",
-                                                                   "species_p1", "species_p2", "species_k", "max_crops", "detect_image_size", "save_features", "detect_skip_verified", "country")},
+                                                                   "species_p1", "species_p2", "species_k", "species_empty_p", "max_crops", "detect_image_size", "save_features", "detect_skip_verified", "country")},
                     device=self.settings.get("device", "auto"), batch_size=self.settings.get("batch_size", 8))
 
     def train_plan(self) -> dict:
@@ -828,7 +828,7 @@ def make_app(session: Session) -> web.Application:
                 ps[k] = str(b[k])
         if "country" in b:
             ps["country"] = str(b.get("country") or "").strip().upper()[:3]
-        for k in ("frame_first_sec", "frame_first_fps", "animal_threshold", "person_threshold", "species_p1", "species_p2", "crop_min_gap_sec"):
+        for k in ("frame_first_sec", "frame_first_fps", "animal_threshold", "person_threshold", "species_p1", "species_p2", "crop_min_gap_sec", "species_empty_p"):
             if b.get(k) not in (None, ""):
                 ps[k] = float(b[k])
         if "frame_interval_sec" in b:          # 空か auto なら自動（GPU 0.2 秒 / CPU 0.5 秒）

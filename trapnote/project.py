@@ -28,6 +28,7 @@ PROJECT_DEFAULTS = {
     "animal_threshold": 0.2, "animal_min_frames": 2,                            # 動物: 信頼度 0.2 以上の枠が 2 フレーム以上
     "person_threshold": 0.2, "person_min_frames": 1,                            # 人・車: 1 フレーム以上
     "species_p1": 0.5, "species_p2": 0.6, "species_k": 3,                       # 第 1 種は p1 以上の枠が最多の種、第 2 種以降は p2 以上が K 枚以上
+    "species_empty_p": 0.8,                                                      # どの種も p1 に届かず、枠の「動物なし」の確率の平均がこれ以上なら動画を「動物なし」に（0 で使わない = 要確認のまま）
     "classifier": "speciesnet",        # speciesnet / none（検出だけ）/ （第 3 段階で）追加学習したモデルの名前
     "speciesnet_model": "kaggle:google/speciesnet/pyTorch/v4.0.3a/1",            # SpeciesNet の版（kaggle: / hf: / ローカルのフォルダ）
     "country": "JPN",                  # 撮影した国（ISO 3166-1 alpha-3）。SpeciesNet の geofence（その国にいない種のラベルを除く）に使う。空なら制限なし

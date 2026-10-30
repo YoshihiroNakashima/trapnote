@@ -707,7 +707,10 @@ def aggregate_video(pc: np.ndarray, codes: list[str], p1: float, p2: float, k: i
     if len(species) > 1 and species[0][0] == "unknown":   # 「不明」が第 1 種で他にもあれば、他を先に
         species = species[1:] + species[:1]
     top = sorted(mean.items(), key=lambda x: -x[1])[:8]
-    return dict(species=species, probs={c: round(v, 4) for c, v in top})
+    je = codes.index("empty") if "empty" in codes else -1
+    empty_mean = float(mean["empty"]) if je >= 0 else 0.0
+    empty_frac = float((np.argmax(pc, axis=1) == je).mean()) if je >= 0 else 0.0     # 「動物なし」が最大の枠の割合
+    return dict(species=species, probs={c: round(v, 4) for c, v in top}, empty_mean=round(empty_mean, 4), empty_frac=round(empty_frac, 3))
 
 
 # ---------- 1 本の処理 ----------
@@ -889,12 +892,16 @@ def finish_item(project, hub: ModelHub, item: dict, summary: dict, cls: dict | N
     # 動画 1 本の判定
     results: list[dict] = []
     flag = None
+    p_empty = float(s.get("species_empty_p") or 0)
     if summary["animal"]:
         if cls is None:
             if not classify:
                 flag = "low"                       # 検出だけ: 動物がいるが種は人が付ける
         elif cls["species"]:
             results = [dict(species=c, confidence=p) for c, p in cls["species"]]
+        elif p_empty > 0 and float(cls.get("empty_mean") or 0) >= p_empty:
+            # 枠はあるが分類器が全部の枠を「動物なし」と見た（MegaDetector の誤検出。学習で「動物なし」の枠を覚えさせた後に効く）
+            results = [dict(species="empty", confidence=round(float(cls["empty_mean"]), 3))]
         else:
             flag = "low"
     if summary["person"]:
