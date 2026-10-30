@@ -20,14 +20,27 @@ kbd { font: 11px Consolas, monospace; background: #eef; border: 1px solid #ccd; 
 button.primary kbd { background: rgba(255,255,255,.2); border-color: rgba(255,255,255,.4); color: #fff; }
 #pathInput { width: 330px; max-width: 30vw; min-width: 120px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 4px; font: inherit; }
 #targetBar { display: flex; align-items: center; gap: 16px; padding: 0 12px; background: #eef0f4; border-bottom: 1px solid var(--border); color: var(--muted); white-space: nowrap; overflow: hidden; font-size: 12px; }
-main { display: grid; grid-template-columns: 300px minmax(0, 1fr) 400px; min-height: 0; }
+:root { --left-w: 300px; --right-w: 400px; --tree-h: 36vh; }
+main { display: grid; grid-template-columns: var(--left-w) minmax(0, 1fr) var(--right-w); min-height: 0; position: relative; }
+/* 境界のドラッグで左右の幅・木の高さを変える（localStorage に残す） */
+.splitter { position: absolute; z-index: 5; background: transparent; }
+.splitter.v { top: 0; bottom: 0; width: 7px; cursor: col-resize; }
+.splitter.h { left: 0; right: 0; height: 7px; cursor: row-resize; }
+.splitter:hover, .splitter.on { background: rgba(59,91,219,.18); }
+#splitLeft { left: calc(var(--left-w) - 3px); }
+#splitRight { right: calc(var(--right-w) - 3px); }
+#listPane { position: relative; }
+#splitTree { position: absolute; left: 0; right: 0; height: 7px; top: calc(var(--tree-h) - 3px); z-index: 5; cursor: row-resize; }
+#splitTree:hover, #splitTree.on { background: rgba(59,91,219,.18); }
+body.resizing { user-select: none; cursor: col-resize; }
+body.resizing.rows { cursor: row-resize; }
 .info { color: var(--muted); font-size: 12px; }
 .warn { color: #8a5a00; font-size: 12px; }
 .clickable { cursor: pointer; text-decoration: underline dotted; }
 .hidden { display: none !important; }
 
 /* ---- フォルダの木（Picasa 風） ---- */
-#folderTree { max-height: 36vh; overflow: auto; border-bottom: 1px solid var(--border); padding: 4px 0; font-size: 12.5px; background: #fafbfc; }
+#folderTree { max-height: var(--tree-h); overflow: auto; border-bottom: 1px solid var(--border); padding: 4px 0; font-size: 12.5px; background: #fafbfc; }
 #folderTree:empty { display: none; }
 .tn { display: flex; align-items: center; gap: 3px; padding: 2px 6px 2px 0; cursor: pointer; white-space: nowrap; }
 .tn:hover { background: #f0f2f8; }
@@ -49,7 +62,7 @@ button.fav.on { background: #fff3cd; }
 li.item .star { color: #e0a100; margin-right: 2px; }
 
 /* ---- 一覧 ---- */
-#listPane { background: #fff; border-right: 1px solid var(--border); display: flex; flex-direction: column; min-height: 0; }
+#listPane { background: #fff; border-right: 1px solid var(--border); display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .list-tools { display: flex; gap: 4px; align-items: center; padding: 6px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
 .list-tools select, .list-tools input { font: inherit; font-size: 12px; padding: 3px 4px; max-width: 100%; min-width: 0; border: 1px solid var(--border); border-radius: 4px; background: #fff; }
 .list-tools select { max-width: 140px; }
@@ -108,7 +121,12 @@ button.spd.active { background: var(--accent); color: #fff; border-color: var(--
 .auto-chip.csv { background: #e8f0ff; border-color: #9ab; }
 .spf { margin-top: 2px; }
 .spf .box-head { color: #1a4; }
-.fld { display: grid; grid-template-columns: 110px 1fr; gap: 4px 6px; align-items: center; margin: 2px 0; font-size: 12px; }
+.fld { display: grid; grid-template-columns: 110px 1fr auto; gap: 4px 6px; align-items: center; margin: 2px 0; font-size: 12px; }
+button.fdel { font-size: 11px; line-height: 1; padding: 1px 5px; color: #bbb; border-color: transparent; background: none; }
+button.fdel:hover { color: var(--danger); border-color: #e0a9a3; background: #fdf1f0; }
+.fld button.fdel, .rep-head button.fdel { visibility: hidden; }
+.fld:hover button.fdel, .rep-head:hover button.fdel, .box-head:hover button.fdel { visibility: visible; }
+#folderTree:empty + #splitTree { display: none; }
 .fld input[type=text], .fld input[type=number], .fld select, #noteInput { font: inherit; font-size: 12px; padding: 3px 5px; border: 1px solid var(--border); border-radius: 4px; width: 100%; min-width: 0; background: #fff; }
 .fld .ms label { display: inline-flex; align-items: center; gap: 2px; margin-right: 8px; }
 table.rep { width: 100%; border-collapse: collapse; font-size: 12px; margin: 2px 0; }
@@ -224,6 +242,12 @@ li.item.selected { background: #dfe7ff; box-shadow: inset 3px 0 0 #3b5bdb; }
 li.item .excl { color: #b3261e; margin-right: 2px; }
 .selbar { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; padding: 4px 8px; background: #eef2ff; border-bottom: 1px solid var(--border); font-size: 12px; }
 .selbar #selInfo { font-weight: 600; color: #2a44b0; margin-right: 4px; }
+.hist { position: fixed; z-index: 1200; background: #fff; border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 6px 20px rgba(0,0,0,.18); padding: 2px 0; max-height: 240px; overflow: auto; font-size: 12.5px; }
+.hist .hrow { display: flex; align-items: center; gap: 6px; padding: 3px 6px 3px 10px; }
+.hist .hrow:hover { background: #eef2ff; }
+.hist .hv { flex: 1; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 520px; }
+.hist .hx { background: none; border: 1px solid transparent; color: #aaa; padding: 0 5px; font-size: 13px; line-height: 1.2; border-radius: 4px; cursor: pointer; }
+.hist .hx:hover { color: var(--danger); border-color: #e0a9a3; background: #fdf1f0; }
 .ctxmenu { position: fixed; z-index: 1000; background: #fff; border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 6px 20px rgba(0,0,0,.18); padding: 4px 0; min-width: 200px; font-size: 13px; }
 .ctxmenu div { padding: 6px 14px; cursor: pointer; white-space: nowrap; }
 .ctxmenu div:hover { background: #eef2ff; }

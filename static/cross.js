@@ -129,6 +129,7 @@ function crossTabSources(m, body) {
     </details>`;
   wirePicks(m);
   const q = sel => m.querySelector(sel);
+  histWire(q('#crSrcPath'), 'source_path'); histWire(q('#crSrcLabels'), 'labels_csv');
   q('#crSrcUp').onclick = () => { const v = q('#crSrcPath').value.trim().replace(/[\\/]+$/, ''); const i = Math.max(v.lastIndexOf('/'), v.lastIndexOf('\\')); if (i > 1) q('#crSrcPath').value = v.slice(0, i); };
   q('#crSrcAdd').onclick = async () => {
     const pth = q('#crSrcPath').value.trim(); if (!pth) return;
@@ -274,7 +275,7 @@ function crossTabPick(m, body) {
     <div id="cfSummary" class="dt-counts"></div>
     <details class="adv" id="cfPivotBox"><summary>${esc(t('cross_pivot'))}</summary><div id="cfPivot" style="max-height:30vh;overflow:auto"></div></details>
     <h4>${esc(t('cross_batch'))}</h4>
-    <div class="cr-actions"><input type="text" id="cfBatch" spellcheck="false" style="width:140px" list="cfBatchList" placeholder="gold, round1" value="${esc(CR.batch || '')}"><datalist id="cfBatchList">${(info.batches || []).filter(b => b.batch).map(b => `<option value="${esc(b.batch)}">`).join('')}</datalist><span class="info">${esc(t('cr_batch_help'))}</span></div>
+    <div class="cr-actions"><input type="text" id="cfBatch" spellcheck="false" style="width:140px" placeholder="gold, round1" value="${esc(CR.batch || '')}"><span class="info">${esc(t('cr_batch_help'))}</span></div>
     <h4>${esc(t('cr_random_h'))}</h4>
     <div class="note">${esc(t('cr_random_help'))}</div>
     <div class="cr-actions"><span>${esc(t('cr_unit'))} <select id="cfUnit">${unitOpts.map(([v, l]) => `<option value="${v}" ${sm.unit === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></span>
@@ -307,6 +308,7 @@ function crossTabPick(m, body) {
   ['#cfStation', '#cfText'].forEach(sel => q(sel).addEventListener('keydown', e => { if (e.key === 'Enter') { readF(); crossLoadCatalog(m); } }));
   const batchOrWarn = () => { const b = q('#cfBatch').value.trim(); CR.batch = b; if (!b) { toast(t('cross_need_batch'), 'error'); q('#cfBatch').focus(); } return b; };
   q('#cfBatch').onchange = () => { CR.batch = q('#cfBatch').value.trim(); };
+  histWire(q('#cfBatch'), 'batch', () => batches.map(b => b.batch));          // 候補 = 既存の組 + 過去に入れた名前（× で候補から消せる。組自体は消えない）
   q('#cfImportAll').onclick = async () => {
     const b = batchOrWarn(); if (!b) return;
     readF();
@@ -523,6 +525,7 @@ function crossTabSync(m, body) {
       ${imports.map(r => `<tr><td class="info">${esc((r.at || '').slice(0, 16).replace('T', ' '))}</td><td>${esc(r.batch || '')}</td><td>${r.n}</td><td class="info">${esc(fmtParams(r))} ${r.counts && Object.keys(r.counts).length ? esc(Object.entries(r.counts).map(([k, v]) => `${k === '(none)' ? t('sp_none') : spLabel(k)} ${v}`).join(' · ')) : ''}</td></tr>`).join('')}</table></div>` : ''}`;
   wirePicks(m);
   const q = sel => m.querySelector(sel);
+  histWire(q('#crCopyDir'), 'copy_dir');
   const showSync = (dir, r) => {
     const bs = Object.entries(r.by_source || {}).map(([k, v]) => v.error ? `${esc(k)}: <span class="ng">${esc(v.error)}</span>` : `${esc(k)}: ${v.update} / ${v.conflict} / ${v.same}`).join(' · ');
     q('#crSyncOut').innerHTML = `<div class="dt-counts"><span>${esc(dir === 'push' ? t('cross_push') : t('cross_pull'))}: ${esc(t('cross_sync_update'))} <b>${r.n_update}</b></span><span>${esc(t('cross_sync_conflict'))} <b>${r.n_conflict}</b></span><span>${esc(t('cross_sync_same'))} <b>${r.n_same}</b></span></div><div class="info">${bs}</div>` +

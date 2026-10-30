@@ -461,6 +461,7 @@ function showCtxMenu(x, y, id, i, rowObj) {
     [many || !row.train_exclude ? 'exclude' : 'include', many || !row.train_exclude ? t('ctx_excl') : t('ctx_incl')],
     many && ['unfavorite', t('ctx_unfav')], many && ['include', t('ctx_incl')],
     ['all', t('ctx_sel_all')], 'hr',
+    ['export', `${t('ctx_export')} (${ids.length})`], ['subset', `${t('ctx_subset')} (${ids.length})`], 'hr',
     ['delete', `${t(S.project && S.project.kind === 'cross' ? 'ctx_del_cross' : 'ctx_del')}${many ? ` (${ids.length})` : ''}`, 'danger'],
   ].filter(Boolean);
   m.innerHTML = items.map(it => it === 'hr' ? '<hr>' : `<div data-act="${it[0]}" class="${it[2] || ''}">${esc(it[1])}</div>`).join('');
@@ -474,6 +475,8 @@ function showCtxMenu(x, y, id, i, rowObj) {
     const act = d.dataset.act;
     if (act === 'open') openItem(id, i >= 0 ? i : undefined);
     else if (act === 'all') selectAll();
+    else if (act === 'export') exportDialog({ ids });
+    else if (act === 'subset') subsetDialog(ids);
     else if (act === 'delete') deleteItems(ids);
     else bulkAction(act, ids);
   };
@@ -587,6 +590,7 @@ function renderJobs(jobs) {
   if (typeof trainOnJobs === 'function') trainOnJobs(jobs);
   if (typeof yoloOnJobs === 'function') yoloOnJobs(jobs);
   if (typeof yoloExportOnJobs === 'function') yoloExportOnJobs(jobs);
+  if (typeof subsetOnJobs === 'function') subsetOnJobs(jobs);
   if (typeof crossOnJobs === 'function') crossOnJobs(jobs);
 }
 async function pollJobs() {
@@ -596,7 +600,8 @@ function startJobsPolling() { clearInterval(S.jobsTimer); S.jobsTimer = setInter
 
 // ---------- プロジェクト ----------
 async function openProjectPath(path, create, kind) {
-  if (!path) return;
+  // 返り値: 開けたら true。失敗（フォルダがない、など）は toast に出して false（「プロジェクトを開く」の窓はそのまま残り、やり直せる）
+  if (!path) return false;
   showOverlay(t('loading'));
   try {
     const r = await api('/api/project/open', { path, create: !!create, kind: kind || undefined });
@@ -609,7 +614,7 @@ async function openProjectPath(path, create, kind) {
       toast(t('need_root'), 'error');
       const p = await pickPath('folder');
       if (p) { const r2 = await api('/api/project/root', { path: p }); setSnapshot(r2.state); }
-      else return;
+      else return false;
     } else setSnapshot(r.state);
     if (modalOpen()) closeModal();              // 「プロジェクトを開く」の窓が開いたままなら閉じる
     S.cur = null; S.curIndex = -1; $('#judgePanel').classList.add('hidden'); $('#itemName').textContent = t('no_item'); $('#itemMeta').textContent = ''; renderItemPos();
@@ -618,14 +623,37 @@ async function openProjectPath(path, create, kind) {
     hideOverlay();
     startJobsPolling();
     if (S.project && S.project.kind === 'cross' && !S.total && typeof crossDialog === 'function') crossDialog();   // 横断で対象がまだなければ、参照先とカタログの窓から
-  } catch (e) { hideOverlay(); toast(e.message, 'error'); }
+    return true;
+  } catch (e) { hideOverlay(); toast(e.message, 'error'); return false; }
 }
 async function pickPath(kind, initial, name) {
   try { const r = await api('/api/dialog', { kind, initial, name }); return r.path; } catch (e) { toast(e.message, 'error'); return null; }
 }
 
 // ---------- 配線 ----------
+// ---------- 境界のドラッグ（左の一覧の幅、右の欄の幅、フォルダの木の高さ）。localStorage に残す ----------
+function wireSplitters() {
+  const root = document.documentElement;
+  const load = () => { try { const v = JSON.parse(localStorage.getItem('tn_layout') || '{}'); if (v.left) root.style.setProperty('--left-w', v.left + 'px'); if (v.right) root.style.setProperty('--right-w', v.right + 'px'); if (v.tree) root.style.setProperty('--tree-h', v.tree + 'px'); } catch (e) { /* */ } };
+  const save = patch => { try { const v = Object.assign(JSON.parse(localStorage.getItem('tn_layout') || '{}'), patch); localStorage.setItem('tn_layout', JSON.stringify(v)); } catch (e) { /* */ } };
+  load();
+  const drag = (el, rows, onMove) => {
+    if (!el) return;
+    el.addEventListener('mousedown', e => {
+      e.preventDefault(); el.classList.add('on'); document.body.classList.add('resizing'); document.body.classList.toggle('rows', rows);
+      const move = ev => onMove(ev);
+      const up = () => { el.classList.remove('on'); document.body.classList.remove('resizing', 'rows'); document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up); if (typeof renderWindow === 'function') renderWindow(true); };
+      document.addEventListener('mousemove', move); document.addEventListener('mouseup', up);
+    });
+    el.addEventListener('dblclick', () => { onMove(null); if (typeof renderWindow === 'function') renderWindow(true); });     // ダブルクリックで既定に戻す
+  };
+  drag($('#splitLeft'), false, ev => { const w = ev ? Math.max(200, Math.min(ev.clientX, window.innerWidth - 500)) : 300; root.style.setProperty('--left-w', w + 'px'); save({ left: ev ? w : 0 }); });
+  drag($('#splitRight'), false, ev => { const w = ev ? Math.max(240, Math.min(window.innerWidth - ev.clientX, window.innerWidth - 500)) : 400; root.style.setProperty('--right-w', w + 'px'); save({ right: ev ? w : 0 }); });
+  drag($('#splitTree'), true, ev => { const top = $('#listPane').getBoundingClientRect().top; const h = ev ? Math.max(40, Math.min(ev.clientY - top, window.innerHeight * 0.7)) : null; root.style.setProperty('--tree-h', h ? h + 'px' : '36vh'); save({ tree: h || 0 }); });
+}
+
 function wire() {
+  wireSplitters();
   $('#btnOpen').onclick = () => openProjectDialog();
   $('#pathInput').addEventListener('keydown', e => { if (e.key === 'Enter') { const p = $('#pathInput').value.trim(); if (p) openProjectPath(p); } });
   $('#btnRescan').onclick = async () => { if (!S.project) return; await api('/api/project/rescan', {}); toast(t('rescan') + '…'); };

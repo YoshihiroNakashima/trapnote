@@ -221,3 +221,61 @@ def test_train_holdout_batches(tmp_path):
         assert r2["holdout_batches"] == [] and r2["holdout_stations"] and not r2["final_without_holdout"] and r2["n_items"] == len(truth)
     finally:
         p.close()
+
+
+def test_export_subset(tmp_path):
+    """選んだ動画を別のフォルダへプロジェクトごと写す: 動画・種リスト・追加項目・判定・AI の判定が写り、写した先は普通のプロジェクトとして開ける。2 回目は足す"""
+    make_nas(tmp_path)
+    p = make_cross(tmp_path)
+    try:
+        _import(p, {"station": "BSN0812", "season": "N240128"}, dict(unit="station", n=1, seed=1), "gold")
+        items = {r["name"]: r["id"] for r in p.db.q("SELECT id, name FROM items WHERE batch='gold' ORDER BY name")}
+        judge_save(p.db, items["IMG_0000.AVI"], dict(species=["deer"], note="メモ"), "tester")
+        judge_save(p.db, items["IMG_0001.AVI"], dict(species=["deer", "boar"]), "tester")
+        _set_auto(p, items["IMG_0002.AVI"], ["boar"])
+        p.species.add(dict(name_ja="キジ", name_en="Kiji", name_sci="Phasianus versicolor"))
+        out = str(tmp_path / "out" / "subset1")
+        ids = [items["IMG_0000.AVI"], items["IMG_0001.AVI"], items["IMG_0002.AVI"]]
+        r = cross.export_subset(p, ids, out)
+        assert r["n"] == 3 and r["n_missing"] == 0 and r["n_skipped"] == 0 and r["fresh"]
+        assert os.path.isfile(os.path.join(out, "PRM_N", "N240128", "BSN0812", "IMG_0000.AVI"))
+        d = Project(r["project_dir"])
+        try:
+            assert d.root == cross.norm(out) and not d.is_cross and d.name == "subset1" and d.data["exported_from"]["project"] == p.name
+            assert "kiji" in d.species.by_code()
+            rows = {r["name"]: dict(r) for r in d.db.q("SELECT id, name, rel_path, status, batch, src_id, auto_json FROM items")}
+            assert len(rows) == 3 and rows["IMG_0000.AVI"]["status"] == "verified" and rows["IMG_0000.AVI"]["batch"] == "gold" and rows["IMG_0000.AVI"]["src_id"] is None
+            assert rows["IMG_0000.AVI"]["rel_path"] == "PRM_N/N240128/BSN0812/IMG_0000.AVI"
+            js = {r[0] for r in d.db.q("SELECT species FROM judgements WHERE item_id=?", (rows["IMG_0001.AVI"]["id"],))}
+            assert js == {"deer", "boar"}
+            assert d.db.scalar("SELECT note FROM items WHERE id=?", (rows["IMG_0000.AVI"]["id"],)) == "メモ"
+            assert json.loads(rows["IMG_0002.AVI"]["auto_json"])["species"][0]["species"] == "boar"
+        finally:
+            d.close()
+        # 2 回目: 同じものは飛ばし、新しいものだけ足す
+        r2 = cross.export_subset(p, ids + [items["IMG_0003.AVI"]], out)
+        assert r2["n"] == 1 and r2["n_skipped"] == 3 and not r2["fresh"]
+        with pytest.raises(ValueError):
+            cross.export_subset(p, ids, p.root)
+    finally:
+        p.close()
+
+
+def test_cross_project_own_folder(tmp_path):
+    """横断プロジェクトは置き場のフォルダ自体がプロジェクト（名前はフォルダ名。別の PC に移しても root はそのフォルダ）"""
+    from trapnote.project import resolve_root_of
+    place = tmp_path / "Studies" / "gold"
+    place.mkdir(parents=True)
+    p = Project(str(place), root=str(place), create=True, kind="cross")
+    try:
+        assert p.name == "gold" and p.is_cross and p.root == cross.norm(str(place))
+    finally:
+        p.close()
+    data = json.load(open(place / "project.json", encoding="utf-8"))
+    data["roots"] = {"other-pc": "Z:/nowhere"}
+    assert resolve_root_of(str(place), data) == cross.norm(str(place))
+    p2 = Project(str(tmp_path / "Studies" / "merge"), root=str(tmp_path / "Studies" / "merge"), create=True, kind="cross")     # 同じ親の下にもう 1 つ
+    try:
+        assert p2.name == "merge"
+    finally:
+        p2.close()

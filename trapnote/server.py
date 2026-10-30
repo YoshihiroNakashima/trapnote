@@ -14,7 +14,7 @@ from aiohttp import web
 
 from . import APP_ID, APP_NAME, BUILD, BUILD_TIME, VERSION, cross, detect, dialogs, export as export_mod, judge, media, merge as merge_mod, scan as scan_mod, timelapse, train, yolo
 from .config import APP_DIR, DATA_DIR, STATIC_DIR, Settings, State
-from .jobs import ArchiveJob, CatalogBuildJob, CrossCopyJob, CrossImportJob, CrossRemoveJob, CrossSyncJob, DetectJob, LabelsJob, Lane, MetaJob, ReclassifyJob, ScanJob, TrainJob, TranscodeJob, YoloExportJob, YoloImportJob
+from .jobs import ArchiveJob, CatalogBuildJob, CrossCopyJob, CrossImportJob, CrossRemoveJob, CrossSyncJob, DetectJob, LabelsJob, Lane, MetaJob, ReclassifyJob, ScanJob, SubsetExportJob, TrainJob, TranscodeJob, YoloExportJob, YoloImportJob
 from .paths import key, norm
 from .pattern import names_in, preview as pattern_preview
 from .project import PROJECT_DIRNAME, Project, find_project_for_root, is_project_dir
@@ -74,6 +74,8 @@ class Session:
             found = find_project_for_root(path)
             if found:
                 pdir, root = found, path
+            elif create and kind == "cross":               # 横断: 置き場のフォルダ自体がプロジェクト（H:/Studies/gold）。同じ親の下に名前を変えて何個でも置け、調査回の TrapNote フォルダと紛れない
+                pdir, root = path, path
             elif create:
                 pdir, root = norm(os.path.join(path, PROJECT_DIRNAME)), path
             else:
@@ -419,6 +421,24 @@ def make_app(session: Session) -> web.Application:
             S.opening = False
         res["state"] = await io(S.snapshot)
         return jr(res)
+
+    async def export_subset(request):
+        """選んだ対象（ids）を動画と判定ごと out_dir へ写し、そこに新しいプロジェクトを作る（裏の処理）"""
+        p = S.need()
+        b = await _body(request)
+        ids = [int(x) for x in (b.get("ids") or [])]
+        out = norm(str(b.get("out_dir") or "").strip())
+        if not ids:
+            raise ApiError("対象が選ばれていません")
+        if not out:
+            raise ApiError("写す先のフォルダを指定してください")
+        if key(out) == key(p.root or "") or key(out) == key(p.dir) or key(out) == key(str(APP_DIR)):
+            raise ApiError("写す先に、いまのプロジェクトのフォルダやアプリのフォルダは指定できません")
+        yielded = S.bg.yield_current(("meta", "scan"))
+        S.bg.submit(SubsetExportJob(ids, out, b.get("copy_videos", True) is not False), front=True)
+        if yielded == "meta":
+            S.bg.submit(MetaJob())
+        return jr(S.jobs_status())
 
     async def projects_recent(request):
         """最近のプロジェクトの一覧（名前・種類・この PC から見えるか）。project.json を読むだけ（NAS が眠っていると数秒かかることがあるので画面は先に出し、後から埋める）"""
@@ -1412,6 +1432,7 @@ def make_app(session: Session) -> web.Application:
     r.add_post("/api/dialog", dialog)
     r.add_post("/api/project/open", project_open)
     r.add_get("/api/projects/recent", projects_recent)
+    r.add_post("/api/export/subset", export_subset)
     r.add_post("/api/projects/forget", projects_forget)
     r.add_post("/api/project/root", project_root)
     r.add_post("/api/project/close", project_close)

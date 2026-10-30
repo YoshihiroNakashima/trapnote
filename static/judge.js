@@ -140,9 +140,21 @@ function renderRepeat(store, group) {
   const rows = [];
   for (let i = 0; i < n; i++) rows.push(`<tr data-i="${i}">${group.fields.map(f => `<td>${fieldInput(f, (store[f.key] || [])[i], null, `data-f="${f.key}" data-i="${i}"`)}</td>`).join('')}<td class="x"><button type="button" class="del" title="×">×</button></td></tr>`);
   const head = group.fields.map(f => `<th>${esc(fdLabel(f))}</th>`).join('') + '<th></th>';
-  return `<div class="rep-head"><span>${esc(fdLabel(group.fields[0]))}</span><button type="button" class="small add">${esc(t('add_record'))}</button></div>
+  return `<div class="rep-head"><span>${esc(fdLabel(group.fields[0]))}</span><button type="button" class="small add">${esc(t('add_record'))}</button><button type="button" class="fdel" data-fdel="${esc(group.fields.map(f => f.key).join(','))}" title="${esc(t('fd_remove_tip'))}">−</button></div>
     <table class="rep"><thead><tr>${head}</tr></thead><tbody>${rows.join('')}</tbody></table>`;
 }
+/* 右の欄の「−」: 項目（か ＋ の組、か「対象ごとの項目」の箱の中身全部）をプロジェクトの追加項目から外す。入力済みの値は残るが表には出なくなる */
+async function removeFields(keys) {
+  const fields = S.fields.fields || [];
+  const names = keys.map(k => { const f = fields.find(x => x.key === k); return f ? fdLabel(f) : k; });
+  if (!await confirmModal(t('fd_remove_title'), `<div>${esc(names.join(', '))}</div><div class="note">${esc(t('fd_remove_q'))}</div>`, t('fd_remove_ok'), true)) return;
+  try {
+    S.fields = await api('/api/fields', { fields: fields.filter(f => !keys.includes(f.key)).map((f, i) => Object.assign({}, f, { order: i })) });
+    if (S.cur) renderFieldsPanel();
+    toast(`${t('fd_removed')}: ${names.join(', ')}`);
+  } catch (e) { toast(e.message, 'error'); }
+}
+const fdelBtn = keys => `<button type="button" class="fdel" data-fdel="${esc(keys.join(','))}" title="${esc(t('fd_remove_tip'))}">−</button>`;
 function bindRepeat(container, store, group, rerender) {
   container.querySelector('button.add').onclick = () => {
     group.fields.forEach(f => { store[f.key] = store[f.key] || []; });
@@ -177,22 +189,29 @@ function renderFieldsPanel() {
     const div = document.createElement('div'); div.className = 'box spf';
     const simple = spF.filter(f => !f.repeat);
     div.innerHTML = `<div class="box-head">${esc(spLabel(code))}${addBtn('species')}</div>` +
-      simple.map(f => `<div class="fld" title="${esc(f.help || '')}"><span>${esc(fdLabel(f))}</span>${fieldInput(f, (store[f.key] || [])[0] ?? f.default, null, `data-f="${f.key}"`)}</div>`).join('') +
+      simple.map(f => `<div class="fld" title="${esc(f.help || '')}"><span>${esc(fdLabel(f))}</span>${fieldInput(f, (store[f.key] || [])[0] ?? f.default, null, `data-f="${f.key}"`)}${fdelBtn([f.key])}</div>`).join('') +
       groupsOf(spF).map(g => `<div class="repwrap" data-g="${esc(g.name)}">${renderRepeat(store, g)}</div>`).join('');
     simple.forEach(f => bindField(div, f, () => (store[f.key] || [])[0], v => { store[f.key] = [v]; }));
     groupsOf(spF).forEach(g => bindRepeat(div.querySelector(`.repwrap[data-g="${g.name}"]`), store, g, renderFieldsPanel));
     host.appendChild(div);
   });
-  // 対象ごと（項目がなくても「＋ 項目」のために箱は出す）
+  // 対象ごと（項目がなくても「＋ 項目」のために箱は出す。箱の「−」で項目を全部外す。項目がないときの「−」は箱を隠す（設定 → 追加項目 で対象ごとの項目を足せばまた出る））
   const ib = $('#itemFields');
-  ib.classList.remove('hidden');
+  let hideBox = false; try { hideBox = localStorage.getItem('tn_hide_item_fields') === '1'; } catch (e) { /* */ }
+  ib.classList.toggle('hidden', hideBox && !itF.length);
   const simple = itF.filter(f => !f.repeat);
-  ib.innerHTML = `<div class="box-head">${esc(t('fields_item'))}${addBtn('item')}</div>` +
-    simple.map(f => `<div class="fld" title="${esc(f.help || '')}"><span>${esc(fdLabel(f))}</span>${fieldInput(f, (S.itemFields[f.key] || [])[0] ?? f.default, null, `data-f="${f.key}"`)}</div>`).join('') +
+  ib.innerHTML = `<div class="box-head">${esc(t('fields_item'))}${addBtn('item')}<button type="button" class="fdel" data-fdel-box="1" title="${esc(itF.length ? t('fd_remove_box_tip') : t('fd_hide_box_tip'))}">−</button></div>` +
+    simple.map(f => `<div class="fld" title="${esc(f.help || '')}"><span>${esc(fdLabel(f))}</span>${fieldInput(f, (S.itemFields[f.key] || [])[0] ?? f.default, null, `data-f="${f.key}"`)}${fdelBtn([f.key])}</div>`).join('') +
     groupsOf(itF).map(g => `<div class="repwrap" data-g="${esc(g.name)}">${renderRepeat(S.itemFields, g)}</div>`).join('');
   simple.forEach(f => bindField(ib, f, () => (S.itemFields[f.key] || [])[0], v => { S.itemFields[f.key] = [v]; }));
   groupsOf(itF).forEach(g => bindRepeat(ib.querySelector(`.repwrap[data-g="${g.name}"]`), S.itemFields, g, renderFieldsPanel));
   document.querySelectorAll('#spFields button.addf, #itemFields button.addf').forEach(b => { b.onclick = () => addFieldDialog(b.dataset.scope); });
+  document.querySelectorAll('#spFields button[data-fdel], #itemFields button[data-fdel]').forEach(b => { b.onclick = () => removeFields(b.dataset.fdel.split(',')); });
+  const bx = ib.querySelector('button[data-fdel-box]');
+  if (bx) bx.onclick = () => {
+    if (itF.length) removeFields(itF.map(f => f.key));
+    else { try { localStorage.setItem('tn_hide_item_fields', '1'); } catch (e) { /* */ } ib.classList.add('hidden'); toast(t('fd_box_hidden')); }
+  };
 }
 function renderJudgeInfo(d) {
   const el = $('#judgeInfo');

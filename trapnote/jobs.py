@@ -812,6 +812,35 @@ class CrossCopyJob(Job):
         return d
 
 
+class SubsetExportJob(Job):
+    """選んだ対象を動画と判定ごと別のフォルダへ写し、そこに新しいプロジェクトを作る（bg レーン。どのプロジェクトからでも）"""
+
+    def __init__(self, ids: list[int], out_dir: str, copy_videos: bool = True):
+        super().__init__("subset_export", dict(out_dir=out_dir, n=len(ids)), "別のフォルダへ写す")
+        self.ids = ids
+        self.out_dir = out_dir
+        self.copy_videos = copy_videos
+        self.result: dict | None = None
+
+    def run(self, ctx) -> None:
+        from . import cross
+        project = ctx.project
+        if project is None:
+            return
+
+        def prog(a, b, msg):
+            self.done, self.total, self.current = a, b, msg or ""
+        r = cross.export_subset(project, self.ids, self.out_dir, self.copy_videos, prog, self.stop_flag.is_set)
+        self.result = r
+        self.done = self.total = r["n"]
+        self.message = f"{r['n']} 本を {r['out_dir']} に写しました（プロジェクト {r['project_dir']}）" + (f"（見つからない {r['n_missing']}）" if r["n_missing"] else "") + (f"（写してあった {r['n_skipped']}）" if r["n_skipped"] else "")
+
+    def status(self) -> dict:
+        d = super().status()
+        d.update(result=self.result)
+        return d
+
+
 class YoloImportJob(Job):
     """YOLO 形式の学習データ（<種>/images + <種>/labels）の取り込み（bg レーン。枚数が多いので裏で）"""
 

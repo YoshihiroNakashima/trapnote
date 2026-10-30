@@ -20,14 +20,27 @@ async function openProjectDialog() {
       <div class="op-card"><h4>${esc(t('cross_new_h'))}</h4><div class="note">${esc(t('cross_new_help'))}</div>${pathRow('opCross', t('cross_folder'), 'folder', '', '')}<div class="btn-row"><button type="button" class="primary" id="opCrossMake">${esc(t('cross_make'))}</button></div></div>
     </div>
     ${recent.length ? `<h4>${esc(t('recent'))} <span class="info">${esc(t('op_recent_help'))}</span></h4><ul class="recent" id="opRecent">${recent.map(p => li(p, null)).join('')}</ul>` : ''}
-    <div class="modal-actions"><button id="mCancel">${esc(t('close'))}</button></div>`);
+    <div id="opStatus"></div>
+    <div class="modal-actions"><span class="info" style="margin-right:auto">${esc(S.project ? `${t('op_now')}: ${S.project.name}` : t('no_project'))}</span><button id="mCancel">${esc(S.project ? t('op_back') : t('close'))}</button></div>`);
   wirePicks(m);
+  histWire(m.querySelector('#opPath'), 'open_path'); histWire(m.querySelector('#opCross'), 'cross_place');
   m.querySelector('#mCancel').onclick = closeModal;
-  m.querySelector('#mOk').onclick = () => { const p = m.querySelector('#opPath').value.trim(); if (p) { closeModal(); openProjectPath(p); } };
+  // 開く・作る: 窓は開いたままで「開いています…」を出し、開けたら閉じる（失敗したら窓に理由を出してやり直せる）
+  const go = async (p, create, kind) => {
+    const st = m.querySelector('#opStatus');
+    m.querySelectorAll('button').forEach(b => { b.disabled = true; });
+    st.innerHTML = `<div class="info">${esc(t('op_opening'))}: ${esc(p)}</div>`;
+    const ok = await openProjectPath(p, create, kind);
+    if (ok) return;                                    // 開けたら openProjectPath が窓を閉じる（横断で動画がまだなければ横断の手順の窓が開く）
+    if (!m.isConnected || !m.querySelector('#opStatus')) return;
+    m.querySelectorAll('button').forEach(b => { b.disabled = false; });
+    st.innerHTML = `<div class="ng">${esc(t('op_failed'))}</div>`;
+  };
+  m.querySelector('#mOk').onclick = () => { const p = m.querySelector('#opPath').value.trim(); if (p) go(p); };
   m.querySelector('#opPath').addEventListener('keydown', e => { if (e.key === 'Enter') m.querySelector('#mOk').click(); });
-  m.querySelector('#opCrossMake').onclick = () => { const p = m.querySelector('#opCross').value.trim(); if (!p) { toast(t('cross_need_folder'), 'error'); return; } closeModal(); openProjectPath(p, true, 'cross').then(() => { if (S.project && S.project.kind === 'cross') crossDialog(); }); };
+  m.querySelector('#opCrossMake').onclick = () => { const p = m.querySelector('#opCross').value.trim(); if (!p) { toast(t('cross_need_folder'), 'error'); return; } go(p, true, 'cross'); };
   const wire = () => {
-    m.querySelectorAll('.recent li').forEach(el => { el.onclick = e => { if (e.target.closest('button')) return; closeModal(); openProjectPath(el.dataset.p); }; });
+    m.querySelectorAll('.recent li').forEach(el => { el.onclick = e => { if (e.target.closest('button')) return; go(el.dataset.p); }; });
     m.querySelectorAll('.recent [data-forget]').forEach(b => { b.onclick = async e => {
       e.stopPropagation();
       try { const r = await api('/api/projects/forget', { path: b.dataset.forget }); if (r.state) setSnapshot(r.state); b.closest('li').remove(); if (!m.querySelectorAll('.recent li').length) { const h = m.querySelector('#opRecent'); if (h) { h.previousElementSibling.remove(); h.remove(); } } }
@@ -206,11 +219,13 @@ async function addFieldDialog(scope) {
 }
 
 // ---------- 書き出し ----------
-async function exportDialog() {
+async function exportDialog(preset) {
+  // preset = {ids: [...]}（一覧で選んだ動画を右クリック → 書き出し。範囲に「選択した n 件」が加わり、それが既定になる）
   const def = `${S.project.dir}/exports/trapnote_${new Date().toISOString().slice(0, 10)}.csv`;
+  const selIds = (preset && preset.ids) || [];
   const m = showModal(`<h3>${esc(t('ex_title'))}</h3>
     ${pathRow('exPath', t('ex_path'), 'savecsv', def, '', 'trapnote.csv')}
-    <div class="form-row"><label>${esc(t('ex_range'))}</label><select id="exRange"><option value="all">${esc(t('ex_all'))}</option><option value="filter">${esc(t('ex_filter'))}</option><option value="verified">${esc(t('ex_verified'))}</option></select></div>
+    <div class="form-row"><label>${esc(t('ex_range'))}</label><select id="exRange">${selIds.length ? `<option value="selection">${esc(t('ex_selection'))} (${selIds.length})</option>` : ''}<option value="all">${esc(t('ex_all'))}</option><option value="filter">${esc(t('ex_filter'))}</option><option value="verified">${esc(t('ex_verified'))}</option></select></div>
     <div class="form-row"><label></label><label><input type="checkbox" id="exRecords"> ${esc(t('ex_records'))}</label></div>
     <div class="form-row"><label></label><label><input type="checkbox" id="exJudged"> ${esc(t('ex_judged_only'))}</label></div>
     <div id="exResult" class="note"></div>
@@ -232,7 +247,7 @@ async function exportDialog() {
   m.querySelector('#exYoloWhere').addEventListener('change', () => { m.querySelector('#exYoloNewRows').classList.toggle('hidden', m.querySelector('#exYoloWhere').value === 'in_place'); });
   m.querySelector('#exYolo').onclick = async () => {
     const range = m.querySelector('#exRange').value;
-    const filters = range === 'filter' ? Object.assign({}, S.filter) : (range === 'verified' ? { status: 'verified' } : {});
+    const filters = range === 'selection' ? { ids: selIds } : (range === 'filter' ? Object.assign({}, S.filter) : (range === 'verified' ? { status: 'verified' } : {}));
     const inPlace = m.querySelector('#exYoloWhere').value === 'in_place';
     if (inPlace) { exportModalEl = null; if (!await confirmModal(t('ex_yolo'), esc(t('ex_yolo_in_place_q')), t('run'), true)) { exportDialog(); return; } await exportDialog(); }
     const mm = exportModalEl || m;
@@ -246,14 +261,14 @@ async function exportDialog() {
   m.querySelector('#exIndex').onclick = async () => { const r = await api('/api/export/index', {}); m.querySelector('#exResult').textContent = `${t('ex_done')}: ${r.path} (${r.rows})`; };
   m.querySelector('#exMd').onclick = async () => {
     const range = m.querySelector('#exRange').value;
-    const filters = range === 'filter' ? Object.assign({}, S.filter) : (range === 'verified' ? { status: 'verified' } : {});
+    const filters = range === 'selection' ? { ids: selIds } : (range === 'filter' ? Object.assign({}, S.filter) : (range === 'verified' ? { status: 'verified' } : {}));
     const path = await pickPath('savejson', `${S.project.dir}/exports`, 'detections_md.json');
     if (!path) return;
     try { const r = await api('/api/export/md_json', { path, filters }); m.querySelector('#exResult').textContent = `${t('ex_done')}: ${r.path} (${r.items} ${t('items')})`; } catch (e) { toast(e.message, 'error'); }
   };
   m.querySelector('#exTl').onclick = async () => {
     const range = m.querySelector('#exRange').value;
-    const filters = range === 'filter' ? Object.assign({}, S.filter) : (range === 'verified' ? { status: 'verified' } : {});
+    const filters = range === 'selection' ? { ids: selIds } : (range === 'filter' ? Object.assign({}, S.filter) : (range === 'verified' ? { status: 'verified' } : {}));
     const path = m.querySelector('#exTlPath').value.trim();
     if (!path) { toast(t('ex_tl_need_path'), 'error'); return; }
     try {
@@ -263,7 +278,7 @@ async function exportDialog() {
   };
   m.querySelector('#mOk').onclick = async () => {
     const range = m.querySelector('#exRange').value;
-    const filters = range === 'filter' ? Object.assign({}, S.filter) : (range === 'verified' ? { status: 'verified' } : {});
+    const filters = range === 'selection' ? { ids: selIds } : (range === 'filter' ? Object.assign({}, S.filter) : (range === 'verified' ? { status: 'verified' } : {}));
     try {
       const r = await api('/api/export/csv', { path: m.querySelector('#exPath').value, filters, records: m.querySelector('#exRecords').checked, judged_only: m.querySelector('#exJudged').checked });
       m.querySelector('#exResult').textContent = `${t('ex_done')}: ${r.path} (${r.rows} ${t('im_rows')}, ${r.items} ${t('items')})${r.records ? ' + ' + r.records.path : ''}`;
@@ -844,6 +859,7 @@ async function trainDialog(showName, preset) {
   trainModalEl = m;
   wirePicks(m);
   const q = sel => m.querySelector(sel);
+  histWire(q('#trSrcPath'), 'train_source');
   let planData = null;
   let srcList = [];          // 材料に加える候補 [{path, name, checked, info}]
   let srcSeq = 0;
@@ -1086,6 +1102,97 @@ function yoloOnJobs(jobs) {   // 取り込みは裏の処理（bg レーン）�
 }
 
 let exportModalEl = null;
+// ---------- 選んだ動画を別のフォルダへプロジェクトごと写す（一覧の右クリック） ----------
+let subsetModalEl = null;
+async function subsetDialog(ids) {
+  const m = showModal(`<h3>${esc(t('sub_title'))}</h3><div class="note">${esc(t('sub_help'))}</div>
+    <div class="dt-counts"><span>${esc(t('items'))} <b>${ids.length}</b></span></div>
+    ${pathRow('subDir', t('sub_dir'), 'folder', '', t('sub_dir_help'))}
+    <div class="form-row"><label></label><label class="chk"><input type="checkbox" id="subVideos" checked> ${esc(t('sub_videos'))}</label></div>
+    <div id="subStatus"></div>
+    <div class="modal-actions"><button id="mCancel">${esc(t('close'))}</button><button id="mOk" class="primary">${esc(t('sub_run'))}</button></div>`);
+  subsetModalEl = m;
+  wirePicks(m);
+  histWire(m.querySelector('#subDir'), 'subset_dir');
+  m.querySelector('#mCancel').onclick = () => { subsetModalEl = null; closeModal(); };
+  m.querySelector('#mOk').onclick = async () => {
+    const out = m.querySelector('#subDir').value.trim();
+    if (!out) { toast(t('cross_need_dir'), 'error'); return; }
+    try {
+      const j = await api('/api/export/subset', { ids, out_dir: out, copy_videos: m.querySelector('#subVideos').checked });
+      histRemember('subset_dir', out);
+      S._bgWasRunning = true; m._running = true; m.querySelector('#mOk').disabled = true;
+      subsetOnJobs(j);
+    } catch (e) { toast(e.message, 'error'); }
+  };
+}
+function subsetOnJobs(jobs) {
+  const m = subsetModalEl;
+  if (!m || !document.body.contains(m) || !jobs || !jobs.bg) return;
+  const el = m.querySelector('#subStatus'); if (!el) return;
+  const cur = jobs.bg.current, rec = (jobs.bg.recent || []).find(x => x.kind === 'subset_export');
+  if (cur && cur.kind === 'subset_export') {
+    const pct = cur.total ? Math.round(100 * cur.done / cur.total) : 0;
+    el.innerHTML = `<div><b>${esc(t('ar_running'))}</b>: ${cur.done} / ${cur.total} (${pct}%)</div><div class="prog"><div style="width:${pct}%"></div></div><div class="info">${esc(cur.current || '')}</div>`;
+    m._running = true;
+  } else if (m._running && rec) {
+    m._running = false;
+    el.innerHTML = `<div class="${rec.state === 'done' ? 'ok' : 'ng'}"><b>${esc(t('ar_result'))}</b>: ${esc(rec.message || rec.error || '')}</div>${rec.state === 'done' && rec.result ? `<div class="btn-row"><button type="button" class="small" id="subOpen">${esc(t('sub_open'))}</button></div>` : ''}`;
+    m.querySelector('#mOk').disabled = false;
+    const b = el.querySelector('#subOpen'); if (b) b.onclick = () => { subsetModalEl = null; closeModal(); openProjectPath(rec.result.project_dir); };
+  }
+}
+
+// ---------- 入力欄の候補（過去に入れた値。× で消せる） ----------
+// histWire(input, key, extra): 欄に候補の窓を付ける。候補 = 設定の input_history[key] ∪ extra − input_hidden[key]。値を決めたら histRemember(key, value)
+function histValues(key, extra) {
+  const st = S.settings || {};
+  const hid = new Set(((st.input_hidden || {})[key]) || []);
+  const seen = new Set(); const out = [];
+  for (const v of ((st.input_history || {})[key] || []).concat(extra || [])) { if (v && !hid.has(v) && !seen.has(v)) { seen.add(v); out.push(v); } }
+  return out;
+}
+async function histSave(patch) { try { const d = await api('/api/settings', patch); S.settings = Object.assign(S.settings || {}, d); } catch (e) { /* 候補は無くても困らない */ } }
+function histRemember(key, value) {
+  value = (value || '').trim(); if (!value) return;
+  const st = S.settings || {}; const h = Object.assign({}, st.input_history || {});
+  h[key] = [value].concat((h[key] || []).filter(v => v !== value)).slice(0, 30);
+  const hid = Object.assign({}, st.input_hidden || {}); if (hid[key]) hid[key] = hid[key].filter(v => v !== value);
+  histSave({ input_history: h, input_hidden: hid });
+}
+function histForget(key, value) {
+  const st = S.settings || {}; const h = Object.assign({}, st.input_history || {}), hid = Object.assign({}, st.input_hidden || {});
+  h[key] = (h[key] || []).filter(v => v !== value);
+  hid[key] = [value].concat((hid[key] || []).filter(v => v !== value)).slice(0, 30);
+  histSave({ input_history: h, input_hidden: hid });
+}
+function histWire(input, key, extra) {
+  if (!input) return;
+  input.setAttribute('autocomplete', 'off');
+  let box = null;
+  const close = () => { if (box) { box.remove(); box = null; } };
+  const open = () => {
+    close();
+    const typed = input.value.trim().toLowerCase();
+    const vals = histValues(key, typeof extra === 'function' ? extra() : extra).filter(v => !typed || v.toLowerCase().includes(typed));
+    if (!vals.length) return;
+    box = document.createElement('div'); box.className = 'hist';
+    box.innerHTML = vals.map(v => `<div class="hrow"><span class="hv" title="${esc(v)}">${esc(v)}</span><button type="button" class="hx" title="${esc(t('hist_forget'))}">×</button></div>`).join('');
+    const r = input.getBoundingClientRect();
+    box.style.left = r.left + 'px'; box.style.top = (r.bottom + 2) + 'px'; box.style.minWidth = Math.max(160, r.width) + 'px';
+    document.body.appendChild(box);
+    box.querySelectorAll('.hrow').forEach((row, i) => {
+      row.querySelector('.hv').onmousedown = e => { e.preventDefault(); input.value = vals[i]; input.dispatchEvent(new Event('input')); input.dispatchEvent(new Event('change')); close(); };
+      row.querySelector('.hx').onmousedown = e => { e.preventDefault(); e.stopPropagation(); histForget(key, vals[i]); row.remove(); if (!box.querySelector('.hrow')) close(); };
+    });
+  };
+  input.addEventListener('focus', open);
+  input.addEventListener('input', open);
+  input.addEventListener('blur', () => setTimeout(close, 120));
+  input.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
+  input.addEventListener('change', () => histRemember(key, input.value));
+}
+
 function yoloExportOnJobs(jobs) {
   const m = exportModalEl;
   if (!m || !document.body.contains(m) || !jobs || !jobs.bg) return;

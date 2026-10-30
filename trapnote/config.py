@@ -35,6 +35,8 @@ DEFAULTS = {
     "show_boxes": True,             # 検出枠の重ね描き（第 2 段階）
     "keys": {},                     # キー割当の上書き（画面側の既定に対して）
     "recent_projects": [],          # 最近開いたプロジェクトのフォルダ（新しい順、最大 10）
+    "input_history": {},            # 入力欄の候補（欄の名前 → 過去に入れた値。× で消せる）
+    "input_hidden": {},             # 候補から消したもの（欄の名前 → 値。組の名前など、実在するものを候補に出さないために）
 }
 
 log = logging.getLogger(__name__)
@@ -107,6 +109,9 @@ class Settings:
             d["keys"] = {}
         rp = d.get("recent_projects")
         d["recent_projects"] = [str(p) for p in (rp if isinstance(rp, list) else []) if str(p).strip()][:10]
+        for k in ("input_history", "input_hidden"):           # 欄の名前 → 値の列（文字列。1 欄 30 個まで）
+            h = d.get(k)
+            d[k] = {str(a): [str(x) for x in v if str(x).strip()][:30] for a, v in (h.items() if isinstance(h, dict) else []) if isinstance(v, list)}
 
     def get(self, key, default=None):
         return self.data.get(key, default)

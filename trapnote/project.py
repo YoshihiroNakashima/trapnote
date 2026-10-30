@@ -94,6 +94,8 @@ def resolve_root_of(pdir: str, data: dict | None = None) -> str | None:
     for r in roots.values():
         if r and os.path.isdir(r):
             return norm(r)
+    if data.get("kind") == "cross":                  # 横断プロジェクトは置き場のフォルダ自体がプロジェクト（動画は参照先にある）。別の PC に移してもそのまま開ける
+        return pdir
     return None
 
 
@@ -105,7 +107,8 @@ class Project:
         if not isinstance(self.data, dict):
             if not create:
                 raise FileNotFoundError(f"プロジェクトがありません: {jp}")
-            self.data = dict(app=APP_ID, version=VERSION, name=os.path.basename(os.path.dirname(self.dir)) or "project",
+            own = kind == "cross" and os.path.basename(self.dir) != PROJECT_DIRNAME          # 横断: 置き場のフォルダ自体がプロジェクト → 名前はそのフォルダ名
+            self.data = dict(app=APP_ID, version=VERSION, name=(os.path.basename(self.dir) if own else os.path.basename(os.path.dirname(self.dir))) or "project",
                              roots={}, root="", settings=dict(PROJECT_DEFAULTS), created_at=self._now())
             if kind == "cross":
                 self.data.update(kind="cross", sources=[], imports=[])
