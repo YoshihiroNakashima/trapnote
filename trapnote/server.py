@@ -202,6 +202,18 @@ class Session:
         with self._tc_lock:
             return set(self._transcoding.keys())
 
+    def mjpeg_ids(self, ids: list[int]) -> list[int]:
+        """このうち MJPEG の AVI で画面側がそのまま読むもの（メタデータ取得済みのものだけ分かる）"""
+        p = self.need()
+        if not self.settings.get("avi_direct", True):
+            return []
+        out = []
+        for iid in ids:
+            r = p.db.q1("SELECT kind, vcodec, container, meta_state FROM items WHERE id=?", (iid,))
+            if r and r["kind"] == "video" and r["meta_state"] == 1 and (r["vcodec"] or "").lower() == "mjpeg" and (r["container"] or "").lower() in ("avi", "mjpeg"):
+                out.append(iid)
+        return out
+
     def prefetch(self, ids: list[int]) -> None:
         if not ids:
             return
@@ -214,6 +226,8 @@ class Session:
             codec = self.settings.get("transcode_codec", "h264")
             if codec == "h264" and r["meta_state"] == 1 and media.direct_playable(r["vcodec"], r["acodec"], r["container"]):
                 continue
+            if (self.settings.get("avi_direct", True) and (r["vcodec"] or "").lower() == "mjpeg" and (r["container"] or "").lower() in ("avi", "mjpeg")):
+                continue              # MJPEG の AVI は画面側がそのまま読む（変換しない。変換すると HDD / NAS の読み出しを取り合って、いま見ている動画の読み込みが遅くなる）
             if os.path.isfile(media.video_cache_path(p.cache_dir("video"), r["rel_path"], codec)):
                 continue
             todo.append(iid)
@@ -642,6 +656,7 @@ def make_app(session: Session) -> web.Application:
         nxt = [int(x) for x in (b.get("next_ids") or [])][:int(S.settings.get("prefetch_n", 3))]
         if nxt:
             await io(S.prefetch, nxt)
+            res = dict(res, next_mjpeg=await io(S.mjpeg_ids, nxt))       # 画面側が先読みする MJPEG の AVI
         return jr(res)
 
     async def video(request):

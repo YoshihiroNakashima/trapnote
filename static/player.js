@@ -39,7 +39,7 @@ async function showMedia(d, token) {
   if (token !== S.playToken) return;
   if (res.mjpeg && P.avi) {                       // MJPEG の AVI: 変換せずにそのまま
     v.classList.add('hidden'); v.removeAttribute('src'); v.load();
-    const ok = await playAvi(d, token);
+    const ok = await playAvi(d, token, res.next_mjpeg || []);
     if (ok || token !== S.playToken) return;
     try { res = await api(`/api/items/${d.id}/prepare`, { next_ids: nextIds, no_mjpeg: true }); } catch (e) { showOverlay(e.message); return; }   // 読めなければ従来の変換
     if (token !== S.playToken) return;
@@ -59,17 +59,40 @@ async function showMedia(d, token) {
   P.pollTimer = setTimeout(poll, 1000);
 }
 
-async function playAvi(d, token) {
+/* MJPEG の AVI の先読み: いま見ている動画を読み終えたら、次の動画（prepare が返す next_mjpeg）のファイルを裏で読んでおく（画面側のメモリに。合計の上限あり）。
+   次へ進んだときは読んであるものをそのまま使うので待たない。読み込み中でも、届いたコマから表示・再生する（AviPlayer.open） */
+const AVI_PRE_MAX_BYTES = 600e6;
+P.aviPre = new Map();          // item id → AviFetch
+function aviPrefetch(ids, keepId) {
+  if (typeof AviFetch !== 'function') return;
+  const want = new Set(ids);
+  for (const [id, fx] of P.aviPre) if (!want.has(id) && id !== keepId) { if (!fx.done) fx.abort(); P.aviPre.delete(id); }
+  let bytes = 0;
+  for (const fx of P.aviPre.values()) bytes += fx.total || fx.loaded;
+  for (const id of ids) {
+    if (P.aviPre.has(id) || bytes > AVI_PRE_MAX_BYTES) continue;
+    const fx = new AviFetch(`/api/items/${id}/raw`);
+    fx.promise.catch(() => { if (P.aviPre.get(id) === fx) P.aviPre.delete(id); });
+    P.aviPre.set(id, fx);
+    bytes += 150e6;            // 大きさが分かるまでの見込み
+  }
+}
+async function playAvi(d, token, nextMjpeg) {
   const a = P.avi;
   showOverlayLater(t('loading'), '', 300);
+  const pre = P.aviPre.get(d.id);
+  if (pre) P.aviPre.delete(d.id);
   try {
     const info = await a.open(`/api/items/${d.id}/raw`, () => token === S.playToken,
-      (n, total) => { if (token === S.playToken) showOverlay(t('loading'), `${(n / 1e6).toFixed(0)}${total ? ' / ' + (total / 1e6).toFixed(0) : ''} MB`); });
+      (n, total) => { if (token === S.playToken) showOverlay(t('loading'), `${(n / 1e6).toFixed(0)}${total ? ' / ' + (total / 1e6).toFixed(0) : ''} MB`); }, pre && !pre.aborted ? pre : undefined);
     if (token !== S.playToken) return true;
     P.fps = info.fps || P.fps; P.duration = a.duration || P.duration;
     a.playbackRate = S.settings.play_speed || 1; a.loop = !!$('#vbLoop').checked;
     hideOverlay(); renderVideoBar(); drawBoxes();
     a.play();
+    const fx = a._fetch;
+    const startPre = () => { if (token === S.playToken) aviPrefetch((nextMjpeg || []).slice(0, Math.max(1, Math.min(3, S.settings.prefetch_n ?? 3))), d.id); };
+    if (fx && !fx.done) fx.promise.then(startPre, () => {}); else startPre();     // いまの動画を読み終えてから次を読む（読み出しを取り合わない）
     return true;
   } catch (e) {
     if (token !== S.playToken) return true;
@@ -213,6 +236,7 @@ function wirePlayer() {
   for (const el of [v, P.avi].filter(Boolean)) {
     el.addEventListener('timeupdate', renderVideoBar);
     el.addEventListener('play', renderVideoBar); el.addEventListener('pause', renderVideoBar); el.addEventListener('ended', renderVideoBar);
+    el.addEventListener('durationchange', () => { P.duration = el.duration || P.duration; renderVideoBar(); });
     ['timeupdate', 'seeked', 'loadedmetadata', 'pause', 'ended'].forEach(ev => el.addEventListener(ev, drawBoxes));
     el.addEventListener('play', boxLoop);
   }
