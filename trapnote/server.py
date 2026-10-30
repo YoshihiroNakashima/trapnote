@@ -870,6 +870,17 @@ def make_app(session: Session) -> web.Application:
         path = b.get("path") or os.path.join(p.dir, "exports", f"agreement_{__import__('datetime').date.today().isoformat()}.csv")
         return jr(await io(detect.export_evaluation, p, path, _filters(b.get("filters") or {}), S.settings.get("language", "ja")))
 
+    async def judge_eval_prior(request):
+        p = S.need()
+        b = await _body(request)
+        return jr(await io(judge.evaluate_prior, p, _filters(b.get("filters") or {}), (str(b.get("by") or "").strip() or None)))
+
+    async def judge_eval_prior_csv(request):
+        p = S.need()
+        b = await _body(request)
+        path = b.get("path") or os.path.join(p.dir, "exports", f"prior_agreement_{__import__('datetime').date.today().isoformat()}.csv")
+        return jr(await io(judge.export_prior_evaluation, p, path, _filters(b.get("filters") or {}), (str(b.get("by") or "").strip() or None), S.settings.get("language", "ja")))
+
     # ---- 追加学習（第 3 段階） ----
     # ---- キャッシュ（再生用の変換・サムネイル・枠の画像・特徴量）の大きさと削除 ----
     async def cache_info(request):
@@ -1509,6 +1520,8 @@ def make_app(session: Session) -> web.Application:
     r.add_get("/api/detect/labels", detect_labels)
     r.add_post("/api/detect/eval", detect_eval)
     r.add_post("/api/detect/eval/csv", detect_eval_csv)
+    r.add_post("/api/judge/eval_prior", judge_eval_prior)
+    r.add_post("/api/judge/eval_prior/csv", judge_eval_prior_csv)
     r.add_post("/api/judge/bulk_verify", bulk_verify)
     r.add_get("/api/project/cache", cache_info)
     r.add_post("/api/project/cache/clear", cache_clear)

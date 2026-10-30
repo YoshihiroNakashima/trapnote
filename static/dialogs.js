@@ -650,9 +650,44 @@ async function labelsDialog() {
     <div class="modal-actions"><button id="mCancel">${esc(t('close'))}</button></div>`);
   m.querySelector('#mCancel').onclick = () => detectDialog();
 }
-async function evalDialog(filters, back) {
-  let r;
-  try { r = await api('/api/detect/eval', { filters: filters || {} }); } catch (e) { toast(e.message, 'error'); return; }
+async function evalDialog(filters, back, mode) {
+  // 一致率: 比べる相手 = AI の判定（検出済みのもの）/ 既存の種名（CSV・Timelapse・以前の判定と、確定した種名）
+  const st = { mode: mode || 'ai', useFilter: !!(filters && Object.keys(filters).length), by: '' };
+  const m = showModal(`<h3>${esc(t('ag_title'))}</h3>
+    <div class="form-row"><label>${esc(t('ag_against'))}</label><span style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><select id="agMode" style="width:auto"><option value="ai">${esc(t('ag_against_ai'))}</option><option value="prior">${esc(t('ag_against_prior'))}</option></select>
+      <label class="inline"><input type="checkbox" id="agFilter" ${st.useFilter ? 'checked' : ''}> ${esc(t('ag_use_filter'))}</label>
+      <span id="agByWrap" class="hidden"><label class="inline">${esc(t('ag_by'))} <select id="agBy" style="width:auto"><option value="">${esc(t('ag_by_all'))}</option></select></label></span></span></div>
+    <div id="agBody"></div>
+    <div id="agResult" class="note"></div>
+    <div class="modal-actions"><button id="mCancel">${esc(t('close'))}</button><button id="agExport" class="primary">${esc(t('ag_export'))}</button></div>`);
+  const q = sel => m.querySelector(sel);
+  q('#agMode').value = st.mode;
+  const curFilters = () => (q('#agFilter').checked ? Object.assign({}, S.filter) : {});
+  const render = async () => {
+    st.mode = q('#agMode').value;
+    q('#agByWrap').classList.toggle('hidden', st.mode !== 'prior');
+    const body = q('#agBody');
+    body.innerHTML = `<div class="note">${esc(t('loading'))}</div>`;
+    let r;
+    try { r = st.mode === 'prior' ? await api('/api/judge/eval_prior', { filters: curFilters(), by: st.by }) : await api('/api/detect/eval', { filters: curFilters() }); } catch (e) { body.innerHTML = `<div class="ng">${esc(e.message)}</div>`; return; }
+    body.innerHTML = st.mode === 'prior' ? evalPriorHtml(r) : evalAiHtml(r);
+    if (st.mode === 'prior') {
+      const sel = q('#agBy'); const cur = st.by;
+      sel.innerHTML = `<option value="">${esc(t('ag_by_all'))}</option>` + (r.people || []).map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join('');
+      sel.value = (r.people || []).includes(cur) ? cur : '';
+    }
+  };
+  q('#agMode').onchange = render; q('#agFilter').onchange = render; q('#agBy').onchange = () => { st.by = q('#agBy').value; render(); };
+  q('#mCancel').onclick = () => (back ? back() : closeModal());
+  q('#agExport').onclick = async () => {
+    try {
+      const x = st.mode === 'prior' ? await api('/api/judge/eval_prior/csv', { filters: curFilters(), by: st.by }) : await api('/api/detect/eval/csv', { filters: curFilters() });
+      q('#agResult').textContent = `${t('ag_exported')}: ${x.path} / ${x.matrix_path}`;
+    } catch (e) { toast(e.message, 'error'); }
+  };
+  await render();
+}
+function evalAiHtml(r) {
   const pct = (a, b) => b ? (100 * a / b).toFixed(0) + '%' : '—';
   const nm = c => c === '(low)' ? t('det_low') : spLabel(c);
   const spRows = sortCodes(Object.keys(r.by_species));
@@ -662,19 +697,28 @@ async function evalDialog(filters, back) {
   const matrix = cols.length ? `<h4>${esc(t('ag_matrix'))}</h4><div style="max-height:40vh;overflow:auto"><table class="tbl matrix"><tr><th>${esc(t('cmp_human'))} \\ AI</th>${cols.map(c => `<th>${esc(nm(c))}</th>`).join('')}<th>n</th></tr>
     ${mRows.map(h => { const row = r.matrix[h]; return `<tr><td><b>${esc(spLabel(h))}</b></td>${cols.map(c => `<td class="${c === h ? 'diag' : (row[c] ? 'off' : '')}">${row[c] || ''}</td>`).join('')}<td>${Object.values(row).reduce((a, b) => a + b, 0)}</td></tr>`; }).join('')}</table></div>` : '';
   const overall = r.n_model ? (100 * r.correct / r.n_model).toFixed(1) : '—';
-  const m = showModal(`<h3>${esc(t('ag_title'))}</h3><div class="note">${esc(t('ag_help'))}</div>
+  return `<div class="note">${esc(t('ag_help'))}</div>
     <div class="ag-big"><span class="ag-num">${overall}%</span><span class="info">${esc(t('ag_overall'))} · ${r.correct} / ${r.n_model}</span>
       <span class="info">${esc(t('dt_eval_n'))} ${r.n} · ${esc(t('det_low'))} ${r.n_low} (${pct(r.n_low, r.n)})</span></div>
     <div style="max-height:34vh;overflow:auto"><table class="tbl"><tr><th>${esc(t('dt_eval_human'))}</th><th>${esc(t('ag_n'))}</th><th>${esc(t('ag_rate'))}</th><th>${esc(t('det_low'))}</th><th>${esc(t('dt_eval_model'))}</th></tr>${rows || `<tr><td colspan="5" class="note">${esc(t('dt_eval_none'))}</td></tr>`}</table></div>
     ${matrix}
-    ${r.n_folded ? `<div class="note">${esc(t('ag_folded'))} (${r.n_folded})</div>` : ''}
-    <div id="agResult" class="note"></div>
-    <div class="modal-actions"><button id="mCancel">${esc(t('close'))}</button><button id="agExport" class="primary">${esc(t('ag_export'))}</button></div>`);
-  m.querySelector('#mCancel').onclick = () => (back ? back() : closeModal());
-  m.querySelector('#agExport').onclick = async () => {
-    try { const x = await api('/api/detect/eval/csv', { filters: filters || {} }); m.querySelector('#agResult').textContent = `${t('ag_exported')}: ${x.path} / ${x.matrix_path}`; }
-    catch (e) { toast(e.message, 'error'); }
-  };
+    ${r.n_folded ? `<div class="note">${esc(t('ag_folded'))} (${r.n_folded})</div>` : ''}`;
+}
+function evalPriorHtml(r) {
+  const pct = (a, b) => b ? (100 * a / b).toFixed(0) + '%' : '—';
+  const nm = c => c === '(none)' ? t('ag_prior_none_lbl') : spLabel(c);
+  const spRows = sortCodes(Object.keys(r.by_species));
+  const rows = spRows.map(c => { const d = r.by_species[c]; return `<tr><td><b>${esc(nm(c))}</b></td><td>${d.n}</td><td>${d.correct} <span class="info">(${pct(d.correct, d.n)})</span></td><td>${d.exact} <span class="info">(${pct(d.exact, d.n)})</span></td><td class="info">${esc(Object.entries(d.conf).map(([k, v]) => `${nm(k)} ${v}`).join(' · '))}</td></tr>`; }).join('');
+  const cols = sortCodes(new Set([].concat(r.cols || [], Object.keys(r.matrix || {}))));
+  const mRows = sortCodes(Object.keys(r.matrix || {}));
+  const matrix = cols.length ? `<h4>${esc(t('ag_prior_matrix'))}</h4><div style="max-height:40vh;overflow:auto"><table class="tbl matrix"><tr><th>${esc(t('ag_prior'))} \\ ${esc(t('ag_verified'))}</th>${cols.map(c => `<th>${esc(nm(c))}</th>`).join('')}<th>n</th></tr>
+    ${mRows.map(h => { const row = r.matrix[h]; return `<tr><td><b>${esc(nm(h))}</b></td>${cols.map(c => `<td class="${c === h ? 'diag' : (row[c] ? 'off' : '')}">${row[c] || ''}</td>`).join('')}<td>${Object.values(row).reduce((a, b) => a + b, 0)}</td></tr>`; }).join('')}</table></div>` : '';
+  const overall = r.n ? (100 * r.correct / r.n).toFixed(1) : '—';
+  return `<div class="note">${esc(t('ag_prior_help'))}</div>
+    <div class="ag-big"><span class="ag-num">${overall}%</span><span class="info">${esc(t('ag_overall'))} · ${r.correct} / ${r.n} · ${esc(t('ag_exact'))} ${r.exact} (${pct(r.exact, r.n)})</span>
+      <span class="info">${esc(t('ag_n_verified'))} ${r.n_verified} · ${esc(t('ag_prior_none'))} ${r.n_none} · ${esc(t('ag_unchecked'))} ${r.n_unchecked}</span></div>
+    <div style="max-height:34vh;overflow:auto"><table class="tbl"><tr><th>${esc(t('ag_prior'))}</th><th>${esc(t('ag_n'))}</th><th>${esc(t('ag_rate'))}</th><th>${esc(t('ag_exact'))}</th><th>${esc(t('ag_verified'))}</th></tr>${rows || `<tr><td colspan="5" class="note">${esc(t('ag_prior_empty'))}</td></tr>`}</table></div>
+    ${matrix}`;
 }
 async function bulkDialog() {
   let n = 0;

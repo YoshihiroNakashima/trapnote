@@ -634,3 +634,111 @@ def _drop_cross_caches(project, rel_path: str) -> None:
 
 def set_note(db: Database, item_id: int, note: str) -> None:
     db.x("UPDATE items SET note=?, updated_at=? WHERE id=?", (note.strip(), now_iso(), item_id))
+
+
+# ---------- 既存の種名（CSV / Timelapse / 以前の判定）と確定した種名の一致 ----------
+PRIOR_ACTIONS = ("save", "cross_pull", "merge", "resolve")      # 判定を変えうる履歴（before_json にその前の状態がある。bulk は判定を変えないので飛ばす）
+
+
+def prior_labels(db: Database, item_ids: list[int]) -> dict[int, list[str] | None]:
+    """対象ごとの「既存の種名」= このプロジェクトで最初に判定が変わる前の人の判定（CSV / Timelapse / 手動 / 確認済み由来。AI だけなら なし）。
+    履歴の最初の before_json から取る。履歴がない（このアプリで一度も確定していない）対象は入れない"""
+    out: dict[int, list[str] | None] = {}
+    qs_actions = ",".join("?" * len(PRIOR_ACTIONS))
+    for k in range(0, len(item_ids), 900):
+        part = item_ids[k:k + 900]
+        qs = ",".join("?" * len(part))
+        for r in db.q(f"SELECT item_id, before_json FROM history WHERE item_id IN ({qs}) AND action IN ({qs_actions}) ORDER BY id", (*part, *PRIOR_ACTIONS)):
+            if r["item_id"] in out:
+                continue
+            try:
+                before = json.loads(r["before_json"] or "{}")
+            except Exception:
+                before = {}
+            if not isinstance(before, dict) or "judgements" not in before:
+                continue
+            human = before.get("status") == "verified"
+            sp = [j["species"] for j in before.get("judgements") or [] if j.get("species") != "area" and (human or j.get("origin") in ("csv", "manual"))]
+            out[r["item_id"]] = sp or None
+    return out
+
+
+def evaluate_prior(project, f: dict | None = None, by: str | None = None) -> dict:
+    """確定した対象について、既存の種名（最初の確定の前の人の判定）と確定した種名を突き合わせる。
+    一致 = 既存の第 1 種が確定した種に含まれる。既存の種名が複数なら第 1 種で集計。既存の種名がない（このアプリで初めて付けた）ものは n_none"""
+    from .detect import species_order
+    db = project.db
+    where, params = build_where(f or {})
+    cond = f"{where} AND status='verified' AND missing=0"
+    if by:
+        cond += " AND verified_by=?"
+        params = (*params, by)
+    items = db.q(f"SELECT id FROM items WHERE {cond}", params)
+    ids = [r["id"] for r in items]
+    empty = dict(n_verified=len(ids), n=0, n_prior=0, n_none=0, n_unchecked=0, correct=0, exact=0, by_species={}, matrix={}, cols=[], people=[])
+    if not ids:
+        return empty
+    prior = prior_labels(db, ids)
+    cur: dict[int, list[str]] = {}
+    for k in range(0, len(ids), 900):
+        part = ids[k:k + 900]
+        qs = ",".join("?" * len(part))
+        for j in db.q(f"SELECT item_id, species FROM judgements WHERE item_id IN ({qs}) AND species != 'area' ORDER BY id", part):
+            cur.setdefault(j["item_id"], []).append(j["species"])
+    order = species_order(project)
+    key = lambda c: (c == "(none)", order.get(c, len(order)), c)
+    by_sp: dict[str, dict] = {}
+    n = correct = exact = n_none = n_unchecked = 0
+    for iid in ids:
+        if iid not in prior:
+            n_unchecked += 1                          # 履歴がない = このアプリで確定していない（CSV や参照先で確認済みのまま）
+            continue
+        ps = prior[iid]
+        cs = cur.get(iid) or ["(none)"]
+        if not ps:
+            n_none += 1
+            continue
+        n += 1
+        p1 = ps[0]
+        d = by_sp.setdefault(p1, dict(n=0, correct=0, exact=0, conf={}))
+        d["n"] += 1
+        c1 = cs[0]
+        d["conf"][c1] = d["conf"].get(c1, 0) + 1
+        if p1 in cs:
+            correct += 1
+            d["correct"] += 1
+        if set(ps) == set(cs):
+            exact += 1
+            d["exact"] += 1
+    matrix = {p: dict(d["conf"]) for p, d in sorted(by_sp.items(), key=lambda x: key(x[0]))}
+    cols = sorted({c for row in matrix.values() for c in row} | set(matrix.keys()), key=key)
+    for d in by_sp.values():
+        d["conf"] = dict(sorted(d["conf"].items(), key=lambda x: -x[1])[:6])
+    people = [r[0] for r in db.q(f"SELECT DISTINCT verified_by FROM items WHERE {where} AND status='verified' AND missing=0 AND verified_by IS NOT NULL AND verified_by != '' ORDER BY 1", build_where(f or {})[1])]
+    return dict(n_verified=len(ids), n=n, n_prior=n, n_none=n_none, n_unchecked=n_unchecked, correct=correct, exact=exact,
+                by_species=dict(sorted(by_sp.items(), key=lambda x: key(x[0]))), matrix=matrix, cols=cols, people=people)
+
+
+def export_prior_evaluation(project, path: str, f: dict | None = None, by: str | None = None, lang: str = "ja") -> dict:
+    """既存の種名 × 確定した種名の集計を CSV に書く（種ごとの表と行列 _matrix.csv）"""
+    import csv as _csv
+    ev = evaluate_prior(project, f, by)
+    sp = project.species
+    name = lambda c: "なし" if c == "(none)" else (sp.label(c, lang) if hasattr(sp, "label") else c)
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w", newline="", encoding="utf-8-sig") as fh:
+        w = _csv.writer(fh)
+        w.writerow(["Prior", "Prior_ja", "n", "Agree", "AgreeRate", "Exact", "Verified_breakdown"])
+        for c, d in ev["by_species"].items():
+            w.writerow([sp.csv_label(c) if hasattr(sp, "csv_label") else c, name(c), d["n"], d["correct"], f"{d['correct'] / d['n']:.3f}" if d["n"] else "", d["exact"],
+                        "; ".join(f"{name(k)}={v}" for k, v in d["conf"].items())])
+        w.writerow([])
+        w.writerow(["Total", "", ev["n"], ev["correct"], f"{ev['correct'] / ev['n']:.3f}" if ev["n"] else "", ev["exact"], f"verified={ev['n_verified']}; no_prior={ev['n_none']}; not_rechecked={ev['n_unchecked']}"])
+    mpath = os.path.splitext(path)[0] + "_matrix.csv"
+    cols = ev["cols"]
+    with open(mpath, "w", newline="", encoding="utf-8-sig") as fh:
+        w = _csv.writer(fh)
+        w.writerow(["Prior \\ Verified"] + [name(c) for c in cols] + ["n"])
+        for h, row in ev["matrix"].items():
+            w.writerow([name(h)] + [row.get(c, 0) for c in cols] + [sum(row.values())])
+    return dict(path=path, matrix_path=mpath, n=ev["n"], correct=ev["correct"])

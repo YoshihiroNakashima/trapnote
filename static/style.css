@@ -160,6 +160,7 @@ table.rep button { padding: 0 6px; font-size: 11px; }
 .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
 .form-row { display: grid; grid-template-columns: 170px 1fr auto; gap: 8px; align-items: center; margin: 6px 0; }
 .form-row input[type=text], .form-row input[type=number], .form-row select, #modal textarea { font: inherit; padding: 4px 6px; border: 1px solid var(--border); border-radius: 4px; width: 100%; }
+.form-row label.inline { display: inline-flex; gap: 4px; align-items: center; white-space: nowrap; }
 .form-row .help { grid-column: 2 / span 2; font-size: 11px; color: var(--muted); }
 table.preview, table.list { border-collapse: collapse; font-size: 12px; margin: 8px 0; width: 100%; }
 table.preview td, table.preview th, table.list td, table.list th { border: 1px solid #ddd; padding: 2px 6px; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
