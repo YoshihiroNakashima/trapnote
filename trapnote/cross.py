@@ -2098,11 +2098,12 @@ def export_list(project, path: str, f: dict | None = None) -> dict:
     return dict(path=path, n=len(rows))
 
 
-def export_subset(project, ids: list[int], out_dir: str, copy_videos_too: bool = True, progress=None, stop=None, project_dirname: str = "") -> dict:
+def export_subset(project, ids: list[int], out_dir: str, copy_videos_too: bool = True, progress=None, stop=None, project_dirname: str = "", workers: int = 3) -> dict:
     """選んだ対象を、動画と判定ごと別のフォルダへ写して、そこに新しい（調査回型の）プロジェクトを作る: <out_dir>/<相対パス> に動画、<out_dir>/<project_dirname> に
     種リスト・追加項目・設定・対象（メタデータ・判定・追加項目の値・AI の判定・枠・特徴量・枠の画像）。配布や手元の複製、別の PC での作業に。
     project_dirname は自分で決められる（空なら TrapNote）。TrapNote 以外の名前のときは project.json に root_is_parent を付け、動画のフォルダ（out_dir）を開けば見つかるようにする。
     out_dir に既にプロジェクトがあれば、そこに足す（同じ相対パスの対象は飛ばす）。どのプロジェクト（調査回・横断）からでも使える"""
+    from .fcopy import CopyCancelled, Throughput, copy_many, copy_to
     from .judge import item_state
     from .project import PROJECT_DIRNAME, Project, find_project_for_root, is_project_dir
     from .train import crop_path, features_path
@@ -2142,41 +2143,57 @@ def export_subset(project, ids: list[int], out_dir: str, copy_videos_too: bool =
         dcols = {r["name"] for r in ddb.q("PRAGMA table_info(items)")}
         copy_cols = [c for c in cols if c in dcols and c not in ITEM_COPY_SKIP - {"batch"}]
         now = now_iso()
-        n = n_miss = n_skip = 0
-        stopped = False
-        # 1 本ずつ（動画のコピーは長いので、「止める」は 1 本ごとに効く。写し終えた分はそのまま残り、やり直せば続きから）
-        for sid in [int(x) for x in ids]:
-            if stop and stop():
-                stopped = True
-                break
-            srow = db.q1("SELECT * FROM items WHERE id=?", (sid,))
-            if srow is None:
-                continue
-            srow = dict(srow)
-            rel = srow["rel_path"]
+        counts = dict(n=0, miss=0, skip=0)
+        tp = Throughput()
+        ids = [int(x) for x in ids]
+        total = len(ids)
+
+        def report(rel: str) -> None:
             if progress:
-                progress(n + n_miss + n_skip, len(ids), rel)
-            if ddb.scalar("SELECT 1 FROM items WHERE rel_key=? LIMIT 1", (rel_key(rel),)):       # 写してあるものは飛ばす（動画も触らない）
-                n_skip += 1
-                continue
-            if copy_videos_too:                                   # 動画: <out_dir>/<相対パス>（横断なら <参照先>/<参照先での相対パス>）
-                src_f = project.abs_path(rel)
-                dst_f = os.path.join(out_dir, *rel.split("/"))
-                if not os.path.isfile(src_f):
-                    n_miss += 1
+                k = counts["n"] + counts["miss"] + counts["skip"]
+                progress(k, total, f"{rel} · {tp.text()}" if tp.bytes else rel)
+
+        def tasks():
+            """写す対象（写してあるものは飛ばす）。DB はこのスレッドだけが触る"""
+            for sid in ids:
+                srow = db.q1("SELECT * FROM items WHERE id=?", (sid,))
+                if srow is None:
                     continue
-                if not (os.path.isfile(dst_f) and os.path.getsize(dst_f) == os.path.getsize(src_f)):
-                    os.makedirs(os.path.dirname(dst_f), exist_ok=True)
-                    tmp = dst_f + ".part"                             # 途中で止めても中途半端なファイルを残さない
-                    try:
-                        shutil.copy2(src_f, tmp)
-                        os.replace(tmp, dst_f)
-                    except BaseException:
-                        try:
-                            os.remove(tmp)
-                        except OSError:
-                            pass
-                        raise
+                srow = dict(srow)
+                rel = srow["rel_path"]
+                if ddb.scalar("SELECT 1 FROM items WHERE rel_key=? LIMIT 1", (rel_key(rel),)):       # 写してあるものは飛ばす（動画も触らない）
+                    counts["skip"] += 1
+                    report(rel)
+                    continue
+                yield (sid, srow, rel)
+
+        def do_copy(task):
+            """動画を <out_dir>/<相対パス> に写す（横断なら <参照先>/<参照先での相対パス>）。並列のスレッドで。返り値: "ok" / "missing" / "same"（同じ大きさのものが既にある）"""
+            sid, srow, rel = task
+            if not copy_videos_too:
+                return "ok"
+            src_f = project.abs_path(rel)
+            dst_f = os.path.join(out_dir, *rel.split("/"))
+            try:
+                size = os.path.getsize(src_f)
+            except OSError:
+                return "missing"
+            if os.path.isfile(dst_f) and os.path.getsize(dst_f) == size:
+                return "same"
+            tp.add(copy_to(src_f, dst_f, stop))
+            return "ok"
+
+        def record(task, res) -> None:
+            """写し終えた対象を新しいプロジェクトに記録（判定・追加項目の値・AI の判定・枠・特徴量・枠の画像）"""
+            sid, srow, rel = task
+            if isinstance(res, CopyCancelled):
+                return
+            if isinstance(res, BaseException):
+                raise res
+            if res == "missing":
+                counts["miss"] += 1
+                report(rel)
+                return
             with ddb.tx() as c:
                 vals = {k: srow.get(k) for k in copy_cols}
                 vals.update(rel_path=rel, rel_key=rel_key(rel), folder=os.path.dirname(rel), src_dir=None, src_id=None, src_rel=None, updated_at=now,
@@ -2185,8 +2202,9 @@ def export_subset(project, ids: list[int], out_dir: str, copy_videos_too: bool =
                 names = list(vals.keys())
                 cur = c.execute(f"INSERT OR IGNORE INTO items({', '.join(names)}) VALUES({', '.join('?' * len(names))})", [vals[k] for k in names])
                 if cur.rowcount == 0:
-                    n_skip += 1
-                    continue
+                    counts["skip"] += 1
+                    report(rel)
+                    return
                 nid = cur.lastrowid
                 st0 = item_state(db, sid)                                   # 判定・追加項目の値・メモ・担当・状態
                 _apply_state(c, nid, st0, None)
@@ -2209,32 +2227,46 @@ def export_subset(project, ids: list[int], out_dir: str, copy_videos_too: bool =
                         shutil.copytree(ca, cb)
                     except OSError as e:
                         log.warning("枠の画像を写せません %s: %s", ca, e)
-                n += 1
-        return dict(n=n, n_missing=n_miss, n_skipped=n_skip, out_dir=out_dir, project_dir=dst.dir, fresh=fresh, stopped=stopped, n_left=len(ids) - n - n_miss - n_skip)
+                counts["n"] += 1
+            report(rel)
+
+        # 動画は workers 本ずつ並列に写す（NAS からは 1 本ずつより速い）。「止める」は写している途中でも効く（.part を消す）。写し終えた分は残り、やり直せば続きから
+        stopped = copy_many(tasks(), do_copy, record, workers=workers if copy_videos_too else 1, stop=stop)
+        n, n_miss, n_skip = counts["n"], counts["miss"], counts["skip"]
+        return dict(n=n, n_missing=n_miss, n_skipped=n_skip, out_dir=out_dir, project_dir=dst.dir, fresh=fresh, stopped=stopped, n_left=len(ids) - n - n_miss - n_skip,
+                    bytes=tp.bytes, seconds=round(tp.seconds, 1), mb_s=round(tp.mb_s, 1), speed=tp.text() if tp.bytes else "")
     finally:
         dst.close()
 
 
-def copy_videos(project, out_dir: str, f: dict | None = None, progress=None, stop=None) -> dict:
-    """対象の動画を out_dir/<参照先>/<参照先での相対パス> に写す（研究用の手元の複製や配布に）"""
+def copy_videos(project, out_dir: str, f: dict | None = None, progress=None, stop=None, workers: int = 3) -> dict:
+    """対象の動画を out_dir/<参照先>/<参照先での相対パス> に写す（研究用の手元の複製や配布に）。workers 本ずつ並列、OS のコピーで"""
+    from .fcopy import CopyCancelled, Throughput, copy_many, copy_to
     from .judge import build_where
     where, p = build_where(dict(f or {}))
     rows = project.db.q(f"SELECT id, rel_path FROM items WHERE {where} ORDER BY rel_path", p)
-    n_ok = n_miss = 0
-    for n, r in enumerate(rows):
-        if stop and stop():
-            break
+    counts = dict(ok=0, miss=0)
+    tp = Throughput()
+
+    def do_copy(r):
         src = project.abs_path(r["rel_path"])
         dst = os.path.join(out_dir, *r["rel_path"].split("/"))
-        if progress and n % 10 == 0:
-            progress(n, len(rows), r["rel_path"])
-        if not os.path.isfile(src):
-            n_miss += 1
-            continue
-        if os.path.isfile(dst) and os.path.getsize(dst) == os.path.getsize(src):
-            n_ok += 1
-            continue
-        os.makedirs(os.path.dirname(dst), exist_ok=True)
-        shutil.copy2(src, dst)
-        n_ok += 1
-    return dict(n=n_ok, n_missing=n_miss, out_dir=norm(out_dir))
+        try:
+            size = os.path.getsize(src)
+        except OSError:
+            return "missing"
+        if os.path.isfile(dst) and os.path.getsize(dst) == size:
+            return "same"
+        tp.add(copy_to(src, dst, stop))
+        return "ok"
+
+    def done(r, res):
+        if isinstance(res, CopyCancelled):
+            return
+        if isinstance(res, BaseException):
+            raise res
+        counts["miss" if res == "missing" else "ok"] += 1
+        if progress and (counts["ok"] + counts["miss"]) % 5 == 0:
+            progress(counts["ok"] + counts["miss"], len(rows), f"{r['rel_path']} · {tp.text()}" if tp.bytes else r["rel_path"])
+    stopped = copy_many(rows, do_copy, done, workers=workers, stop=stop)
+    return dict(n=counts["ok"], n_missing=counts["miss"], out_dir=norm(out_dir), stopped=stopped, bytes=tp.bytes, seconds=round(tp.seconds, 1), mb_s=round(tp.mb_s, 1), speed=tp.text() if tp.bytes else "")

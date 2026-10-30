@@ -801,10 +801,10 @@ class CrossCopyJob(Job):
 
         def prog(a, b, msg):
             self.done, self.total, self.current = a, b, msg or ""
-        r = cross.copy_videos(project, self.out_dir, self.filters, prog, self.stop_flag.is_set)
+        r = cross.copy_videos(project, self.out_dir, self.filters, prog, self.stop_flag.is_set, int(ctx.settings.get("copy_workers", 3) or 3))
         self.result = r
         self.done = self.total = r["n"]
-        self.message = f"{r['n']} 本を {r['out_dir']} に写しました" + (f"（見つからない {r['n_missing']}）" if r["n_missing"] else "")
+        self.message = (f"止めました: {r['n']} 本まで" if r.get("stopped") else f"{r['n']} 本") + (f"（{r['speed']}、{r['seconds'] / 60:.0f} 分）" if r.get("speed") else "") + f" を {r['out_dir']} に写しました" + (f"（見つからない {r['n_missing']}）" if r["n_missing"] else "")
 
     def status(self) -> dict:
         d = super().status()
@@ -831,11 +831,13 @@ class SubsetExportJob(Job):
 
         def prog(a, b, msg):
             self.done, self.total, self.current = a, b, msg or ""
-        r = cross.export_subset(project, self.ids, self.out_dir, self.copy_videos, prog, self.stop_flag.is_set, self.project_dirname)
+        workers = int(ctx.settings.get("copy_workers", 3) or 3)
+        r = cross.export_subset(project, self.ids, self.out_dir, self.copy_videos, prog, self.stop_flag.is_set, self.project_dirname, workers)
         self.result = r
         self.done = r["n"] + r["n_missing"] + r["n_skipped"]
         self.total = len(self.ids)
-        self.message = (f"止めました: {r['n']} 本を写したところまで（残り {r['n_left']}。同じ写す先でやり直せば続きから）" if r.get("stopped") else f"{r['n']} 本を {r['out_dir']} に写しました") \
+        sp = f"、{r['speed']}、{r['seconds'] / 60:.0f} 分" if r.get("speed") else ""
+        self.message = (f"止めました: {r['n']} 本を写したところまで（残り {r['n_left']}。同じ写す先でやり直せば続きから）" if r.get("stopped") else f"{r['n']} 本（{sp.lstrip('、')}）を {r['out_dir']} に写しました") \
             + f"（プロジェクト {r['project_dir']}）" + (f"（見つからない {r['n_missing']}）" if r["n_missing"] else "") + (f"（写してあった {r['n_skipped']}）" if r["n_skipped"] else "")
 
     def status(self) -> dict:

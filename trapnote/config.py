@@ -29,6 +29,7 @@ DEFAULTS = {
     "transcode_codec": "h264",      # 再生用の動画の codec。h264（MP4。既定）/ vp9（WebM。H.264 を再生できないブラウザの試験用）
     "avi_direct": True,             # MJPEG の AVI は変換せず、画面側でコマ（JPEG）を直接読んで再生する（音は出ない）
     "prefetch_n": 3,                # 開いた動画の次の何本を先に変換しておくか
+    "copy_workers": 3,              # 動画を別のフォルダへ写すときの並列数（NAS からは 2〜4 本同時の方が速い）
     "auto_advance": True,           # 確定したら次の対象へ進む
     "play_speed": 1.0,              # 再生の速さ（0.5 / 1 / 2 / 4）
     "loop": False,                  # ループ再生
@@ -81,7 +82,7 @@ class Settings:
         d["ffmpeg_path"] = str(d.get("ffmpeg_path") or "").strip()
         if d.get("device") not in ("auto", "cuda", "mps", "cpu"):
             d["device"] = "auto"
-        for k, lo, hi in (("cache_limit_gb", 1, 10000), ("transcode_max_width", 320, 4096), ("prefetch_n", 0, 20)):
+        for k, lo, hi in (("cache_limit_gb", 1, 10000), ("transcode_max_width", 320, 4096), ("prefetch_n", 0, 20), ("copy_workers", 1, 8)):
             try:
                 d[k] = min(hi, max(lo, float(d[k])))
             except Exception:
@@ -90,6 +91,7 @@ class Settings:
         if d.get("transcode_codec") not in ("h264", "vp9"):
             d["transcode_codec"] = "h264"
         d["prefetch_n"] = int(d["prefetch_n"])
+        d["copy_workers"] = int(d["copy_workers"])
         try:
             d["batch_size"] = min(64, max(1, int(d.get("batch_size") or 8)))
         except Exception:

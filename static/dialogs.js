@@ -69,6 +69,7 @@ async function settingsDialog() {
     <div class="form-row"><label>${esc(t('s_cache'))}</label><input type="number" id="sCache" value="${esc(s.cache_limit_gb)}" min="1"></div>
     <div class="form-row"><label>${esc(t('s_width'))}</label><input type="number" id="sWidth" value="${esc(s.transcode_max_width)}" min="320" step="16"></div>
     <div class="form-row"><label>${esc(t('s_prefetch'))}</label><input type="number" id="sPrefetch" value="${esc(s.prefetch_n)}" min="0" max="20"></div>
+    <div class="form-row"><label>${esc(t('s_copy_workers'))}</label><input type="number" id="sCopyWorkers" value="${esc(s.copy_workers ?? 3)}" min="1" max="8"><div class="help">${esc(t('s_copy_workers_help'))}</div></div>
     <div class="form-row"><label>${esc(t('s_avi_direct'))}</label><input type="checkbox" id="sAviDirect" ${s.avi_direct !== false ? 'checked' : ''}><div class="help">${esc(t('s_avi_direct_help'))}</div></div>
     <div class="form-row"><label>${esc(t('s_auto_advance'))}</label><input type="checkbox" id="sAdv" ${s.auto_advance !== false ? 'checked' : ''}></div>
     <div class="form-row"><label>${esc(t('s_port'))}</label><input type="number" id="sPort" value="${esc(s.port)}"></div>
@@ -113,7 +114,7 @@ async function settingsDialog() {
   m.querySelector('#mOk').onclick = async () => {
     try {
       const ch = { user_name: m.querySelector('#sUser').value, language: m.querySelector('#sLang').value, ffmpeg_path: m.querySelector('#sFfmpeg').value,
-        cache_limit_gb: parseFloat(m.querySelector('#sCache').value), transcode_max_width: parseInt(m.querySelector('#sWidth').value), prefetch_n: parseInt(m.querySelector('#sPrefetch').value),
+        cache_limit_gb: parseFloat(m.querySelector('#sCache').value), transcode_max_width: parseInt(m.querySelector('#sWidth').value), prefetch_n: parseInt(m.querySelector('#sPrefetch').value), copy_workers: parseInt(m.querySelector('#sCopyWorkers').value),
         auto_advance: m.querySelector('#sAdv').checked, port: parseInt(m.querySelector('#sPort').value), avi_direct: m.querySelector('#sAviDirect').checked };
       S.settings = await api('/api/settings', ch);
       if (p) {
