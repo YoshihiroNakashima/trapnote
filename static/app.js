@@ -114,7 +114,11 @@ function renderTarget() {
   if (f.meta_pending) parts.push(`${t('meta_pending')} ${f.meta_pending}`);
   if (f.corrected) parts.push(`⏱ ${f.corrected}`);
   if (S.snap && S.snap.conflicts_n) parts.push(`<span style="color:#c0392b">${t('conflicts_badge')} ${S.snap.conflicts_n}</span>`);
+  const ef = S.project.exported_from;
+  if (!cross && ef && ef.dir) parts.push(`<span class="clickable" id="btnOrigin" title="${esc(t('origin_tip'))}">${esc(t('origin_open'))}: ${esc(ef.project || ef.dir)}</span>`);     // 写した元（横断プロジェクトなど）へ戻る
   el.innerHTML = parts.join(' · ');
+  const bo = el.querySelector('#btnOrigin');
+  if (bo) bo.onclick = () => openProjectPath(ef.dir);
   // 横断プロジェクトでは「参照先と取り込み」を出し、参照先の動画を書き換える機能（保存用の変換）と走査前提の読み込みは隠す
   $('#btnCross').classList.toggle('hidden', !cross);
   ['#btnArchive', '#btnTimelapse', '#btnImport'].forEach(sel => $(sel).classList.toggle('hidden', cross));

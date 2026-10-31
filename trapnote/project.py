@@ -266,7 +266,8 @@ class Project:
         return dict(dir=self.dir, name=self.name, root=self.root, roots=self.data.get("roots", {}), kind=self.kind,
                     sources=[dict(name=s.get("name"), kind=s.get("kind") or "project", dir=s.get("dir"), root=self.source_root(s.get("name"))) for s in self.sources()] if self.is_cross else [],
                     settings=self.data.get("settings", {}), created_at=self.data.get("created_at"),
-                    updated_at=self.data.get("updated_at"), is_default_place=(key(os.path.dirname(self.dir)) == key(self.root or "")))
+                    updated_at=self.data.get("updated_at"), is_default_place=(key(os.path.dirname(self.dir)) == key(self.root or "")),
+                    exported_from=self.data.get("exported_from"))      # 「別のフォルダへ写す」で作ったプロジェクト: 元のプロジェクト（横断など）
 
     def close(self) -> None:
         try:
