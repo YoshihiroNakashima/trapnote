@@ -1494,6 +1494,55 @@ def remap_catalog(project, progress=None, stop=None) -> dict:
     return dict(n_changed=n_changed, n_combos=len(combos))
 
 
+def import_label_map(project, other_path: str, overwrite: bool = False) -> dict:
+    """別のプロジェクト（横断でも調査回でも。project.json に label_map があるもの）から種名の対応表を持ってくる。
+    overwrite=False ならこちらにない表記だけ足す、True なら相手の対応で上書き。対応先の種がこちらの種リストにないときは相手の種リストから写す（同じ英名・学名・和名があればそれ）。
+    返り値 dict(n_added, n_updated, n_kept, species_added, map)"""
+    from .project import PROJECT_JSON, read_json
+    from .species import SpeciesList
+    other_path = norm(other_path)
+    pdir, _ = _project_at(other_path)
+    if not pdir:
+        raise ValueError(f"プロジェクトがありません: {other_path}")
+    if key(pdir) == key(project.dir):
+        raise ValueError("自分自身からは持ってこられません")
+    odata = read_json(os.path.join(pdir, PROJECT_JSON), None) or {}
+    omap = {str(k).strip().lower(): str(v or "").strip().lower() for k, v in (odata.get("label_map") or {}).items() if str(k).strip()}
+    if not omap:
+        raise ValueError("そのプロジェクトには対応表がありません")
+    osp = SpeciesList(os.path.join(pdir, "species.csv")) if os.path.isfile(os.path.join(pdir, "species.csv")) else None
+    mine = dict(label_map(project))
+    by = project.species.by_code()
+    added = updated = kept = 0
+    species_added: list[str] = []
+    code_of: dict[str, str] = {}                        # 相手のコード → こちらのコード（種を写したときに変わることがある）
+    for k, v in omap.items():
+        if k in mine and not overwrite:
+            kept += 1
+            continue
+        code = v
+        if v and v not in by:
+            if v in code_of:
+                code = code_of[v]
+            else:
+                row = (osp.by_code().get(v) if osp else None)
+                if row is None:
+                    continue                                # 相手の種リストにもない対応は飛ばす
+                r = project.species.add(dict(row))
+                code = r["code"]
+                code_of[v] = code
+                by = project.species.by_code()
+                species_added.append(code)
+        if k in mine:
+            if mine[k] != code:
+                updated += 1
+        else:
+            added += 1
+        mine[k] = code
+    r = set_label_map(project, mine)
+    return dict(n_added=added, n_updated=updated, n_kept=kept, species_added=species_added, n=r.get("n", len(mine)), from_dir=pdir, species=r.get("species"))
+
+
 def _other_cross(project, other_path: str):
     """別の横断プロジェクトのフォルダ → (プロジェクトのフォルダ, project.json の中身)"""
     from .project import PROJECT_JSON, read_json

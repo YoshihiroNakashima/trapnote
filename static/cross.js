@@ -201,9 +201,24 @@ async function crossTabLabels(m, body) {
     <div class="cr-actions"><input type="text" id="crLabQ" placeholder="${esc(t('search'))}" value="${esc(CR.labelQ)}" spellcheck="false" style="width:150px">
       <span class="info">${esc(t('cr_bulk'))}</span><select id="crLabBulk">${spOpts('bird')}<option value="">${esc(t('cr_skip_label'))}</option><option value="__auto__">${esc(t('cr_auto'))}</option></select><button type="button" class="small" id="crLabApply">${esc(t('cr_bulk_apply'))}</button></div>
     <div id="crLabTable" style="max-height:48vh;overflow:auto"></div>
-    <div class="cr-actions"><button type="button" class="primary" id="crLabSaveBuild">${esc(t('cr_save_build'))}</button><button type="button" id="crLabSave">${esc(t('cr_save_only'))}</button><span class="info">${esc(t('cr_save_help'))}</span></div>`;
+    <div class="cr-actions"><button type="button" class="primary" id="crLabSaveBuild">${esc(t('cr_save_build'))}</button><button type="button" id="crLabSave">${esc(t('cr_save_only'))}</button><span class="info">${esc(t('cr_save_help'))}</span></div>
+    <details class="adv"><summary>${esc(t('cr_lm_import'))}</summary><div class="note">${esc(t('cr_lm_import_help'))}</div>
+      <div class="form-row"><label>${esc(t('cr_lm_import_l'))}</label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><input type="text" id="crLmPath" spellcheck="false" style="width:380px" placeholder="F:\\Studies\\gold"><button type="button" class="small" data-pick="crLmPath" data-kind="folder" data-name="">${esc(t('pick'))}</button>
+        <label class="inline"><input type="checkbox" id="crLmOver"> ${esc(t('cr_lm_overwrite'))}</label><button type="button" class="primary small" id="crLmGo">${esc(t('cr_lm_import_go'))}</button></span></div></details>`;
   render();
   const q = sel => m.querySelector(sel);
+  wirePicks(m);
+  histWire(q('#crLmPath'), 'cross_place');
+  q('#crLmGo').onclick = async () => {
+    const pth = q('#crLmPath').value.trim(); if (!pth) return;
+    try {
+      const res = await api('/api/cross/labels/import', { path: pth, overwrite: q('#crLmOver').checked });
+      if (res.species) { S.species = res.species; rebuildSpMap(); if (typeof renderSpeciesPanel === 'function') renderSpeciesPanel(); }
+      if (res.state) setSnapshot(res.state);
+      toast(`${t('cr_lm_imported')}: ${t('cr_lm_added')} ${res.n_added} · ${t('cr_lm_updated')} ${res.n_updated} · ${t('cr_lm_kept')} ${res.n_kept}${res.species_added.length ? ` · ${t('cr_lm_species_added')} ${res.species_added.length}` : ''}`);
+      crossModalEl = null; crossDialog('labels');
+    } catch (e) { toast(e.message, 'error'); }
+  };
   m.querySelectorAll('[data-read]').forEach(b => { b.onclick = async () => { try { const j = await api('/api/cross/labels/read', { name: b.dataset.read }); crossTrack(m, j, 'labels'); } catch (e) { toast(e.message, 'error'); } }; });
   q('#crLabQ').oninput = () => { CR.labelQ = q('#crLabQ').value; render(); };
   q('#crLabApply').onclick = () => {

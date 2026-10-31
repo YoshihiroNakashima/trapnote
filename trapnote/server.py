@@ -1260,6 +1260,16 @@ def make_app(session: Session) -> web.Application:
         submit_labels(p, name)
         return jr(S.jobs_status())
 
+    async def cross_labels_import(request):
+        """別のプロジェクトから種名の対応表を持ってくる（こちらにない表記だけ / 上書き）"""
+        p = need_cross()
+        b = await _body(request)
+        try:
+            r = await io(cross.import_label_map, p, str(b.get("path") or ""), bool(b.get("overwrite")))
+        except (ValueError, FileNotFoundError) as e:
+            raise ApiError(str(e))
+        return jr(dict(r, species=p.species.to_dict(), state=await io(S.snapshot)))
+
     async def cross_labels_save(request):
         p = need_cross()
         b = await _body(request)
@@ -1555,6 +1565,7 @@ def make_app(session: Session) -> web.Application:
     r.add_post("/api/cross/labels/save", cross_labels_save)
     r.add_post("/api/cross/catalog/build", cross_catalog_build)
     r.add_post("/api/cross/catalog/import_from", cross_catalog_import_from)
+    r.add_post("/api/cross/labels/import", cross_labels_import)
     r.add_post("/api/cross/catalog/counts", cross_catalog_counts)
     r.add_post("/api/cross/catalog/rows", cross_catalog_rows)
     r.add_post("/api/cross/catalog/sample", cross_catalog_sample)
