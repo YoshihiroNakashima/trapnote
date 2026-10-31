@@ -329,3 +329,17 @@ table.cr-labels th { position: sticky; top: 0; background: #fff; z-index: 1; }
 li.empty { list-style: none; padding: 16px 12px; color: var(--muted); font-size: 12.5px; line-height: 1.6; }
 li.empty button { display: block; margin-top: 8px; }
 li.empty .info { margin: 4px 0; }
+
+/* 学習に使う枠（右の欄。クリックで学習から外す） */
+#cropsDet > summary { cursor: pointer; list-style: none; }
+#cropsDet > summary::-webkit-details-marker { display: none; }
+#cropsDet > summary::before { content: '▸'; margin-right: 4px; color: var(--muted); }
+#cropsDet[open] > summary::before { content: '▾'; }
+#cropsDet > summary .right { margin-left: auto; }
+.crops-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-top: 4px; }
+.crop { position: relative; margin: 0; cursor: pointer; border-radius: 4px; overflow: hidden; background: #e9ebef; }
+.crop img { display: block; width: 100%; aspect-ratio: 1 / 1; object-fit: cover; }
+.crop figcaption { font-size: 10px; color: var(--muted); padding: 1px 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.crop.off img { opacity: 0.25; filter: grayscale(1); }
+.crop.off::after { content: '✕'; position: absolute; left: 0; right: 0; top: 30%; text-align: center; font-size: 26px; font-weight: 700; color: #b3261e; }
+.crop:hover { outline: 2px solid var(--accent, #3b5bdb); }

@@ -98,7 +98,7 @@ async function refreshCurrent() {   // 開いている対象の判定・検出�
     const playing = S.cur.det_state === d.det_state && S.cur.status === d.status && S.cur.updated_at === d.updated_at;
     if (playing) return;
     S.cur = d; S.detail = d;
-    renderItemHead(d); loadJudgement(d); loadBoxes(d);
+    renderItemHead(d); loadJudgement(d); loadBoxes(d); loadCrops(d);
   } catch (e) { /* */ }
 }
 
@@ -508,6 +508,7 @@ async function openItem(id, index) {
   renderItemHead(d);
   loadJudgement(d);
   loadBoxes(d);
+  loadCrops(d);
   await showMedia(d, token);
 }
 function renderItemHead(d) {
@@ -691,6 +692,7 @@ function wire() {
   $('#modalBack').onclick = () => { if (!S.modalLocked) closeModal(); };
   document.addEventListener('keydown', onKey);
   wirePlayer();
+  wireCrops();
   wireJudge();
 }
 function inInput(e) { const tg = e.target; return tg && (tg.tagName === 'INPUT' || tg.tagName === 'TEXTAREA' || tg.tagName === 'SELECT' || tg.isContentEditable); }

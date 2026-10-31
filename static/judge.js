@@ -338,3 +338,48 @@ function wireJudge() {
   let noteTimer = null;
   $('#noteInput').addEventListener('input', () => { S.dirty = true; clearTimeout(noteTimer); noteTimer = setTimeout(() => { if (S.cur) api(`/api/items/${S.cur.id}/note`, { note: $('#noteInput').value }).then(() => patchRow({ id: S.cur.id, note: $('#noteInput').value })).catch(() => {}); }, 600); });
 }
+
+
+// ---- 学習に使う枠（右の欄）: 自動判定で分類器に入れた枠を並べ、クリックで学習から外す ----
+const CROPS = { id: null, data: null };
+async function loadCrops(d) {
+  const box = $('#cropsBox'), grid = $('#cropsGrid');
+  CROPS.id = d ? d.id : null; CROPS.data = null;
+  if (!d || d.kind !== 'video' && d.kind !== 'image' || !d.det_state) { box.classList.add('hidden'); grid.innerHTML = ''; return; }
+  let r;
+  try { r = await api(`/api/items/${d.id}/crops`); } catch (e) { box.classList.add('hidden'); return; }
+  if (!S.cur || S.cur.id !== d.id) return;
+  if (!r.has_features || !r.crops.length) { box.classList.add('hidden'); grid.innerHTML = ''; return; }
+  CROPS.data = r;
+  box.classList.remove('hidden');
+  const det = $('#cropsDet');
+  try { det.open = localStorage.getItem('tn_crops_open') === '1'; } catch (e) { /* */ }
+  det.ontoggle = () => { try { localStorage.setItem('tn_crops_open', det.open ? '1' : '0'); } catch (e) { /* */ } if (det.open) renderCrops(); };
+  renderCrops();
+}
+function renderCrops() {
+  const r = CROPS.data, grid = $('#cropsGrid'), det = $('#cropsDet');
+  if (!r) return;
+  const nOff = r.crops.filter(c => c.excluded).length;
+  $('#cropsCount').textContent = `${r.crops.length}${nOff ? ` · ${t('crops_excluded')} ${nOff}` : ''}`;
+  if (!det.open) { grid.innerHTML = ''; return; }
+  grid.innerHTML = r.crops.map(c => `<figure class="crop ${c.excluded ? 'off' : ''}" data-k="${c.k}" title="${esc(`${c.t.toFixed(1)} s · conf ${c.conf.toFixed(2)}${c.code ? ` · ${spLabel(c.code)} ${(c.p * 100).toFixed(0)}%` : ''}`)}">
+      <img src="/api/items/${r.id}/crop/${c.k}" loading="lazy" alt=""><figcaption>${c.t.toFixed(1)}s · ${c.conf.toFixed(2)}${c.code ? ` · ${esc(spLabel(c.code))}` : ''}</figcaption></figure>`).join('');
+  grid.querySelectorAll('.crop').forEach(f => { f.onclick = () => toggleCrop(parseInt(f.dataset.k, 10)); });
+}
+async function setCrops(ks, excluded) {
+  const r = CROPS.data; if (!r || !ks.length) return;
+  try {
+    const res = await api(`/api/items/${r.id}/crops/exclude`, { ks, excluded });
+    if (CROPS.data !== r) return;
+    const ex = new Set(res.excluded);
+    r.crops.forEach(c => { c.excluded = ex.has(c.k); });
+    r.excluded = res.excluded;
+    renderCrops();
+  } catch (e) { toast(e.message, 'error'); }
+}
+function toggleCrop(k) { const c = CROPS.data && CROPS.data.crops.find(x => x.k === k); if (c) setCrops([k], !c.excluded); }
+function wireCrops() {
+  $('#cropsAllOff').onclick = e => { e.preventDefault(); e.stopPropagation(); if (CROPS.data) setCrops(CROPS.data.crops.map(c => c.k), true); };
+  $('#cropsAllOn').onclick = e => { e.preventDefault(); e.stopPropagation(); if (CROPS.data) setCrops(CROPS.data.crops.map(c => c.k), false); };
+}

@@ -878,6 +878,7 @@ def process_item(project, hub: ModelHub, item: dict, classify: bool = True, fram
                       (item["id"], r[0], r[1], round(r[2], 4), round(r[3], 4), round(r[4], 4), round(r[5], 4), round(r[6], 4),
                        sp[0], round(sp[1], 4) if sp[1] is not None else None))
     db.x(N_BOXES_SQL_ONE, (a_th, item["id"]))
+    db.x("UPDATE items SET crop_excl=NULL WHERE id=? AND crop_excl IS NOT NULL", (item["id"],))      # 枠を取り直したので、枠ごとの「学習から外す」は消す
     summary = finish_item(project, hub, item, summary, cls, classify)
     summary["elapsed"] = round(time.time() - t0, 2)
     return summary
@@ -992,7 +993,7 @@ def save_boxes(project, item_id: int, boxes: list[dict]) -> dict:
     with db.tx() as c:
         c.execute("DELETE FROM detections WHERE item_id=?", (item_id,))
         c.executemany("INSERT INTO detections(item_id, t_sec, category, conf, x, y, w, h, species, sp_conf) VALUES(?,?,?,?,?,?,?,?,?,?)", rows)
-        c.execute("UPDATE items SET det_state=1, det_json=?, cls_state=0, cls_json=NULL, updated_at=? WHERE id=?", (json.dumps(summary, ensure_ascii=False), now_iso(), item_id))
+        c.execute("UPDATE items SET det_state=1, det_json=?, cls_state=0, cls_json=NULL, crop_excl=NULL, updated_at=? WHERE id=?", (json.dumps(summary, ensure_ascii=False), now_iso(), item_id))
         c.execute(N_BOXES_SQL_ONE, (a_th, item_id))
     # 古い特徴量と枠の画像は捨てる（枠が変わったので）
     try:

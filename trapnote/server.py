@@ -1101,6 +1101,32 @@ def make_app(session: Session) -> web.Application:
         b = await _body(request)
         return jr(await io(detect.save_boxes, p, int(request.match_info["id"]), list(b.get("boxes") or [])))
 
+    async def item_crops(request):
+        """学習に使う枠（最大 12 枚）の一覧と、学習から外した枠"""
+        p = S.need()
+        try:
+            return jr(await io(train.item_crops, p, int(request.match_info["id"])))
+        except ValueError as e:
+            raise ApiError(str(e), 404)
+
+    async def item_crop_image(request):
+        p = S.need()
+        iid, k = int(request.match_info["id"]), int(request.match_info["k"])
+        path = await io(train.ensure_item_crop, p, iid, k)
+        if not path:
+            raise ApiError("枠の画像を作れません", 404)
+        return web.FileResponse(path, headers={"Cache-Control": "private, max-age=86400"})
+
+    async def item_crops_exclude(request):
+        p = S.need()
+        b = await _body(request)
+        try:
+            ks = [int(x) for x in (b.get("ks") if b.get("ks") is not None else [b.get("k")])]
+            ex = await io(train.set_crop_excluded, p, int(request.match_info["id"]), ks, bool(b.get("excluded", True)))
+        except (ValueError, TypeError) as e:
+            raise ApiError(str(e))
+        return jr(dict(excluded=ex))
+
     # ---- 書き出しと取り込み ----
     async def export_csv(request):
         p = S.need()
@@ -1554,6 +1580,9 @@ def make_app(session: Session) -> web.Application:
     r.add_post("/api/items/bulk", items_bulk)
     r.add_post("/api/items/{id}/exclude", item_exclude)
     r.add_post("/api/items/{id}/boxes", item_boxes)
+    r.add_get("/api/items/{id}/crops", item_crops)
+    r.add_get("/api/items/{id}/crop/{k}", item_crop_image)
+    r.add_post("/api/items/{id}/crops/exclude", item_crops_exclude)
     r.add_post("/api/import/csv/preview", import_preview)
     r.add_post("/api/import/csv/values", import_values)
     r.add_post("/api/import/csv", import_csv)

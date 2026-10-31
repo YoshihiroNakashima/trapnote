@@ -267,7 +267,7 @@ def collect(project, opts: dict, progress=None, stop=None) -> dict:
     s = opts
     min_conf = float(s.get("train_min_conf", 0.5))
     use_empty = bool(s.get("train_use_empty", True))
-    rows = db.q("SELECT id, rel_path, station, status, agree, recheck, train_exclude, batch FROM items WHERE status='verified' AND missing=0 AND det_state=1 AND cls_state=1 ORDER BY station, id")
+    rows = db.q("SELECT id, rel_path, station, status, agree, recheck, train_exclude, batch, crop_excl FROM items WHERE status='verified' AND missing=0 AND det_state=1 AND cls_state=1 ORDER BY station, id")
     ids = [r["id"] for r in rows]
     js: dict[int, list[dict]] = {i: [] for i in ids}
     for chunk in range(0, len(ids), 900):
@@ -318,6 +318,9 @@ def collect(project, opts: dict, progress=None, stop=None) -> dict:
                 labels[i] = top if top in animals else None
         for i in range(n):
             if labels[i] is not None and conf[i] < min_conf:
+                labels[i] = None
+        for i in crop_excl_list(r["crop_excl"]):         # 枠の画面で「学習から外す」にした枠
+            if 0 <= i < n:
                 labels[i] = None
         items[r["id"]] = dict(id=r["id"], rel_path=r["rel_path"], station=r["station"] or "", batch=r["batch"] or "", human=human, excluded=bool(r["train_exclude"]),
                               hard=bool(r["agree"] == 3 or r["recheck"]), codes=codes, pc=pc, feats=feats, t=t, bbox=bbox, conf=conf, labels=labels, holdout=False)
@@ -397,6 +400,77 @@ def build_dataset(items: dict, holdout: set[str], opts: dict, use_marks: bool = 
     out.sort()
     n_items = len({s[0] for s in out})
     return dict(classes=classes, samples=out, counts={c: cnt[c] for c in classes}, dropped=dropped, n_items=n_items)
+
+
+def crop_excl_list(v) -> list[int]:
+    """items.crop_excl（JSON の配列）→ 番号の列"""
+    if not v:
+        return []
+    try:
+        return sorted({int(x) for x in json.loads(v)})
+    except Exception:
+        return []
+
+
+def item_crops(project, item_id: int) -> dict:
+    """対象の学習に使う枠（特徴量 npz の枠。自動判定で分類器に入れた最大 12 枚）: [{k, t, conf, bbox, code, p, excluded, has_image}]。
+    npz がなければ crops = []（検出のときに「特徴量を保存」が切れていた、またはまだ検出していない）"""
+    r = project.db.q1("SELECT id, rel_path, det_state, cls_state, crop_excl, status FROM items WHERE id=?", (item_id,))
+    if r is None:
+        raise ValueError("対象がありません")
+    fp = features_path(project, r["rel_path"])
+    out = dict(id=item_id, crops=[], excluded=crop_excl_list(r["crop_excl"]), has_features=os.path.isfile(fp))
+    if not out["has_features"]:
+        return out
+    try:
+        with np.load(fp, allow_pickle=False) as z:
+            codes = [str(c) for c in z["codes"]]
+            pc = z["pc"].astype(np.float32)
+            t = z["t"].astype(np.float32)
+            bbox = z["bbox"].astype(np.float32)
+            conf = z["conf"].astype(np.float32)
+    except Exception as e:
+        out["error"] = f"特徴量を読めません: {e}"
+        return out
+    ex = set(out["excluded"])
+    for k in range(len(conf)):
+        j = int(np.argmax(pc[k])) if len(codes) and pc.shape[1] else -1
+        out["crops"].append(dict(k=k, t=round(float(t[k]), 2), conf=round(float(conf[k]), 3), bbox=[round(float(v), 4) for v in bbox[k]],
+                                 code=codes[j] if j >= 0 else None, p=round(float(pc[k][j]), 3) if j >= 0 else None, excluded=k in ex,
+                                 has_image=_crop_ok(crop_path(project, r["rel_path"], k))))
+    return out
+
+
+def set_crop_excluded(project, item_id: int, ks: list[int], excluded: bool) -> list[int]:
+    """枠 ks を学習から外す / 戻す。返り値 = 外している枠の番号"""
+    r = project.db.q1("SELECT crop_excl FROM items WHERE id=?", (item_id,))
+    if r is None:
+        raise ValueError("対象がありません")
+    cur = set(crop_excl_list(r["crop_excl"]))
+    cur = (cur | {int(k) for k in ks}) if excluded else (cur - {int(k) for k in ks})
+    project.db.x("UPDATE items SET crop_excl=?, updated_at=? WHERE id=?", (json.dumps(sorted(cur)) if cur else None, now_iso(), item_id))
+    return sorted(cur)
+
+
+def ensure_item_crop(project, item_id: int, k: int) -> str | None:
+    """1 枚の枠の画像のパス。なければ動画から切り出す（画面で見せるため。方式 B の学習と同じ切り出し）"""
+    r = project.db.q1("SELECT id, rel_path FROM items WHERE id=?", (item_id,))
+    if r is None:
+        return None
+    path = crop_path(project, r["rel_path"], k)
+    if _crop_ok(path):
+        return path
+    fp = features_path(project, r["rel_path"])
+    if not os.path.isfile(fp):
+        return None
+    with np.load(fp, allow_pickle=False) as z:
+        t = z["t"].astype(np.float32)
+        bbox = z["bbox"].astype(np.float32)
+    if not (0 <= k < len(t)):
+        return None
+    it = dict(id=item_id, rel_path=r["rel_path"], t=t, bbox=bbox)
+    ensure_crops(project, {item_id: it}, [item_id])
+    return path if _crop_ok(path) else None
 
 
 def write_manifest(folder: str, project, items: dict, ds_final: dict, ev_ids, keep_out: bool) -> str:

@@ -23,7 +23,9 @@ def test_open_v10_catalog(tmp_path):
     db = Database(path)
     cols = {r["name"] for r in db.q("PRAGMA table_info(catalog)")}
     assert "labels" in cols
-    assert db.get_meta("schema_version") == "11"
+    from trapnote import SCHEMA_VERSION
+    assert db.get_meta("schema_version") == str(SCHEMA_VERSION)
+    assert "crop_excl" in {r["name"] for r in db.q("PRAGMA table_info(items)")}       # v12: 枠ごとの「学習から外す」
     assert db.q1("SELECT species, labels FROM catalog")["species"] == "deer"
     assert any(r["name"] == "idx_cat_labels" for r in db.q("PRAGMA index_list(catalog)"))
     db.close()
