@@ -244,8 +244,18 @@ function crossTabBuild(m, body) {
     ${cs.built ? `<div class="dt-counts"><span>${esc(t('cross_catalog_n'))} <b>${info.n_catalog}</b></span><span>${esc(t('tr_trained_at'))} <b>${esc((cs.built_at || '').slice(0, 16).replace('T', ' '))}</b></span>${by ? `<span>${by}</span>` : ''}<span>${esc(t('cross_items_n'))} <b>${info.n_items}</b></span></div>` : ''}
     <label class="chk" style="display:block;margin:6px 0"><input type="checkbox" id="crScan" ${scan ? 'checked' : ''}> ${esc(t('cr_scan_folders'))}</label>
     <div class="cr-actions"><button type="button" class="primary" id="crBuildBig" ${info.sources.length ? '' : 'disabled'}>${esc(crBuildLabel(cs))}</button>${crOnlyLabels(cs) ? `<button type="button" id="crBuildFull">${esc(t('cross_build_again'))}</button>` : ''}<span class="info">${esc(t('cr_build_time'))}</span></div>
-    <div class="note">${esc(t('cr_build_when'))}</div>`;
+    <div class="note">${esc(t('cr_build_when'))}</div>
+    <details class="adv"><summary>${esc(t('cr_import_from'))}</summary>
+      <div class="note">${esc(t('cr_import_from_help'))}</div>
+      <div class="form-row"><label>${esc(t('cr_import_from_l'))}</label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><input type="text" id="crFromPath" spellcheck="false" style="width:380px" placeholder="F:\\Studies\\gold"><button type="button" class="small" data-pick="crFromPath" data-kind="folder" data-name="">${esc(t('pick'))}</button><button type="button" class="primary small" id="crFromGo">${esc(t('cr_import_from_go'))}</button></span></div>
+    </details>`;
   const q = sel => m.querySelector(sel);
+  wirePicks(m);
+  histWire(q('#crFromPath'), 'cross_place');
+  q('#crFromGo').onclick = async () => {
+    const pth = q('#crFromPath').value.trim(); if (!pth) return;
+    try { const j = await api('/api/cross/catalog/import_from', { path: pth }); if (j.state) setSnapshot(j.state); crossTrack(m, j, 'pick'); } catch (e) { toast(e.message, 'error'); }
+  };
   q('#crBuildBig').onclick = () => crossBuild(m, undefined, q('#crScan').checked);
   if (q('#crBuildFull')) q('#crBuildFull').onclick = () => crossBuild(m, 'full', q('#crScan').checked);
   q('#crScan').onchange = async () => { try { await api('/api/project/settings', { catalog_scan_folders: q('#crScan').checked }); if (m._info) m._info.project.settings.catalog_scan_folders = q('#crScan').checked; } catch (e) { toast(e.message, 'error'); } };

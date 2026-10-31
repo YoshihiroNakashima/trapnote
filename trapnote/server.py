@@ -14,7 +14,7 @@ from aiohttp import web
 
 from . import APP_ID, APP_NAME, BUILD, BUILD_TIME, VERSION, cross, detect, dialogs, export as export_mod, judge, media, merge as merge_mod, scan as scan_mod, timelapse, train, yolo
 from .config import APP_DIR, DATA_DIR, STATIC_DIR, Settings, State
-from .jobs import ArchiveJob, CatalogBuildJob, CrossCopyJob, CrossImportJob, CrossRemoveJob, CrossSyncJob, DetectJob, LabelsJob, Lane, MetaJob, ReclassifyJob, ScanJob, SubsetExportJob, TrainJob, TranscodeJob, YoloExportJob, YoloImportJob
+from .jobs import ArchiveJob, CatalogBuildJob, CatalogImportJob, CrossCopyJob, CrossImportJob, CrossRemoveJob, CrossSyncJob, DetectJob, LabelsJob, Lane, MetaJob, ReclassifyJob, ScanJob, SubsetExportJob, TrainJob, TranscodeJob, YoloExportJob, YoloImportJob
 from .paths import key, norm
 from .pattern import names_in, preview as pattern_preview
 from .project import PROJECT_DIRNAME, Project, find_project_for_root, is_project_dir
@@ -1349,6 +1349,20 @@ def make_app(session: Session) -> web.Application:
         S.cr.submit(CatalogBuildJob(mode if mode in ("auto", "full", "remap") else "full", p.dir), front=True)
         return jr(S.jobs_status())
 
+    async def cross_catalog_import_from(request):
+        """別の横断プロジェクト（フォルダ）からカタログを持ってくる"""
+        p = need_cross()
+        b = await _body(request)
+        path = str(b.get("path") or "").strip()
+        if not path:
+            raise ApiError("横断プロジェクトのフォルダを指定してください")
+        try:
+            prep = await io(cross.prepare_catalog_import, p, path)          # 参照先・対応表・種リストはその場で（開いているプロジェクトに）
+        except (ValueError, FileNotFoundError) as e:
+            raise ApiError(str(e))
+        S.cr.submit(CatalogImportJob(path, p.dir), front=True)             # 行の写しは裏で
+        return jr(dict(S.jobs_status(), prep=prep, state=await io(S.snapshot)))
+
     async def cross_catalog_counts(request):
         p = need_cross()
         b = await _body(request)
@@ -1540,6 +1554,7 @@ def make_app(session: Session) -> web.Application:
     r.add_post("/api/cross/labels/read", cross_labels_read)
     r.add_post("/api/cross/labels/save", cross_labels_save)
     r.add_post("/api/cross/catalog/build", cross_catalog_build)
+    r.add_post("/api/cross/catalog/import_from", cross_catalog_import_from)
     r.add_post("/api/cross/catalog/counts", cross_catalog_counts)
     r.add_post("/api/cross/catalog/rows", cross_catalog_rows)
     r.add_post("/api/cross/catalog/sample", cross_catalog_sample)

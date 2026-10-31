@@ -1494,6 +1494,102 @@ def remap_catalog(project, progress=None, stop=None) -> dict:
     return dict(n_changed=n_changed, n_combos=len(combos))
 
 
+def _other_cross(project, other_path: str):
+    """別の横断プロジェクトのフォルダ → (プロジェクトのフォルダ, project.json の中身)"""
+    from .project import PROJECT_JSON, read_json
+    other_path = norm(other_path)
+    pdir, pkind = _project_at(other_path)
+    if not pdir or pkind != "cross":
+        raise ValueError(f"横断プロジェクトではありません: {other_path}")
+    if key(pdir) == key(project.dir):
+        raise ValueError("自分自身からは持ってこられません")
+    odata = read_json(os.path.join(pdir, PROJECT_JSON), None) or {}
+    if not odata.get("catalog"):
+        raise ValueError("そのプロジェクトにはまだカタログがありません")
+    return pdir, odata
+
+
+def prepare_catalog_import(project, other_path: str) -> dict:
+    """カタログを持ってくる前の支度（開いているプロジェクトで、その場で）: 参照先（名前が重ならないもの）と対応表（こちらにない表記）を足し、
+    こちらにカタログも対応表もなければ種リスト・追加項目も相手のものにする。参照先の名前が同じで場所が違うものがあれば止める（カタログの行は参照先の名前で結び付く）"""
+    pdir, odata = _other_cross(project, other_path)
+    mine = {s["name"]: s for s in project.sources()}
+    added = []
+    for s in odata.get("sources") or []:
+        m = mine.get(s["name"])
+        if m is None:
+            project.data.setdefault("sources", []).append(dict(s))
+            added.append(s["name"])
+        else:
+            same = (m.get("kind") or "project") == (s.get("kind") or "project") and key(m.get("root") or m.get("dir") or "") == key(s.get("root") or s.get("dir") or "")
+            if not same:
+                raise ValueError(f"参照先の名前が重なっていて場所が違います: {s['name']}（こちら {m.get('root') or m.get('dir')} / 相手 {s.get('root') or s.get('dir')}）")
+    fresh = not project.data.get("catalog") and not (project.data.get("label_map") or {})
+    lm = dict(project.data.get("label_map") or {})
+    for k, v in (odata.get("label_map") or {}).items():
+        lm.setdefault(k, v)
+    project.data["label_map"] = lm
+    if fresh:
+        for fn in ("species.csv", "fields.json"):
+            a, b = os.path.join(pdir, fn), os.path.join(project.dir, fn)
+            if os.path.isfile(a):
+                shutil.copy2(a, b)
+        from .fields import Fields
+        from .species import SpeciesList
+        project.species = SpeciesList(os.path.join(project.dir, "species.csv"))
+        project.fields = Fields(os.path.join(project.dir, "fields.json"))
+    project.forget_source_roots()
+    project.save()
+    return dict(from_dir=pdir, sources_added=added, lists_copied=fresh)
+
+
+def import_catalog_from(project, other_path: str, progress=None, stop=None) -> dict:
+    """別の横断プロジェクトからカタログを持ってくる（作り直さずに済ませる。prepare_catalog_import のあとに裏で）:
+    catalog 表の全行（取り込み済みの印はこちらの対象で付け直す）、種名 CSV の読み込みキャッシュ（cache/labels。署名は CSV のパス・更新時刻・大きさなのでそのまま使える）、カタログの記録"""
+    pdir, odata = _other_cross(project, other_path)
+    ocat = odata.get("catalog") or {}
+    db = project.db
+    conn = db.conn()
+    odb = os.path.join(pdir, "data.sqlite")
+    if progress:
+        progress(0, 0, "カタログの行を写しています")
+    with db.tx() as c:
+        c.execute("DELETE FROM catalog")
+        for ix in CAT_INDEXES:
+            c.execute(f"DROP INDEX IF EXISTS {ix}")
+    conn.execute("ATTACH DATABASE ? AS o", (odb,))
+    try:
+        ocols = {r[1] for r in conn.execute("PRAGMA o.table_info(catalog)")}
+        cols = [c for c in ("source", "src_id", "rel", "season", "station", "name", "datetime", "status", "species", "ai", "agree", "det_state", "duration", "size", "labels") if c in ocols]
+        with db.tx() as c:
+            c.execute(f"INSERT OR IGNORE INTO catalog({', '.join(cols)}) SELECT {', '.join(cols)} FROM o.catalog")
+    finally:
+        conn.execute("DETACH DATABASE o")
+    if progress:
+        progress(0, 0, "索引を作っています")
+    with db.tx() as c:
+        for ix, cols_ in CAT_INDEXES.items():
+            c.execute(f"CREATE INDEX IF NOT EXISTS {ix} ON catalog({cols_})")
+    _catalog_mark_imported(project)
+    n = int(db.scalar("SELECT COUNT(*) FROM catalog") or 0)
+    n_cache = 0
+    src_cache = os.path.join(pdir, "cache", "labels")
+    if os.path.isdir(src_cache):
+        dst_cache = project.cache_dir("labels")
+        os.makedirs(dst_cache, exist_ok=True)
+        for fn in os.listdir(src_cache):
+            if fn.endswith(".pkl"):
+                try:
+                    shutil.copy2(os.path.join(src_cache, fn), os.path.join(dst_cache, fn))
+                    n_cache += 1
+                except OSError as e:
+                    log.warning("種名 CSV のキャッシュを写せません %s: %s", fn, e)
+    cat = dict(ocat)
+    cat.update(n=n, sources=[s["name"] for s in project.sources()], map_sig=map_sig(project), imported_from=dict(dir=pdir, name=odata.get("name") or os.path.basename(pdir), at=now_iso()))
+    project.update_data(catalog=cat)
+    return dict(n=n, n_cache=n_cache, from_dir=pdir, stale=catalog_status(project)["reasons"])
+
+
 def _catalog_mark_imported(project) -> None:
     """取り込み済みの対象に横断側の items.id を付ける（rel_path = 名前/rel で照合）。全行を書き換えず、消えた対象の印を外し、まだ印のない対象だけ付ける"""
     db = project.db

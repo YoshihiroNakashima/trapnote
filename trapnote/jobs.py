@@ -659,6 +659,35 @@ class CrossLaneJob(Job):
                 log.warning("project.json の読み直しに失敗: %s", e)
 
 
+class CatalogImportJob(CrossLaneJob):
+    """横断プロジェクト: 別の横断プロジェクトからカタログ（参照先・対応表・行・種名 CSV のキャッシュ）を持ってくる（作り直さずに済ませる）"""
+
+    def __init__(self, other_path: str, pdir: str = ""):
+        super().__init__("cross_catalog", dict(mode="import", other=other_path), "カタログを持ってくる", pdir)
+        self.other_path = other_path
+        self.result: dict | None = None
+
+    def run(self, ctx) -> None:
+        from . import cross
+        project, owned = self.open_project(ctx)
+        try:
+            if not project.is_cross:
+                return
+
+            def prog(a, b, msg):
+                self.done, self.total, self.current = a, b, msg or ""
+            self.message = "別の横断プロジェクトから写しています"
+            r = cross.import_catalog_from(project, self.other_path, prog, self.stop_flag.is_set)
+            self.result = r
+            self.done = self.total = r["n"]
+            self.message = f"カタログ {r['n']:,} 本を {r['from_dir']} から持ってきました" + (f"（種名 CSV のキャッシュ {r['n_cache']}）" if r["n_cache"] else "") \
+                + ("。対応表か種リストが違うので「当て直し」が要ります" if "labels" in r["stale"] else "")
+        finally:
+            if owned:
+                project.close()
+            self.sync_live(ctx, "catalog")
+
+
 class CatalogBuildJob(CrossLaneJob):
     """横断プロジェクト: カタログ（参照先の全動画の目録）を作り直す。mode: full（全部作り直す）/ remap（対応表だけ当て直す）/ auto（対応表か種リストしか変わっていなければ remap、それ以外は full）"""
 
