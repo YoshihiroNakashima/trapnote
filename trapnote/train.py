@@ -399,6 +399,35 @@ def build_dataset(items: dict, holdout: set[str], opts: dict, use_marks: bool = 
     return dict(classes=classes, samples=out, counts={c: cnt[c] for c in classes}, dropped=dropped, n_items=n_items)
 
 
+def write_manifest(folder: str, project, items: dict, ds_final: dict, ev_ids, keep_out: bool) -> str:
+    """学習に使った動画の一覧を models/<名前>/train_items.csv に残す（論文の方法と再現のため。2 回目以降の学習は「そのときの確認済み全部」なので、どの回に何を使ったかはここで分かる）。
+    1 行 = 1 本: Project, RelPath, Station, Batch, Role（train = 保存したモデルの学習に使った / holdout = 検証用（保存したモデルにも入れていない）/ excluded = 学習から外す /
+    unused = 使える枠がなかった）, Human（人の判定）, CropLabels（枠ごとの学習用ラベル。- は使わない）, CropsUsed, Hard（AI と食い違い・見直し済み = 重み 2 倍）"""
+    import csv
+    used: dict = {}
+    for smp in ds_final["samples"]:
+        used.setdefault(smp[0], set()).add(smp[1])
+    ev = set(ev_ids or [])
+    path = os.path.join(folder, "train_items.csv")
+    with open(path, "w", newline="", encoding="utf-8-sig") as fh:
+        w = csv.writer(fh)
+        w.writerow(["Project", "RelPath", "Station", "Batch", "Role", "Human", "CropLabels", "CropsUsed", "Hard"])
+        for iid, it in sorted(items.items(), key=lambda x: (str(x[1].get("station") or ""), x[1]["rel_path"])):
+            ks = used.get(iid, set())
+            if ks:
+                role = "train"
+            elif it.get("excluded"):
+                role = "excluded"
+            elif keep_out and (iid in ev or it.get("holdout")):
+                role = "holdout"
+            else:
+                role = "unused"
+            pr = it.get("proj") or project
+            w.writerow([source_label(pr), it["rel_path"], it.get("station") or "", it.get("batch") or "", role, ";".join(sorted(it["human"])),
+                        ";".join((lab or "-") if k in ks or not ks else "-" for k, lab in enumerate(it["labels"])), len(ks), 1 if it.get("hard") else 0])
+    return path
+
+
 # ---------- 方式 A: 線形の分類器（numpy） ----------
 class Head:
     """特徴量 → 種コードの確率。W [D, K], b [K]、標準化 mu / sd。元のモデルの確率を base_mix で混ぜる"""
@@ -652,6 +681,10 @@ def _run_train_a(project, opts, name, progress, stop, s, t0, col) -> dict:
     os.makedirs(folder, exist_ok=True)
     head_all.save(folder)
     result["elapsed"] = round(time.time() - t0, 1)
+    try:
+        result["items_csv"] = write_manifest(folder, project, items, ds_all, ev_ids, keep_out)
+    except Exception as e:
+        log.warning("学習に使った動画の一覧を書けません: %s", e)
     with open(os.path.join(folder, "model.json"), "w", encoding="utf-8") as fh:
         json.dump(result, fh, ensure_ascii=False, indent=1)
     return result
@@ -1154,6 +1187,10 @@ def _run_train_b(project, hub, opts, name, progress, stop, init_from, s, t0, ini
         full_state.update(state)
         torch.save(dict(state=full_state, classes=classes), os.path.join(folder, "finetune.pt"))
         result["elapsed"] = round(time.time() - t0, 1)
+        try:
+            result["items_csv"] = write_manifest(folder, project, items, ds_all, ev_ids, keep_out)
+        except Exception as e:
+            log.warning("学習に使った動画の一覧を書けません: %s", e)
         with open(os.path.join(folder, "model.json"), "w", encoding="utf-8") as fh:
             json.dump(result, fh, ensure_ascii=False, indent=1)
     finally:
