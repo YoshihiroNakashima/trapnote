@@ -98,8 +98,37 @@ def add_source(project, path: str, name: str | None = None, labels_csv: str | No
         raise FileNotFoundError(f"フォルダがありません: {path}")
     if norm(path).lower().rstrip("/") + "/" == norm(project.dir).lower().rstrip("/") + "/" or norm(path).lower().startswith(norm(project.dir).lower().rstrip("/") + "/"):
         raise ValueError("横断プロジェクトの TrapNote フォルダは参照先にできません（動画の親フォルダを指定してください）")
+    fk = classify_folder(path)
+    if fk == "station":
+        raise ValueError(f"地点のフォルダのようです（動画が直下にある）: {path}。調査回のフォルダ（下に地点が並ぶ）か親フォルダ（下に調査回が並ぶ）を指定してください")
+    if fk == "season":
+        # 調査回のフォルダを 1 つだけ: 親フォルダを参照先にして、その調査回だけを見る（親フォルダの種名 CSV も使える。相対パスは <名前>/<調査回>/<地点>/<動画> で親と同じ）
+        parent, season = os.path.dirname(path.rstrip("/")), os.path.basename(path.rstrip("/"))
+        for s in project.sources():
+            if s.get("kind") == "tree" and s.get("root") and key(s["root"]) == key(parent):
+                only = s.get("seasons")
+                if not only:
+                    return dict(name=s["name"], root=s["root"], kind="tree", added=False, season=season, covered=True)       # 親フォルダごと登録済み
+                if season in only:
+                    return dict(name=s["name"], root=s["root"], kind="tree", added=False, season=season)
+                only.append(season)
+                s["seasons"] = sorted(set(only))
+                project.save()
+                return dict(name=s["name"], root=s["root"], kind="tree", added=True, season=season, seasons=s["seasons"])
+        nm = _unique_name(project, (name or "").strip(), parent)
+        entry = dict(name=nm, kind="tree", root=parent, seasons=[season], added_at=now_iso())
+        if labels_csv:
+            entry["labels_csv"] = norm(labels_csv)
+        project.data.setdefault("sources", []).append(entry)
+        project.forget_source_roots()
+        project.save()
+        return dict(name=nm, root=parent, kind="tree", added=True, season=season, seasons=[season])
     for s in project.sources():
         if s.get("root") and key(s["root"]) == key(path):
+            if s.get("seasons"):                               # 調査回を限って登録してあった親フォルダを、丸ごとに広げる
+                s.pop("seasons", None)
+                project.save()
+                return dict(name=s["name"], root=s["root"], kind="tree", added=True, widened=True)
             return dict(name=s["name"], root=s["root"], kind="tree", added=False)
     pdir, pkind = _project_at(path)
     ignored = pdir if (pkind == "cross" and key(pdir) != key(project.dir)) else None     # 親フォルダの下に別の横断プロジェクトがあっても無視する
@@ -122,11 +151,14 @@ def add_sources_under(project, parent: str, labels_csv: str | None = None) -> di
     if _is_project_path(parent):
         r = add_source(project, parent, None, labels_csv)
         return dict(added=[r["name"]] if r.get("added") else [], skipped=[] if r.get("added") else [r["name"]], errors=[], kind="project", n_sub=0, n_project_seasons=0)
-    subs = _tree_seasons(parent)
     r = add_source(project, parent, None, labels_csv)
+    if r.get("season"):                                         # 実は調査回のフォルダだった: その調査回だけの参照先
+        return dict(added=[r["name"]] if r.get("added") else [], skipped=[] if r.get("added") else [r["name"]], errors=[], kind="tree", n_sub=1,
+                    n_project_seasons=1 if _is_project_path(parent) else 0, season=r["season"], covered=r.get("covered"))
+    subs = _tree_seasons(parent)
     n_proj = sum(1 for n in subs if _is_project_path(os.path.join(parent, n)))
     return dict(added=[r["name"]] if r.get("added") else [], skipped=[] if r.get("added") else [r["name"]], errors=[], kind="tree", n_sub=len(subs), n_project_seasons=n_proj,
-                ignored_cross=r.get("ignored_cross"))
+                ignored_cross=r.get("ignored_cross"), widened=r.get("widened"))
 
 
 def tree_season_project(root: str, season: str) -> str | None:
@@ -167,7 +199,7 @@ def _tree_rows_by_season(project, s: dict, seasons: list[str] | None = None, pro
     root = norm(s.get("root") or "")
     if not root or not os.path.isdir(root):
         return
-    all_seasons = _tree_seasons(root)
+    all_seasons = source_seasons(s)
     want = [se for se in all_seasons if not seasons or se in set(seasons)]
     lab = _labels(project, s, (lambda a, b, msg: progress(0, len(want), f"種名の CSV: {msg}")) if progress else None, stop)
     lm = label_map(project)
@@ -227,7 +259,7 @@ def _cat_rows_by_season(project, s: dict, progress=None, stop=None, code_names: 
     name = s["name"]
     if not root or not os.path.isdir(root):
         return
-    want = _tree_seasons(root)
+    want = source_seasons(s)
     lab = _labels(project, s, (lambda a, b, msg: progress(0, len(want), f"種名の CSV: {msg}")) if progress else None, stop)
     lm = label_map(project)
     scan_folders = bool(project.setting("catalog_scan_folders"))
@@ -530,7 +562,7 @@ def label_files(s: dict) -> list[tuple[str, str]]:
                 out.append((norm(e.path), ""))
     except OSError:
         pass
-    for se in _tree_seasons(root):
+    for se in source_seasons(s):
         try:
             for e in sorted(os.scandir(os.path.join(root, se)), key=lambda e: e.name):
                 if e.is_file() and e.name.lower().endswith(".csv"):
@@ -823,6 +855,39 @@ def _tree_seasons(root: str) -> list[str]:
         return []
 
 
+def source_seasons(s: dict) -> list[str]:
+    """親フォルダ参照の調査回（s["seasons"] があればその調査回だけ = 調査回フォルダを 1 つだけ登録したとき）"""
+    root = norm(s.get("root") or "")
+    all_se = _tree_seasons(root) if root else []
+    only = s.get("seasons")
+    if only:
+        want = {str(x) for x in only}
+        return [se for se in all_se if se in want]
+    return all_se
+
+
+def classify_folder(path: str) -> str:
+    """フォルダの置き方を見分ける: station（動画が直下にある）/ season（直下のフォルダに動画がある = 調査回のフォルダ）/ parent（直下のフォルダの下にフォルダ = 親フォルダ）/ unknown"""
+    from .paths import kind_of
+    try:
+        entries = [e for e in os.scandir(path) if not e.name.startswith(".") and e.name.lower() not in ("trapnote", "staytime")]
+    except OSError:
+        return "unknown"
+    if any(e.is_file() and kind_of(e.name) for e in entries):
+        return "station"
+    has_sub = False
+    for e in [x for x in entries if x.is_dir()][:20]:
+        try:
+            subs = [x for x in os.scandir(e.path) if not x.name.startswith(".") and x.name.lower() not in ("trapnote", "staytime")]
+        except OSError:
+            continue
+        if any(x.is_file() and kind_of(x.name) for x in subs):
+            return "season"
+        if any(x.is_dir() for x in subs):
+            has_sub = True
+    return "parent" if has_sub else "unknown"
+
+
 def _tree_stations(root: str, season: str) -> list[str]:
     try:
         return sorted(e.name for e in os.scandir(os.path.join(root, season)) if e.is_dir() and not e.name.startswith(".") and e.name.lower() not in ("trapnote", "staytime"))
@@ -884,11 +949,12 @@ def tree_summary(project, s: dict, wait: bool = False) -> dict:
     wait=False で種名 CSV をまだ読んでいなければ labels=dict(pending=True, files=[...]) を返す（読むのは LabelsJob）"""
     root = norm(s.get("root") or "")
     available = bool(root and os.path.isdir(root))
-    seasons = _tree_seasons(root) if available else []
+    seasons = source_seasons(s) if available else []
     n_in = int(project.db.scalar("SELECT COUNT(*) FROM items WHERE rel_path LIKE ?", (s["name"] + "/%",)) or 0)
     proj_seasons = [se for se in seasons if tree_season_project(root, se)] if available else []
     d = dict(name=s["name"], kind="tree", root=root, dir=None, project_name=s["name"], ok=True, available=available, seasons=seasons, project_seasons=proj_seasons, stations=[],
-             n_items=None, n_verified=None, n_human=None, n_det=None, species=[], n_imported=n_in, labels_csv=s.get("labels_csv") or "", labels=None)
+             n_items=None, n_verified=None, n_human=None, n_det=None, species=[], n_imported=n_in, labels_csv=s.get("labels_csv") or "", labels=None,
+             only_seasons=list(s.get("seasons") or []))
     if available and not wait and not labels_ready(project, s):
         fi = labels_files_info(s)
         d["labels"] = dict(pending=True, files=[dict(path=f["path"], n=None, error=None) for f in fi], size=sum(f["size"] for f in fi), auto=not s.get("labels_csv")) if fi else dict(files=[], auto=not s.get("labels_csv"))

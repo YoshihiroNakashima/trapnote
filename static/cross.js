@@ -97,6 +97,14 @@ function crossRenderTab(m) {
 }
 
 // ---------- 1. 参照先 ----------
+function crossAddMsg(r) {
+  // 登録の結果: 調査回のフォルダを 1 つだけ登録したときは「親フォルダ（この調査回だけ）」と出す
+  if (r.season) {
+    if (r.covered) return `${t('cross_covered')}: ${r.name}（${r.season}）`;
+    return `${r.added ? t('cross_added') : t('cross_already')}: ${r.name} · ${t('cross_only_season')} ${(r.seasons || [r.season]).join(', ')}`;
+  }
+  return `${r.added === false ? t('cross_already') : t('cross_added')}: ${r.name}${r.ignored_cross ? ` · ${t('cross_ignored_cross')}: ${r.ignored_cross}` : ''}${r.widened ? ` · ${t('cross_widened')}` : ''}`;
+}
 function crossTabSources(m, body) {
   const info = m._info, srcs = info.sources || [];
   const labInfo = s => {
@@ -113,7 +121,7 @@ function crossTabSources(m, body) {
     return `<span class="info" title="${esc(files.map(f => `${f.path} (${f.error || f.n})`).join('\n') + (colsTxt ? '\n' + colsTxt : ''))}">${esc(t('cross_labels'))} ${files.length} ${esc(l.auto ? t('cross_labels_auto') : t('cross_labels_given'))} · ${l.n_here ?? l.n ?? 0} ${esc(t('items'))}${colsTxt ? ` <span class="info">(${esc(colsTxt)})</span>` : ''}${bad.length ? ` <span class="ng">${esc(t('cross_labels_bad'))} ${bad.length}</span>` : ''}${l.n_unmapped ? ` <a href="#" class="ng" data-golabels="1" title="${esc(un)}">${esc(t('cross_unmapped'))} ${l.n_unmapped_labels || ''} → ${esc(t('cr_tab_labels'))}</a>` : ''}</span>`;
   };
   const rows = srcs.map(s => `<tr><td><b>${esc(s.name)}</b> <span class="chip ${s.kind === 'tree' ? 'human' : 'ai'}">${esc(s.kind === 'tree' ? t('cross_kind_tree') : t('cross_kind_project'))}</span>${s.ok ? '' : ` <span class="ng">✗</span>`}</td>
-    <td class="info" title="${esc(s.dir || s.root || '')}">${esc(s.ok ? (s.root || '') : (s.error || ''))}${s.ok && !s.available ? ` <span class="ng">${esc(t('cross_unavailable'))}</span>` : ''}${s.kind === 'tree' && s.seasons ? `<div>${esc(t('cross_seasons'))} ${s.seasons.length}${(s.project_seasons || []).length ? ` (${esc(t('cross_proj_seasons'))} ${s.project_seasons.length})` : ''} · ${labInfo(s)}</div>` : ''}</td>
+    <td class="info" title="${esc(s.dir || s.root || '')}">${esc(s.ok ? (s.root || '') : (s.error || ''))}${s.ok && !s.available ? ` <span class="ng">${esc(t('cross_unavailable'))}</span>` : ''}${s.kind === 'tree' && s.seasons ? `<div>${esc(t('cross_seasons'))} ${s.seasons.length}${(s.only_seasons || []).length ? ` <span class="chip human" title="${esc(t('cross_only_season_tip'))}">${esc(t('cross_only_season'))} ${esc(s.only_seasons.join(', '))}</span>` : ''}${(s.project_seasons || []).length ? ` (${esc(t('cross_proj_seasons'))} ${s.project_seasons.length})` : ''} · ${labInfo(s)}</div>` : ''}</td>
     <td>${s.ok && s.n_items != null ? s.n_items : '—'}</td><td>${s.ok && s.n_verified != null ? s.n_verified : '—'}</td><td>${s.ok && s.n_human != null ? s.n_human : '—'}</td><td>${s.n_imported || 0}</td>
     <td>${s.kind === 'tree' ? `<button type="button" class="small" data-lab="${esc(s.name)}">${esc(t('cross_set_labels'))}</button> ` : ''}<button type="button" class="small" data-rm="${esc(s.name)}">${esc(t('cross_remove'))}</button></td></tr>`).join('');
   body.innerHTML = `<div class="note">${esc(t('cross_sources_help'))}</div>
@@ -133,12 +141,12 @@ function crossTabSources(m, body) {
   q('#crSrcUp').onclick = () => { const v = q('#crSrcPath').value.trim().replace(/[\\/]+$/, ''); const i = Math.max(v.lastIndexOf('/'), v.lastIndexOf('\\')); if (i > 1) q('#crSrcPath').value = v.slice(0, i); };
   q('#crSrcAdd').onclick = async () => {
     const pth = q('#crSrcPath').value.trim(); if (!pth) return;
-    try { const r = await api('/api/cross/sources/add', { path: pth, name: q('#crSrcName').value.trim(), labels_csv: q('#crSrcLabels').value.trim() }); setSnapshot(r.state); toast(`${t('cross_added')}: ${r.name}${r.ignored_cross ? ` · ${t('cross_ignored_cross')}: ${r.ignored_cross}` : ''}`); crossModalEl = null; crossDialog('sources'); } catch (e) { toast(e.message, 'error'); }
+    try { const r = await api('/api/cross/sources/add', { path: pth, name: q('#crSrcName').value.trim(), labels_csv: q('#crSrcLabels').value.trim() }); setSnapshot(r.state); toast(crossAddMsg(r)); crossModalEl = null; crossDialog('sources'); } catch (e) { toast(e.message, 'error'); }
   };
   q('#crSrcAddUnder').onclick = async () => {
     const pth = q('#crSrcPath').value.trim(); if (!pth) return;
     try { const r = await api('/api/cross/sources/add_under', { path: pth, labels_csv: q('#crSrcLabels').value.trim() }); setSnapshot(r.state);
-      toast(`${t('cross_added')}: ${r.added.length}${r.skipped.length ? ` (${t('cross_already')} ${r.skipped.length})` : ''}${r.errors.length ? ` · ${r.errors[0]}` : ''}${r.ignored_cross ? ` · ${t('cross_ignored_cross')}: ${r.ignored_cross}` : ''}`); crossModalEl = null; crossDialog('sources'); } catch (e) { toast(e.message, 'error'); }
+      toast(r.season ? crossAddMsg(Object.assign({ name: (r.added[0] || r.skipped[0] || ''), added: !!r.added.length }, r)) : `${t('cross_added')}: ${r.added.length}${r.skipped.length ? ` (${t('cross_already')} ${r.skipped.length})` : ''}${r.errors.length ? ` · ${r.errors[0]}` : ''}${r.ignored_cross ? ` · ${t('cross_ignored_cross')}: ${r.ignored_cross}` : ''}${r.widened ? ` · ${t('cross_widened')}` : ''}`); crossModalEl = null; crossDialog('sources'); } catch (e) { toast(e.message, 'error'); }
   };
   m.querySelectorAll('[data-lab]').forEach(b => { b.onclick = async () => {
     const pth = q('#crSrcLabels').value.trim() || await pickPath('csv');

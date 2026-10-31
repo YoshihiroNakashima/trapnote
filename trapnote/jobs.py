@@ -693,6 +693,9 @@ class CatalogBuildJob(CrossLaneJob):
             self.result = r
             self.done = self.total = r["n"]
             self.message = ("止めました: " if self.stop_flag.is_set() else "") + f"カタログ {r['n']} 本（" + " · ".join(f"{k} {v}" for k, v in r["by_source"].items()) + "）"
+            if r["n"] == 0 and not self.stop_flag.is_set():
+                self.message += "。参照先の調査回に TrapNote のプロジェクトも種名の CSV の行もありません。親フォルダ（下に調査回が並ぶ）か調査回のフォルダを登録しているか、" \
+                                "種名の CSV（親フォルダか調査回フォルダの直下）があるかを 1 の段の表で確かめてください。種名のない新しい調査回なら「フォルダを走査する」を付けて作り直す"
         finally:
             if owned:
                 project.close()
