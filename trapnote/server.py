@@ -436,27 +436,77 @@ def make_app(session: Session) -> web.Application:
         res["state"] = await io(S.snapshot)
         return jr(res)
 
+    def _subset_ids(p, b) -> list[int]:
+        """「別のフォルダへ写す」の対象: ids か、絞り込み（filters。横断の 組 など）から"""
+        from .judge import build_where
+        ids = [int(x) for x in (b.get("ids") or [])]
+        if not ids and b.get("filters"):
+            where, prm = build_where(_filters(b.get("filters") or {}))
+            ids = [r[0] for r in p.db.q(f"SELECT id FROM items WHERE {where} ORDER BY rel_path", prm)]
+        return ids
+
     async def export_subset(request):
-        """選んだ対象（ids）を動画と判定ごと out_dir へ写し、そこに新しいプロジェクトを作る（裏の処理）"""
+        """選んだ対象（ids、または filters = 組などの絞り込み）を動画と判定ごと <out_dir>/<name> へ写し、そこに 調査回型 のプロジェクトを作る（裏の処理）"""
         p = S.need()
         b = await _body(request)
-        ids = [int(x) for x in (b.get("ids") or [])]
+        ids = await io(_subset_ids, p, b)
         out = norm(str(b.get("out_dir") or "").strip())
+        name = str(b.get("name") or "").strip()
         if not ids:
             raise ApiError("対象が選ばれていません")
         if not out:
             raise ApiError("写す先のフォルダを指定してください")
-        pname = str(b.get("project_dirname") or "").strip() or PROJECT_DIRNAME
-        if key(out) == key(str(APP_DIR)) or key(norm(os.path.join(out, pname))) == key(str(APP_DIR)):
-            raise ApiError("そこには写せません（プロジェクトのフォルダがアプリのフォルダになってしまう）。ドライブの直下ではなく、フォルダを 1 つ作って指定してください（例: H:/Copies/gold_sub）")
-        for base in (p.root, p.dir):
-            if base and (key(out) == key(base) or key(out).startswith(key(base).rstrip("/") + "/")):
-                raise ApiError("写す先に、いまのプロジェクトのフォルダ（動画のフォルダとその中）は指定できません")
+        try:
+            tg = await io(cross.export_target, p, out, name)
+        except ValueError as e:
+            raise ApiError(str(e))
+        if key(tg["pdir"]) == key(str(APP_DIR)) or key(tg["dataset_dir"]) == key(str(APP_DIR)):
+            raise ApiError("そこには写せません（プロジェクトのフォルダがアプリのフォルダになってしまう）。別のフォルダか名前を指定してください")
         yielded = S.bg.yield_current(("meta", "scan"))
-        S.bg.submit(SubsetExportJob(ids, out, b.get("copy_videos", True) is not False, pname), front=True)
+        S.bg.submit(SubsetExportJob(ids, out, b.get("copy_videos", True) is not False, name), front=True)
         if yielded == "meta":
             S.bg.submit(MetaJob())
         return jr(S.jobs_status())
+
+    async def export_subset_check(request):
+        """「別のフォルダへ写す」の窓の表示用: 写す先の決まり（できるフォルダ・足す先・横断の名前の変更）と対象の数"""
+        p = S.need()
+        b = await _body(request)
+        out = norm(str(b.get("out_dir") or "").strip())
+        if not out:
+            return jr(dict(ok=False, error="写す先のフォルダを指定してください"))
+        try:
+            tg = await io(cross.export_target, p, out, str(b.get("name") or "").strip())
+        except ValueError as e:
+            return jr(dict(ok=False, error=str(e)))
+        n = len(await io(_subset_ids, p, b)) if (b.get("ids") or b.get("filters")) else None
+        return jr(dict(ok=True, n=n, **tg))
+
+    async def project_tidy(request):
+        """旧形式の「名前を付けたプロジェクト」（動画は親フォルダに）を自己完結のフォルダに整える。いま開いているプロジェクトなら閉じてから整え、開き直す"""
+        from .project import tidy_named_project
+        b = await _body(request)
+        path = norm(str(b.get("path") or (S.project.dir if S.project else "") or ""))
+        if not path:
+            raise ApiError("プロジェクトを指定してください")
+        reopen = bool(S.project and key(S.project.dir) == key(path))
+        if reopen:
+            S.bg.stop_all()
+            await io(S.close_project)
+        try:
+            r = await io(tidy_named_project, path)
+        except (ValueError, OSError) as e:
+            if reopen:
+                await io(S.open_project, path, False, None)
+            raise ApiError(str(e))
+        rp = [x for x in S.settings.get("recent_projects", []) if x.lower() != path.lower()]
+        S.settings.update(dict(recent_projects=rp))
+        if reopen:
+            await io(S.open_project, r["project_dir"], False, None)
+        else:
+            S.settings.remember_project(r["project_dir"])
+        r["state"] = await io(S.snapshot)
+        return jr(r)
 
     async def projects_recent(request):
         """最近のプロジェクトの一覧（名前・種類・この PC から見えるか）。project.json を読むだけ（NAS が眠っていると数秒かかることがあるので画面は先に出し、後から埋める）"""
@@ -468,7 +518,8 @@ def make_app(session: Session) -> web.Application:
                 with open(os.path.join(path, PROJECT_JSON), encoding="utf-8") as fh:
                     j = json.load(fh)
                 d.update(exists=True, kind=str(j.get("kind") or "season"), name=str(j.get("name") or d["name"]),
-                         purpose=str((j.get("settings") or {}).get("cross_purpose") or ""), n_sources=len(j.get("sources") or []))
+                         purpose=str((j.get("settings") or {}).get("cross_purpose") or ""), n_sources=len(j.get("sources") or []),
+                         legacy=bool(j.get("root_is_parent")) and j.get("kind") != "cross")      # 旧形式（名前を付けたプロジェクト。動画は親フォルダ）→「整える」
             except Exception:
                 pass
             return d
@@ -1541,6 +1592,8 @@ def make_app(session: Session) -> web.Application:
     r.add_get("/api/state", state)
     r.add_post("/api/dialog", dialog)
     r.add_post("/api/project/open", project_open)
+    r.add_post("/api/project/tidy", project_tidy)
+    r.add_post("/api/export/subset_check", export_subset_check)
     r.add_get("/api/projects/recent", projects_recent)
     r.add_post("/api/export/subset", export_subset)
     r.add_post("/api/projects/forget", projects_forget)

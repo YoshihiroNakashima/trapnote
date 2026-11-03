@@ -294,30 +294,99 @@ def test_cross_project_own_folder(tmp_path):
 
 
 def test_export_subset_named_folder(tmp_path):
-    """プロジェクトのフォルダ名を自分で決める: <写す先>/<名前> にでき、写す先（動画のフォルダ）を開けば見つかり、走査でもそのフォルダは対象外"""
+    """名前を付けて写す: <写す先>/<名前>/ が自己完結のフォルダ（動画 + TrapNote）になり、必ず 調査回型。そのフォルダを開けば見つかる。
+    同じ写す先・名前にもう一度写せば足す。空の横断プロジェクトがそこにあれば名前を変えてから作る、中身のある横断なら止まる。目印のファイルも置く"""
     from trapnote import scan
-    from trapnote.project import find_project_for_root, resolve_root_of
+    from trapnote.project import MARKER_CROSS, MARKER_SEASON, PROJECT_DIRNAME, find_project_for_root, resolve_root_of
     make_nas(tmp_path)
     p = make_cross(tmp_path)
     try:
-        _import(p, {"station": "BSN0812", "season": "N240128"}, dict(unit="station", n=1, seed=1), "gold")
+        assert os.path.isfile(os.path.join(p.dir, MARKER_CROSS)) and not os.path.isfile(os.path.join(p.dir, MARKER_SEASON))     # 横断の目印
+        assert "横断プロジェクト「gold」" in open(os.path.join(p.dir, MARKER_CROSS), encoding="utf-8-sig").read()
+        _import(p, {"station": "BSN0812", "season": "N240128"}, dict(unit="station", n=1, seed=1), "gold_station")
         ids = [r[0] for r in p.db.q("SELECT id FROM items ORDER BY id LIMIT 3")]
-        out = str(tmp_path / "out" / "gold_sub")
-        r = cross.export_subset(p, ids, out, project_dirname="TrapNote_gold_sub")
-        pdir = os.path.join(out, "TrapNote_gold_sub")
-        assert r["n"] == 3 and cross.norm(r["project_dir"]) == cross.norm(pdir) and not os.path.isdir(os.path.join(out, "TrapNote"))
-        assert find_project_for_root(out) == cross.norm(pdir) and resolve_root_of(pdir) == cross.norm(out)
+        out = str(tmp_path / "Copy")
+        tg = cross.export_target(p, out, "gold_station")
+        assert tg["dataset_dir"] == cross.norm(os.path.join(out, "gold_station")) and tg["pdir"] == cross.norm(os.path.join(out, "gold_station", PROJECT_DIRNAME)) and not tg["exists"] and not tg["rename_cross"]
+        r = cross.export_subset(p, ids, out, name="gold_station")
+        ds = os.path.join(out, "gold_station")
+        pdir = os.path.join(ds, PROJECT_DIRNAME)
+        assert r["n"] == 3 and cross.norm(r["project_dir"]) == cross.norm(pdir) and cross.norm(r["dataset_dir"]) == cross.norm(ds)
+        assert os.path.isfile(os.path.join(ds, "PRM_N", "N240128", "BSN0812", "IMG_0000.AVI")) and not os.path.isdir(os.path.join(out, "PRM_N"))   # 動画は <名前>/ の中
+        assert find_project_for_root(ds) == cross.norm(pdir) and resolve_root_of(pdir) == cross.norm(ds)
         d = Project(pdir)
         try:
-            assert d.root == cross.norm(out) and d.data.get("root_is_parent")
-            found = scan.walk_media(out, d.setting("skip_names"))
-            assert len(found) == 3 and all(f[0].startswith("PRM_N/") for f in found)       # プロジェクトのフォルダの中（cache など）は拾わない
+            assert d.root == cross.norm(ds) and not d.is_cross and not d.data.get("root_is_parent") and d.name == "gold_station"
+            assert os.path.isfile(os.path.join(pdir, MARKER_SEASON)) and not os.path.isfile(os.path.join(pdir, MARKER_CROSS))              # 調査回の目印
+            assert "調査回プロジェクト「gold_station」" in open(os.path.join(pdir, MARKER_SEASON), encoding="utf-8-sig").read()
+            found = scan.walk_media(ds, d.setting("skip_names"))
+            assert len(found) == 3 and all(f[0].startswith("PRM_N/") for f in found)
         finally:
             d.close()
-        # 同じ写す先に別の名前で足そうとしても、既にあるプロジェクトに足す
-        r2 = cross.export_subset(p, [r_[0] for r_ in p.db.q("SELECT id FROM items ORDER BY id LIMIT 4")], out, project_dirname="Other")
-        assert r2["n"] == 1 and r2["n_skipped"] == 3 and cross.norm(r2["project_dir"]) == cross.norm(pdir) and not os.path.isdir(os.path.join(out, "Other"))
+        # 同じ写す先・名前にもう一度 → 足す
+        r2 = cross.export_subset(p, [r_[0] for r_ in p.db.q("SELECT id FROM items ORDER BY id LIMIT 4")], out, name="gold_station")
+        assert r2["n"] == 1 and r2["n_skipped"] == 3 and cross.norm(r2["project_dir"]) == cross.norm(pdir)
+        # 名前なし → 写す先そのものがデータセットのフォルダ（<写す先>/TrapNote）
+        out2 = str(tmp_path / "Copy2" / "sub")
+        r3 = cross.export_subset(p, ids, out2)
+        assert cross.norm(r3["project_dir"]) == cross.norm(os.path.join(out2, PROJECT_DIRNAME)) and os.path.isfile(os.path.join(out2, "PRM_N", "N240128", "BSN0812", "IMG_0000.AVI"))
         with pytest.raises(ValueError):
-            cross.export_subset(p, ids, str(tmp_path / "out" / "x"), project_dirname="a/b")
+            cross.export_subset(p, ids, str(tmp_path / "out" / "x"), name="a/b")
+        # そこに空の横断プロジェクト（gold_season を横断として作ってしまった）があれば、名前を変えてから作る
+        gs = tmp_path / "Copy" / "gold_season"
+        gs.mkdir(parents=True)
+        g = Project(str(gs), root=str(gs), create=True, kind="cross")
+        g.close()
+        tg = cross.export_target(p, out, "gold_season")
+        assert tg["rename_cross"] == cross.norm(str(gs)) + "_旧横断"
+        r4 = cross.export_subset(p, ids, out, name="gold_season")
+        assert r4["n"] == 3 and r4["renamed_cross"] == cross.norm(str(gs)) + "_旧横断" and os.path.isdir(str(gs) + "_旧横断") and os.path.isfile(os.path.join(str(gs), PROJECT_DIRNAME, "project.json"))
+        assert not Project(os.path.join(str(gs), PROJECT_DIRNAME)).is_cross
+        # 中身のある横断プロジェクトなら止まる
+        with pytest.raises(ValueError):
+            cross.export_target(p, str(tmp_path / "Studies"), "gold")
+    finally:
+        p.close()
+
+
+def test_tidy_named_project(tmp_path):
+    """旧形式の「名前を付けたプロジェクト」（<親>/<名前>/project.json、動画は <親>/<相対パス>。root_is_parent）を整える:
+    その対象の動画だけ <名前>/ の中へ、判定などは <名前>/TrapNote へ。同じ親の下のほかの動画は触らない"""
+    from trapnote.project import MARKER_SEASON, PROJECT_DIRNAME, read_json, tidy_named_project, write_json
+    make_nas(tmp_path)
+    p = make_cross(tmp_path)
+    try:
+        _import(p, {"station": "BSN0812", "season": "N240128"}, dict(unit="station", n=1, seed=1), "gold_station")
+        ids = [r[0] for r in p.db.q("SELECT id FROM items ORDER BY id LIMIT 3")]
+        parent = str(tmp_path / "Copy")
+        # 旧形式を手で作る: <親>/gold_station/project.json（root_is_parent）、動画は <親>/PRM_N/...
+        r = cross.export_subset(p, ids, parent)                           # <親>/TrapNote に写してから、旧形式の置き方に組み替える
+        os.rename(os.path.join(parent, PROJECT_DIRNAME), os.path.join(parent, "gold_station"))
+        pj = os.path.join(parent, "gold_station", "project.json")
+        data = read_json(pj, None)
+        data["root_is_parent"] = True
+        data["name"] = "Copy"
+        write_json(pj, data)
+        d = Project(os.path.join(parent, "gold_station"))
+        assert d.root == cross.norm(parent) and d.to_dict()["legacy_named"]
+        d.close()
+        extra = os.path.join(parent, "PRM_N", "N240128", "BSN0590", "other.AVI")       # 同じ親の下にある別の動画（触らない）
+        os.makedirs(os.path.dirname(extra), exist_ok=True)
+        open(extra, "wb").close()
+        res = tidy_named_project(os.path.join(parent, "gold_station"))
+        ds = os.path.join(parent, "gold_station")
+        assert res["n_moved"] == 3 and res["n_missing"] == 0 and cross.norm(res["project_dir"]) == cross.norm(os.path.join(ds, PROJECT_DIRNAME)) and cross.norm(res["root"]) == cross.norm(ds)
+        assert os.path.isfile(os.path.join(ds, "PRM_N", "N240128", "BSN0812", "IMG_0000.AVI")) and not os.path.exists(os.path.join(parent, "PRM_N", "N240128", "BSN0812"))
+        assert os.path.isfile(extra)                                                   # ほかの動画は残る
+        assert os.path.isfile(os.path.join(ds, PROJECT_DIRNAME, "data.sqlite")) and not os.path.isfile(os.path.join(ds, "data.sqlite")) and not os.path.isfile(os.path.join(ds, "project.json"))
+        d = Project(os.path.join(ds, PROJECT_DIRNAME))
+        try:
+            assert d.root == cross.norm(ds) and d.name == "gold_station" and not d.data.get("root_is_parent") and not d.to_dict()["legacy_named"]
+            assert d.db.scalar("SELECT COUNT(*) FROM items") == 3 and os.path.isfile(os.path.join(d.dir, MARKER_SEASON))
+            assert all(os.path.isfile(d.abs_path(r_[0])) for r_ in d.db.q("SELECT rel_path FROM items"))
+        finally:
+            d.close()
+        with pytest.raises(ValueError):
+            tidy_named_project(os.path.join(ds, PROJECT_DIRNAME))                     # もう旧形式ではない
     finally:
         p.close()

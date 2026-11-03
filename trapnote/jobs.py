@@ -856,12 +856,12 @@ class CrossCopyJob(Job):
 class SubsetExportJob(Job):
     """選んだ対象を動画と判定ごと別のフォルダへ写し、そこに新しいプロジェクトを作る（bg レーン。どのプロジェクトからでも）"""
 
-    def __init__(self, ids: list[int], out_dir: str, copy_videos: bool = True, project_dirname: str = ""):
-        super().__init__("subset_export", dict(out_dir=out_dir, n=len(ids)), "別のフォルダへ写す")
+    def __init__(self, ids: list[int], out_dir: str, copy_videos: bool = True, name: str = ""):
+        super().__init__("subset_export", dict(out_dir=out_dir, name=name, n=len(ids)), "別のフォルダへ写す")
         self.ids = ids
         self.out_dir = out_dir
         self.copy_videos = copy_videos
-        self.project_dirname = project_dirname
+        self.name = name
         self.result: dict | None = None
 
     def run(self, ctx) -> None:
@@ -873,13 +873,14 @@ class SubsetExportJob(Job):
         def prog(a, b, msg):
             self.done, self.total, self.current = a, b, msg or ""
         workers = int(ctx.settings.get("copy_workers", 3) or 3)
-        r = cross.export_subset(project, self.ids, self.out_dir, self.copy_videos, prog, self.stop_flag.is_set, self.project_dirname, workers)
+        r = cross.export_subset(project, self.ids, self.out_dir, self.copy_videos, prog, self.stop_flag.is_set, self.name, workers)
         self.result = r
         self.done = r["n"] + r["n_missing"] + r["n_skipped"]
         self.total = len(self.ids)
         sp = f"、{r['speed']}、{r['seconds'] / 60:.0f} 分" if r.get("speed") else ""
-        self.message = (f"止めました: {r['n']} 本を写したところまで（残り {r['n_left']}。同じ写す先でやり直せば続きから）" if r.get("stopped") else f"{r['n']} 本（{sp.lstrip('、')}）を {r['out_dir']} に写しました") \
-            + f"（プロジェクト {r['project_dir']}）" + (f"（見つからない {r['n_missing']}）" if r["n_missing"] else "") + (f"（写してあった {r['n_skipped']}）" if r["n_skipped"] else "")
+        self.message = (f"止めました: {r['n']} 本を写したところまで（残り {r['n_left']}。同じ写す先でやり直せば続きから）" if r.get("stopped") else f"{r['n']} 本（{sp.lstrip('、')}）を {r['dataset_dir']} に写しました") \
+            + f"（調査回プロジェクト。判定は {r['project_dir']}）" + (f"（見つからない {r['n_missing']}）" if r["n_missing"] else "") + (f"（写してあった {r['n_skipped']}）" if r["n_skipped"] else "") \
+            + (f"（そこにあった空の横断プロジェクトは {r['renamed_cross']} に名前を変えました）" if r.get("renamed_cross") else "")
 
     def status(self) -> dict:
         d = super().status()

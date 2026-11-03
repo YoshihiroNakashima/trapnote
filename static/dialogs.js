@@ -13,7 +13,7 @@ async function openProjectDialog() {
   // 2 種類のプロジェクトを並べて出す: 調査回のプロジェクト（動画のフォルダ）と横断プロジェクト（調査回をまたぐ: 統合 / 学習）。最近の一覧には種類と × を付ける
   const recent = (S.snap && S.snap.recent_projects) || [];
   const nameOf = p => p.replace(/[\\/]+$/, '').split(/[\\/]/).filter(Boolean).slice(-2, -1)[0] || p;
-  const li = (p, d) => `<li data-p="${esc(p)}" class="${d && d.exists === false ? 'gone' : ''}"><span class="chip ${d && d.kind === 'cross' ? 'human' : 'ai'} op-kind" title="${esc(d && d.kind === 'cross' ? t('cross_chip_tip') : t('op_season_tip'))}">${esc(!d ? '…' : (d.kind === 'cross' ? t('cross_chip') : t('op_season_chip')))}</span> <b>${esc(d ? d.name : nameOf(p))}</b>${d && d.kind === 'cross' && d.purpose ? ` <span class="info">(${esc(d.purpose === 'merge' ? t('cr_purpose_merge') : t('cr_purpose_train'))})</span>` : ''} <span class="info op-path">${esc(p)}</span>${d && d.exists === false ? ` <span class="ng">${esc(t('op_gone'))}</span>` : ''}<button type="button" class="x" data-forget="${esc(p)}" title="${esc(t('op_forget_tip'))}">×</button></li>`;
+  const li = (p, d) => `<li data-p="${esc(p)}" class="${d && d.exists === false ? 'gone' : ''}"><span class="chip ${d && d.kind === 'cross' ? 'human' : 'ai'} op-kind" title="${esc(d && d.kind === 'cross' ? t('cross_chip_tip') : t('op_season_tip'))}">${esc(!d ? '…' : (d.kind === 'cross' ? t('cross_chip') : t('op_season_chip')))}</span> <b>${esc(d ? d.name : nameOf(p))}</b>${d && d.kind === 'cross' && d.purpose ? ` <span class="info">(${esc(d.purpose === 'merge' ? t('cr_purpose_merge') : t('cr_purpose_train'))})</span>` : ''} <span class="info op-path">${esc(p)}</span>${d && d.exists === false ? ` <span class="ng">${esc(t('op_gone'))}</span>` : ''}${d && d.legacy ? ` <button type="button" class="small" data-tidy="${esc(p)}" title="${esc(t('op_tidy_tip'))}">${esc(t('op_tidy'))}</button>` : ''}<button type="button" class="x" data-forget="${esc(p)}" title="${esc(t('op_forget_tip'))}">×</button></li>`;
   const m = showModal(`<h3>${esc(t('open_title'))}</h3>
     <div class="op-cards">
       <div class="op-card"><h4>${esc(t('op_season_h'))}</h4><div class="note">${esc(t('open_help'))}</div>${pathRow('opPath', t('open_project'), 'folder', '', '')}<div class="btn-row"><button type="button" id="mOk" class="primary">${esc(t('op_open_btn'))}</button></div></div>
@@ -46,6 +46,7 @@ async function openProjectDialog() {
       try { const r = await api('/api/projects/forget', { path: b.dataset.forget }); if (r.state) setSnapshot(r.state); b.closest('li').remove(); if (!m.querySelectorAll('.recent li').length) { const h = m.querySelector('#opRecent'); if (h) { h.previousElementSibling.remove(); h.remove(); } } }
       catch (err) { toast(err.message, 'error'); }
     }; });
+    m.querySelectorAll('.recent [data-tidy]').forEach(b => { b.onclick = async e => { e.stopPropagation(); await tidyProject(b.dataset.tidy, true); }; });
   };
   wire();
   if (recent.length) {                       // 種類（横断 / 調査回）と見えるかは project.json を読んで後から埋める（NAS が眠っていると数秒かかる）
@@ -56,6 +57,21 @@ async function openProjectDialog() {
       wire();
     } catch (e) { /* 一覧はそのまま */ }
   }
+}
+
+// 旧形式の「名前を付けたプロジェクト」（<親>/<名前>/project.json、動画は <親>/…）を自己完結のフォルダ（<親>/<名前>/ に動画と TrapNote）に整える。同じドライブの中の移動なので一瞬
+async function tidyProject(path, fromOpenDialog) {
+  const wasOpen = !!(S.project && S.project.dir && S.project.dir.toLowerCase() === path.toLowerCase());
+  const ok = await confirmModal(t('op_tidy'), `<div>${esc(path)}</div><div class="note">${esc(t('op_tidy_q'))}</div>`, t('op_tidy'));
+  if (!ok) { if (fromOpenDialog) openProjectDialog(); return; }
+  showOverlay(t('loading'));
+  try {
+    const r = await api('/api/project/tidy', { path });
+    hideOverlay();
+    toast(`${t('op_tidy_done')}: ${r.root} (${t('items')} ${r.n_moved})`);
+    if (wasOpen) await openProjectPath(r.project_dir);                 // 整えた先で開き直す（一覧も読み直す）
+    else { if (r.state) setSnapshot(r.state); if (fromOpenDialog || !S.project) openProjectDialog(); }
+  } catch (e) { hideOverlay(); toast(e.message, 'error'); if (fromOpenDialog) openProjectDialog(); }
 }
 
 // ---------- 設定 ----------
@@ -1150,28 +1166,56 @@ function yoloOnJobs(jobs) {   // 取り込みは裏の処理（bg レーン）�
 let exportModalEl = null;
 // ---------- 選んだ動画を別のフォルダへプロジェクトごと写す（一覧の右クリック） ----------
 let subsetModalEl = null;
-async function subsetDialog(ids) {
+// 別のフォルダへ写す: 選んだ対象（ids）か、絞り込み（opts.filters。横断の 組 など）を <写す先>/<名前>/ に動画と TrapNote（判定）ごと写す。できるものは必ず 調査回型 のプロジェクト
+async function subsetDialog(ids, opts) {
+  opts = opts || {};
+  const filters = ids && ids.length ? null : (opts.filters || null);
+  const n0 = ids && ids.length ? ids.length : (opts.n || 0);
+  const name0 = opts.name || (S.filter && S.filter.batch) || '';
   const m = showModal(`<h3>${esc(t('sub_title'))}</h3><div class="note">${esc(t('sub_help'))}</div>
-    <div class="dt-counts"><span>${esc(t('items'))} <b>${ids.length}</b></span></div>
+    <div class="dt-counts"><span>${esc(t('items'))} <b id="subN">${n0}</b></span>${filters && filters.batch ? `<span>${esc(t('cross_batch'))} <b>${esc(filters.batch)}</b></span>` : ''}</div>
     ${pathRow('subDir', t('sub_dir'), 'folder', '', t('sub_dir_help'))}
-    <div class="form-row"><label>${esc(t('sub_name'))}</label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><input type="text" id="subName" spellcheck="false" style="width:220px" placeholder="TrapNote"> <span class="info">${esc(t('sub_name_help'))}</span></span></div>
+    <div class="form-row"><label>${esc(t('sub_name'))}</label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><input type="text" id="subName" spellcheck="false" style="width:220px" value="${esc(name0)}" placeholder="gold_station"> <span class="info">${esc(t('sub_name_help'))}</span></span></div>
+    <div class="form-row"><label></label><div id="subPlan" class="callout">${esc(t('sub_plan_wait'))}</div></div>
     <div class="form-row"><label></label><label class="chk"><input type="checkbox" id="subVideos" checked> ${esc(t('sub_videos'))}</label></div>
     <div id="subStatus"></div>
     <div class="modal-actions"><button id="mCancel">${esc(t('close'))}</button><button id="subStop" class="danger-outline hidden" title="${esc(t('sub_stop_tip'))}">${esc(t('jb_stop'))}</button><button id="mOk" class="primary">${esc(t('sub_run'))}</button></div>`);
   subsetModalEl = m;
   wirePicks(m);
   histWire(m.querySelector('#subDir'), 'subset_dir');
-  const nameOf = p => p.replace(/[\\/]+$/, '').split(/[\\/]/).filter(Boolean).pop() || '';
-  const autoName = () => { if (!m.querySelector('#subName').dataset.edited) { const n = nameOf(m.querySelector('#subDir').value.trim()); m.querySelector('#subName').value = n ? `TrapNote_${n}` : ''; } };
-  m.querySelector('#subDir').addEventListener('input', autoName); m.querySelector('#subDir').addEventListener('change', autoName);
-  m.querySelector('#subName').addEventListener('input', () => { m.querySelector('#subName').dataset.edited = '1'; });
+  const q = sel => m.querySelector(sel);
+  // 写す先と名前を入れるたびに、できるフォルダ（<写す先>/<名前>/ に動画と TrapNote）・足す先・横断の名前の変更をサーバーに訊いて出す
+  let planTimer = null, planOk = false;
+  const plan = () => {
+    clearTimeout(planTimer);
+    planTimer = setTimeout(async () => {
+      const out = q('#subDir').value.trim(), name = q('#subName').value.trim();
+      const el = q('#subPlan'); if (!el) return;
+      if (!out) { el.className = 'callout'; el.textContent = t('sub_plan_wait'); planOk = false; return; }
+      try {
+        const r = await api('/api/export/subset_check', { out_dir: out, name, ids: ids && ids.length ? ids : undefined, filters: filters || undefined });
+        if (!m.isConnected) return;
+        if (!r.ok) { el.className = 'callout warn'; el.textContent = r.error; planOk = false; return; }
+        planOk = true;
+        if (r.n != null) q('#subN').textContent = r.n;
+        const sep = out.includes('\\') ? '\\' : '/';
+        const show = p => (p || '').replace(/\//g, sep);
+        let html = `<div><b>${esc(t('sub_plan_make'))}</b> ${esc(show(r.dataset_dir))}${sep} <span class="info">${esc(t('sub_plan_layout'))}</span></div>`;
+        if (r.exists) html += `<div class="info">${esc(r.legacy ? t('sub_plan_legacy') : t('sub_plan_exists'))}: ${esc(show(r.pdir))}</div>`;
+        if (r.rename_cross) html += `<div class="warn">${esc(t('sub_plan_rename_cross'))}: ${esc(show(r.rename_cross))}</div>`;
+        el.className = 'callout ok'; el.innerHTML = html;
+      } catch (e) { if (m.isConnected) { el.className = 'callout warn'; el.textContent = e.message; planOk = false; } }
+    }, 350);
+  };
+  ['input', 'change'].forEach(ev => { q('#subDir').addEventListener(ev, plan); q('#subName').addEventListener(ev, plan); });
+  plan();
   m.querySelector('#mCancel').onclick = () => { subsetModalEl = null; closeModal(); };
   m.querySelector('#subStop').onclick = async () => { try { const j = await api('/api/jobs/stop', { lane: 'bg' }); m.querySelector('#subStop').disabled = true; subsetOnJobs(j); } catch (e) { toast(e.message, 'error'); } };
   m.querySelector('#mOk').onclick = async () => {
-    const out = m.querySelector('#subDir').value.trim();
+    const out = q('#subDir').value.trim();
     if (!out) { toast(t('cross_need_dir'), 'error'); return; }
     try {
-      const j = await api('/api/export/subset', { ids, out_dir: out, copy_videos: m.querySelector('#subVideos').checked, project_dirname: m.querySelector('#subName').value.trim() });
+      const j = await api('/api/export/subset', { ids: ids && ids.length ? ids : undefined, filters: filters || undefined, out_dir: out, name: q('#subName').value.trim(), copy_videos: q('#subVideos').checked });
       histRemember('subset_dir', out);
       S._bgWasRunning = true; m._running = true; m.querySelector('#mOk').disabled = true;
       subsetOnJobs(j);

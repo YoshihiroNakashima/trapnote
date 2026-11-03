@@ -567,7 +567,7 @@ function crossRenderStudy(m, body) {
   const rows = named.map(b => `<tr class="${b.eval ? 'cur' : ''}"><td><b>${esc(b.batch)}</b><div class="info">${esc(fmtImports(b))}</div></td>
     <td><label class="chk" title="${esc(t('cr_eval_tip'))}"><input type="checkbox" data-evb="${esc(b.batch)}" ${b.eval ? 'checked' : ''}> ${esc(t('cr_eval_chip'))}</label></td>
     <td>${b.n}</td><td class="${b.n_verified < b.n ? 'warn' : 'ok'}">${b.n_verified}${b.n_verified < b.n ? ` <span class="info">/ ${b.n}</span>` : ''}</td><td>${b.n_ai}</td><td>${b.n_disagree}${b.n_partial ? ` <span class="info">+${b.n_partial}</span>` : ''}</td>
-    <td><button type="button" class="small" data-list="${esc(b.batch)}" title="${esc(t('cr_list_tip'))}">${esc(t('cr_list_btn'))}</button> <button type="button" class="small" data-dis="${esc(b.batch)}" title="${esc(t('cr_dis_tip'))}" ${b.n_disagree + b.n_partial ? '' : 'disabled'}>${esc(t('cr_dis_btn'))}</button> <button type="button" class="small ${b.eval ? 'primary' : ''}" data-rep="${esc(b.batch)}" ${b.n_verified ? '' : 'disabled'}>${esc(t('cr_report_btn'))}</button></td></tr>`).join('');
+    <td><button type="button" class="small" data-list="${esc(b.batch)}" title="${esc(t('cr_list_tip'))}">${esc(t('cr_list_btn'))}</button> <button type="button" class="small" data-dis="${esc(b.batch)}" title="${esc(t('cr_dis_tip'))}" ${b.n_disagree + b.n_partial ? '' : 'disabled'}>${esc(t('cr_dis_btn'))}</button> <button type="button" class="small ${b.eval ? 'primary' : ''}" data-rep="${esc(b.batch)}" ${b.n_verified ? '' : 'disabled'}>${esc(t('cr_report_btn'))}</button> <button type="button" class="small" data-sub="${esc(b.batch)}" data-n="${b.n}" title="${esc(t('cr_sub_tip'))}">${esc(t('cr_sub_short'))}</button></td></tr>`).join('');
   body.innerHTML = `<div class="note">${esc(t('cr_study_help'))}</div>
     <details class="adv cr-proto" ${named.length ? '' : 'open'}><summary>${esc(t('cr_proto_h'))}</summary><ol>
       <li>${esc(t('cr_proto_1'))}</li><li>${esc(t('cr_proto_2'))}</li><li>${esc(t('cr_proto_3'))}</li><li>${esc(t('cr_proto_4'))}</li><li>${esc(t('cr_proto_5'))}</li></ol></details>
@@ -594,6 +594,7 @@ function crossRenderStudy(m, body) {
   m.querySelectorAll('[data-list]').forEach(b => { b.onclick = () => { crossModalEl = null; closeModal(); showBatch(b.dataset.list); }; });
   m.querySelectorAll('[data-dis]').forEach(b => { b.onclick = async () => { crossModalEl = null; closeModal(); await showBatch(b.dataset.dis); S.filter.agree = 'disagree'; renderFilters(); saveUi(); await reloadList(); toast(`${t('filter_batch')} ${b.dataset.dis} · ${t('cmp_disagree')}: ${S.total} ${t('items')}`); }; });
   m.querySelectorAll('[data-rep]').forEach(b => { b.onclick = () => crossShowReport(m, b.dataset.rep); });
+  m.querySelectorAll('[data-sub]').forEach(b => { b.onclick = () => { crossModalEl = null; closeModal(); subsetDialog(null, { filters: { batch: b.dataset.sub }, n: parseInt(b.dataset.n) || 0, name: b.dataset.sub }); }; });
   q('#crStApply').onclick = () => { crossModalEl = null; closeModal(); detectDialog({ mode: 'reclass' }); };
   q('#crStTrain').onclick = () => { crossModalEl = null; closeModal(); trainDialog(null, { holdout_batches: evalNames }); };
   q('#crStModels').onclick = () => { crossModalEl = null; closeModal(); trainDialog(); };
@@ -681,6 +682,10 @@ function crossTabSync(m, body) {
     <h4>${esc(t('cross_sync_h'))}</h4><div class="note">${esc(t('cross_sync_help'))}${hasProj ? '' : ' ' + esc(t('cross_sync_tree_note'))}</div>
     <div class="btn-row"><button type="button" class="small" id="crPushPlan" ${hasProj ? '' : 'disabled'}>${esc(t('cross_push_count'))}</button><button type="button" class="small" id="crPush" ${hasProj ? '' : 'disabled'}>${esc(t('cross_push'))}</button><button type="button" class="small" id="crPullPlan" ${hasProj ? '' : 'disabled'}>${esc(t('cross_pull_count'))}</button><button type="button" class="small" id="crPull" ${hasProj ? '' : 'disabled'}>${esc(t('cross_pull'))}</button><label class="chk"><input type="checkbox" id="crOverwrite"> ${esc(t('cross_overwrite'))}</label></div>
     <div id="crSyncOut"></div>
+    <h4>${esc(t('cr_sub_h'))}</h4>
+    <div class="note">${esc(t('cr_sub_help'))}</div>
+    <div class="cr-actions"><select id="crSubBatch">${(info.batches || []).filter(b => b.batch).map(b => `<option value="${esc(b.batch)}">${esc(b.batch)} (${b.n})${b.eval ? ` · ${esc(t('cr_eval_chip'))}` : ''}</option>`).join('')}<option value="__filter__">${esc(t('cr_sub_filter'))}</option></select>
+      <button type="button" class="primary small" id="crSub">${esc(t('cr_sub_btn'))}</button></div>
     <h4>${esc(t('cross_export_h'))}</h4>
     <div class="form-row"><label>${esc(t('cross_copy_to'))}</label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><input type="text" id="crCopyDir" spellcheck="false" style="width:340px"><button type="button" class="small" data-pick="crCopyDir" data-kind="folder" data-name="">${esc(t('pick'))}</button><button type="button" class="small" id="crCopy">${esc(t('cross_copy'))}</button><button type="button" class="small" id="crList">${esc(t('cross_list'))}</button></span></div>
     <div class="note">${esc(t('cross_export_help'))}</div>
@@ -711,6 +716,13 @@ function crossTabSync(m, body) {
     try { const j = await api('/api/cross/copy', { out_dir: out, filters: Object.assign({}, S.filter) }); crossTrack(m, j, 'sync'); } catch (e) { toast(e.message, 'error'); }
   };
   q('#crList').onclick = async () => { try { const r = await api('/api/cross/export_list', { filters: Object.assign({}, S.filter) }); toast(`${t('cross_list_done')}: ${r.path} (${r.n})`); } catch (e) { toast(e.message, 'error'); } };
+  q('#crSub').onclick = () => {                                            // 組（か左の絞り込み）を判定ごと写す → 調査回型のプロジェクト（gold_station など）
+    const v = q('#crSubBatch').value;
+    const b = (info.batches || []).find(x => x.batch === v);
+    crossModalEl = null; closeModal();
+    if (v === '__filter__') subsetDialog(null, { filters: Object.assign({}, S.filter), n: S.total || 0, name: S.filter.batch || '' });
+    else subsetDialog(null, { filters: { batch: v }, n: b ? b.n : 0, name: v });
+  };
 }
 
 // ---------- 裏の処理の表示 ----------

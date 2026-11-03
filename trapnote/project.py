@@ -17,6 +17,9 @@ from .species import SpeciesList
 log = logging.getLogger(__name__)
 PROJECT_DIRNAME = "TrapNote"
 PROJECT_JSON = "project.json"
+# プロジェクトのフォルダに置く目印のファイル（フォルダを見ただけで横断か調査回かが分かるように。中身は説明の文）
+MARKER_CROSS = "_これは横断プロジェクト (TrapNote cross project).txt"
+MARKER_SEASON = "_これは調査回プロジェクト (TrapNote season project).txt"
 
 PROJECT_DEFAULTS = {
     "pattern": "{station}/{file}",     # フォルダ名のパターン
@@ -218,6 +221,51 @@ class Project:
         if self.root:
             self.data["root"] = self.root
         write_json(os.path.join(self.dir, PROJECT_JSON), self.data)
+        self.write_marker()
+
+    def marker_text(self) -> str:
+        """目印のファイルの中身（日本語と英語。何のフォルダか、動画はどこか、どう開くか）"""
+        if self.is_cross:
+            srcs = self.sources()
+            lines = [f"このフォルダは TrapNote の横断プロジェクト「{self.name}」です（フォルダ自体がプロジェクト）。",
+                     "動画はここにはなく、参照先（下）から直接読みます。判定・組・カタログ・学習したモデルがこの中にあります。消すとそれらが失われます。",
+                     "開くには TrapNote の「プロジェクトを開く」でこのフォルダを指定します。",
+                     "参照先: " + ("、".join(f"{x.get('name')} = {x.get('root') or x.get('dir') or ''}" for x in srcs) if srcs else "（まだなし）"),
+                     "",
+                     f"This folder is the TrapNote cross project \"{self.name}\" (the folder itself is the project).",
+                     "The videos are not here; they are read from the sources above. Judgements, batches, the catalogue and trained models live here; deleting the folder loses them.",
+                     "Open it with \"Open project\" in TrapNote by choosing this folder."]
+        else:
+            lines = [f"このフォルダは TrapNote の調査回プロジェクト「{self.name}」の記録です。",
+                     f"動画のフォルダ: {self.root or '（未設定）'}（このフォルダの{'親' if key(os.path.dirname(self.dir)) == key(self.root or '') else '外'}）。判定・追加項目・AI の判定・枠の画像がこの中にあります。消すとそれらが失われます。",
+                     "開くには TrapNote の「プロジェクトを開く」で動画のフォルダ（上）を指定します。",
+                     "",
+                     f"This folder holds the TrapNote season project \"{self.name}\".",
+                     f"Videos: {self.root or '(not set)'}. Judgements, fields, AI results and crop images live here; deleting the folder loses them.",
+                     "Open it with \"Open project\" in TrapNote by choosing the video folder above."]
+        ex = self.data.get("exported_from")
+        if ex:
+            lines.append(f"元: 「別のフォルダへ写す」で {ex.get('project')}（{ex.get('dir')}）から {str(ex.get('at') or '')[:16]} に作成 / Copied from project {ex.get('project')}.")
+        return "\n".join(lines) + "\n"
+
+    def write_marker(self) -> None:
+        """目印のファイルを置く（中身が変わったときだけ書く。反対の種類の目印が残っていれば消す）"""
+        want, other = (MARKER_CROSS, MARKER_SEASON) if self.is_cross else (MARKER_SEASON, MARKER_CROSS)
+        try:
+            text = self.marker_text()
+            fp = os.path.join(self.dir, want)
+            cur = None
+            if os.path.isfile(fp):
+                with open(fp, encoding="utf-8-sig") as fh:
+                    cur = fh.read()
+            if cur != text:
+                with open(fp, "w", encoding="utf-8-sig", newline="\r\n") as fh:      # メモ帳で読めるように BOM 付き・CRLF
+                    fh.write(text)
+            op = os.path.join(self.dir, other)
+            if os.path.isfile(op):
+                os.remove(op)
+        except OSError as e:
+            log.debug("目印のファイルを書けません: %s", e)
 
     def update_data(self, **kv) -> None:
         """project.json の一部の項目だけを書く（いまのファイルを読み直して項目を入れ替える）。
@@ -268,10 +316,82 @@ class Project:
                     sources=[dict(name=s.get("name"), kind=s.get("kind") or "project", dir=s.get("dir"), root=self.source_root(s.get("name"))) for s in self.sources()] if self.is_cross else [],
                     settings=self.data.get("settings", {}), created_at=self.data.get("created_at"),
                     updated_at=self.data.get("updated_at"), is_default_place=(key(os.path.dirname(self.dir)) == key(self.root or "")),
-                    exported_from=self.data.get("exported_from"))      # 「別のフォルダへ写す」で作ったプロジェクト: 元のプロジェクト（横断など）
+                    exported_from=self.data.get("exported_from"),      # 「別のフォルダへ写す」で作ったプロジェクト: 元のプロジェクト（横断など）
+                    legacy_named=bool(self.data.get("root_is_parent")) and not self.is_cross)   # 旧形式: 名前を付けたプロジェクトで動画は親フォルダに（「整える」で自己完結のフォルダに）
 
     def close(self) -> None:
         try:
             self.db.close()
         except Exception:
             pass
+
+
+def tidy_named_project(pdir: str, progress=None) -> dict:
+    """旧形式の「名前を付けたプロジェクト」（<親>/<名前>/project.json、動画は <親>/<相対パス>。root_is_parent）を、自己完結のフォルダに整える:
+    <親>/<名前>/<相対パス> に動画（この プロジェクトの対象だけ。同じ親の下のほかの動画は触らない）、<親>/<名前>/TrapNote にプロジェクト。
+    同じドライブの中の移動（rename）なので一瞬で終わる。プロジェクトは閉じてから呼ぶこと。返り値 dict(project_dir, root, n_moved, n_missing)"""
+    import shutil
+    from .db import Database
+    pdir = norm(pdir)
+    data = read_json(os.path.join(pdir, PROJECT_JSON), None) or {}
+    if not isinstance(data, dict) or not data.get("root_is_parent") or data.get("kind") == "cross":
+        raise ValueError("旧形式（名前を付けたプロジェクト）ではありません")
+    if os.path.basename(pdir) == PROJECT_DIRNAME:
+        raise ValueError("プロジェクトのフォルダ名が TrapNote のものは整える対象ではありません")
+    parent = os.path.dirname(pdir)
+    new_root = pdir
+    new_pdir = os.path.join(pdir, PROJECT_DIRNAME)
+    if os.path.exists(new_pdir):
+        raise ValueError(f"{new_pdir} が既にあります")
+    db = Database(os.path.join(pdir, "data.sqlite"))
+    try:
+        rels = [r[0] for r in db.q("SELECT rel_path FROM items ORDER BY rel_path")]
+    finally:
+        db.close()
+    # 1. 動画を <親>/<rel> → <親>/<名前>/<rel> に（この対象だけ）
+    n_moved = n_missing = 0
+    for i, rel in enumerate(rels):
+        src = os.path.join(parent, *rel.split("/"))
+        dst = os.path.join(new_root, *rel.split("/"))
+        if os.path.isfile(dst):
+            continue
+        if not os.path.isfile(src):
+            n_missing += 1
+            continue
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        shutil.move(src, dst)
+        n_moved += 1
+        if progress and i % 100 == 0:
+            progress(i, len(rels), rel)
+    # 空になった動画のフォルダは消す（親の直下の参照先フォルダまで。中にほかのファイルがあれば残る）
+    for rel in rels:
+        d = os.path.dirname(os.path.join(parent, *rel.split("/")))
+        while key(d) != key(parent) and key(d).startswith(key(parent).rstrip("/") + "/"):
+            try:
+                os.rmdir(d)
+            except OSError:
+                break
+            d = os.path.dirname(d)
+    # 2. プロジェクトのファイルを <名前>/TrapNote に（動画のフォルダは残す）
+    os.makedirs(new_pdir, exist_ok=True)
+    moved_names = []
+    with os.scandir(pdir) as it:
+        entries = [e for e in it if e.name != PROJECT_DIRNAME]
+    video_dirs = {rel.split("/")[0] for rel in rels if "/" in rel}
+    for e in entries:
+        if e.is_dir(follow_symlinks=False) and e.name in video_dirs:
+            continue
+        shutil.move(e.path, os.path.join(new_pdir, e.name))
+        moved_names.append(e.name)
+    data.pop("root_is_parent", None)
+    data["roots"] = {hostname(): norm(new_root)}
+    data["root"] = norm(new_root)
+    data["name"] = os.path.basename(pdir)
+    data["tidied_from"] = dict(dir=pdir, parent=parent, at=datetime.now().astimezone().isoformat(timespec="seconds"))
+    write_json(os.path.join(new_pdir, PROJECT_JSON), data)
+    try:                                                              # 目印も新しい形で
+        p = Project(new_pdir)
+        p.close()
+    except Exception as e:
+        log.warning("整えたプロジェクトを開けません: %s", e)
+    return dict(project_dir=norm(new_pdir), root=norm(new_root), n_moved=n_moved, n_missing=n_missing, moved=moved_names)

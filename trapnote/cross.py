@@ -2673,29 +2673,76 @@ def export_list(project, path: str, f: dict | None = None) -> dict:
     return dict(path=path, n=len(rows))
 
 
-def export_subset(project, ids: list[int], out_dir: str, copy_videos_too: bool = True, progress=None, stop=None, project_dirname: str = "", workers: int = 3) -> dict:
-    """選んだ対象を、動画と判定ごと別のフォルダへ写して、そこに新しい（調査回型の）プロジェクトを作る: <out_dir>/<相対パス> に動画、<out_dir>/<project_dirname> に
-    種リスト・追加項目・設定・対象（メタデータ・判定・追加項目の値・AI の判定・枠・特徴量・枠の画像）。配布や手元の複製、別の PC での作業に。
-    project_dirname は自分で決められる（空なら TrapNote）。TrapNote 以外の名前のときは project.json に root_is_parent を付け、動画のフォルダ（out_dir）を開けば見つかるようにする。
-    out_dir に既にプロジェクトがあれば、そこに足す（同じ相対パスの対象は飛ばす）。どのプロジェクト（調査回・横断）からでも使える"""
+def export_target(project, out_dir: str, name: str = "") -> dict:
+    """「別のフォルダへ写す」の写す先を決める（写す前の確認にも使う）。できるものは必ず 調査回型のプロジェクトで、自己完結のフォルダ:
+    <out_dir>/<name>/ に動画（<相対パス>）と TrapNote（判定など）。name が空なら <out_dir> 自体がそのフォルダ。
+    <out_dir>/<name> に既にプロジェクトがあれば（<名前>/TrapNote、または旧形式の名前を付けたプロジェクト）そこに足す。
+    そこが横断プロジェクトのフォルダなら: 動画（対象）が 1 本もない空のものは <名前>_旧横断 に名前を変えてから作る、中身があれば止まる。
+    返り値 dict(dataset_dir, pdir, root, exists, legacy, rename_cross)"""
+    from .project import PROJECT_DIRNAME, PROJECT_JSON, find_project_for_root, is_project_dir, read_json
+    out_dir = norm(out_dir)
+    name = (name or "").strip()
+    if name and (name != safe_name(name) or name in (".", "..")):
+        raise ValueError(f"フォルダの名前に使えない文字があります: {name}")
+    dataset_dir = norm(os.path.join(out_dir, name)) if name else out_dir
+    if os.path.dirname(dataset_dir.rstrip("/")) in ("", dataset_dir.rstrip("/")):
+        raise ValueError("ドライブの直下には写せません（<写す先>/TrapNote がアプリのフォルダと重なりかねない）。フォルダを 1 つ作るか名前を付けてください（例: 写す先 F:/Copy、名前 gold_station）")
+    for base in (project.root, project.dir):
+        if base and (key(dataset_dir) == key(base) or key(dataset_dir).startswith(key(base).rstrip("/") + "/")):
+            raise ValueError("写す先に、いまのプロジェクトのフォルダ（動画のフォルダとその中）は指定できません")
+    rename_cross = None
+    legacy = False
+    pdir = os.path.join(dataset_dir, PROJECT_DIRNAME)
+    root = dataset_dir
+    if is_project_dir(dataset_dir):                                   # フォルダ自体がプロジェクト: 横断（置き場）か、旧形式の名前を付けたプロジェクト
+        data = read_json(os.path.join(dataset_dir, PROJECT_JSON), None) or {}
+        if data.get("kind") == "cross":
+            n_items = 0
+            dbp = os.path.join(dataset_dir, "data.sqlite")
+            if os.path.isfile(dbp):
+                try:
+                    import sqlite3
+                    con = sqlite3.connect(f"file:{dbp}?mode=ro", uri=True)
+                    try:
+                        n_items = con.execute("SELECT COUNT(*) FROM items").fetchone()[0]
+                    finally:
+                        con.close()
+                except Exception:
+                    n_items = -1
+            if n_items != 0:
+                raise ValueError(f"{dataset_dir} は横断プロジェクトのフォルダです（取り込んだ動画 {n_items if n_items > 0 else '?'} 件）。別の名前にするか、そのフォルダを片付けてください")
+            k = 1
+            while True:
+                cand = f"{dataset_dir}_旧横断" + (f"{k}" if k > 1 else "")
+                if not os.path.exists(cand):
+                    break
+                k += 1
+            rename_cross = cand
+        elif data.get("root_is_parent"):                              # 旧形式（<親>/<名前>/project.json、動画は <親>/<相対パス>）: そのまま足す
+            legacy = True
+            pdir, root = dataset_dir, os.path.dirname(dataset_dir)
+    else:
+        have = find_project_for_root(dataset_dir) if os.path.isdir(dataset_dir) else None
+        if have:
+            pdir = have
+    return dict(dataset_dir=dataset_dir, pdir=norm(pdir), root=norm(root), exists=is_project_dir(pdir), legacy=legacy, rename_cross=rename_cross, name=name or os.path.basename(dataset_dir))
+
+
+def export_subset(project, ids: list[int], out_dir: str, copy_videos_too: bool = True, progress=None, stop=None, name: str = "", workers: int = 3) -> dict:
+    """選んだ対象を、動画と判定ごと別のフォルダへ写して、そこに新しい 調査回型 のプロジェクトを作る（横断からでも必ず調査回型。export_target の決まり）:
+    <out_dir>/<name>/<相対パス> に動画、<out_dir>/<name>/TrapNote に種リスト・追加項目・設定・対象（メタデータ・判定・追加項目の値・AI の判定・枠・特徴量・枠の画像）。
+    配布や手元の複製、別の PC での作業、横断プロジェクトからの評価用データセット（gold_station など）の切り出しに。
+    既にそこにプロジェクトがあれば足す（同じ相対パスの対象は飛ばす）。どのプロジェクト（調査回・横断）からでも使える"""
     from .fcopy import CopyCancelled, Throughput, copy_many, copy_to
     from .judge import item_state
-    from .project import PROJECT_DIRNAME, Project, find_project_for_root, is_project_dir
+    from .project import Project, is_project_dir
     from .train import crop_path, features_path
-    out_dir = norm(out_dir)
-    project_dirname = (project_dirname or "").strip() or PROJECT_DIRNAME
-    if project_dirname != safe_name(project_dirname) or project_dirname in (".", ".."):
-        raise ValueError(f"プロジェクトのフォルダ名に使えない文字があります: {project_dirname}")
-    if os.path.dirname(out_dir.rstrip("/")) in ("", out_dir.rstrip("/")):
-        raise ValueError("ドライブの直下には写せません（<写す先>/TrapNote がアプリのフォルダと重なりかねない）。フォルダを 1 つ作って指定してください（例: H:/Copies/gold_sub）")
-    for base in (project.root, project.dir):
-        if base and (key(out_dir) == key(base) or key(out_dir).startswith(key(base).rstrip("/") + "/")):
-            raise ValueError("写す先に、いまのプロジェクトのフォルダ（動画のフォルダとその中）は指定できません")
+    tg = export_target(project, out_dir, name)
+    if tg["rename_cross"]:
+        os.rename(tg["dataset_dir"], tg["rename_cross"])
+        log.info("空の横断プロジェクト %s を %s に名前を変えました", tg["dataset_dir"], tg["rename_cross"])
+    out_dir, pdir = tg["root"], tg["pdir"]                             # out_dir = 動画のルート（自己完結のフォルダ。旧形式なら親）
     os.makedirs(out_dir, exist_ok=True)
-    pdir = os.path.join(out_dir, project_dirname)
-    have = find_project_for_root(out_dir)                              # 既にそのフォルダにプロジェクトがあれば（名前が違っても）そこに足す
-    if have and key(have) != key(pdir):
-        pdir = have
     fresh = not is_project_dir(pdir)
     dst = Project(pdir, root=out_dir, create=True)
     try:
@@ -2708,10 +2755,8 @@ def export_subset(project, ids: list[int], out_dir: str, copy_videos_too: bool =
             dst = Project(pdir, root=out_dir, create=True)
             keep = {k: v for k, v in (project.data.get("settings") or {}).items() if k not in ("classifier", "catalog_scan_folders", "cross_purpose")}
             dst.update_settings(keep)
-            dst.data["name"] = os.path.basename(out_dir) or dst.name
+            dst.data["name"] = tg["name"] or dst.name
             dst.data["exported_from"] = dict(project=project.name, dir=project.dir, at=now_iso())
-            if os.path.basename(pdir) != PROJECT_DIRNAME:
-                dst.data["root_is_parent"] = True                     # 名前を付けたプロジェクト: ルートは親（動画のフォルダ）。開くときは動画のフォルダでも見つかる
             dst.save()
         db, ddb = project.db, dst.db
         cols = [r["name"] for r in db.q("PRAGMA table_info(items)")]
@@ -2808,8 +2853,8 @@ def export_subset(project, ids: list[int], out_dir: str, copy_videos_too: bool =
         # 動画は workers 本ずつ並列に写す（NAS からは 1 本ずつより速い）。「止める」は写している途中でも効く（.part を消す）。写し終えた分は残り、やり直せば続きから
         stopped = copy_many(tasks(), do_copy, record, workers=workers if copy_videos_too else 1, stop=stop)
         n, n_miss, n_skip = counts["n"], counts["miss"], counts["skip"]
-        return dict(n=n, n_missing=n_miss, n_skipped=n_skip, out_dir=out_dir, project_dir=dst.dir, fresh=fresh, stopped=stopped, n_left=len(ids) - n - n_miss - n_skip,
-                    bytes=tp.bytes, seconds=round(tp.seconds, 1), mb_s=round(tp.mb_s, 1), speed=tp.text() if tp.bytes else "")
+        return dict(n=n, n_missing=n_miss, n_skipped=n_skip, out_dir=out_dir, dataset_dir=tg["dataset_dir"], project_dir=dst.dir, fresh=fresh, stopped=stopped, n_left=len(ids) - n - n_miss - n_skip,
+                    renamed_cross=tg["rename_cross"], bytes=tp.bytes, seconds=round(tp.seconds, 1), mb_s=round(tp.mb_s, 1), speed=tp.text() if tp.bytes else "")
     finally:
         dst.close()
 
