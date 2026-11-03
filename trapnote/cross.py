@@ -35,11 +35,12 @@ ITEM_COPY_SKIP = {"id", "rel_path", "rel_key", "folder", "src_dir", "src_id", "s
 
 
 # ---------- 参照先 ----------
-def open_source(path: str):
-    """参照先プロジェクトを開く（ルートか TrapNote フォルダ）。横断プロジェクトは参照先にできない"""
+def open_source(path: str, allow_cross: bool = False):
+    """参照先プロジェクトを開く（ルートか TrapNote フォルダ）。横断プロジェクトは参照先にできない。
+    allow_cross=True は「組として取り込んだ別のプロジェクト」（gold_season のような横断プロジェクトでもよい）を判定の写し元・書き戻しの相手として開くとき"""
     from .train import open_source as _open
     p = _open(path)
-    if p.is_cross:
+    if p.is_cross and not allow_cross:
         p.close()
         raise ValueError(f"横断プロジェクトは参照先にできません: {path}")
     return p
@@ -1492,7 +1493,7 @@ def import_rows(project, picked: list, batch: str, progress=None, stop=None) -> 
         if not sdir:                                           # 親フォルダ参照で、調査回にプロジェクトがないもの（種名の CSV だけ）
             n_done += _import_tree_rows(project, name, rows, batch, now, lambda a, b, msg: progress and progress(n_done + a, len(picked), msg), stop)
             continue
-        src = open_source(sdir)
+        src = open_source(sdir, allow_cross=True)                    # 組として取り込む別のプロジェクトは横断（gold_season など）でもよい
         try:
             fdir = project.cache_dir("features")
             os.makedirs(fdir, exist_ok=True)
@@ -2180,12 +2181,14 @@ def match_project_items(project, other_dir: str) -> dict:
     返り値 dict(rows=[(カタログ行, 相手の items 行)], already={組: 本数}, unmatched=[名前...], n_items)"""
     db = project.db
     src_names = [s["name"] for s in project.sources()]
-    other = open_source(other_dir)
+    other = open_source(other_dir, allow_cross=True)
     try:
+        other_cross = other.is_cross                                   # 横断（gold_season など）なら相対パスの先頭はその参照先の名前（こちらと違う名前のこともある）
         items = [dict(r) for r in other.db.q("SELECT id, rel_path, name, station, season FROM items ORDER BY id")]
     finally:
         other.close()
     rows, already, unmatched = [], defaultdict(int), []
+    seen = set()
     for it in items:
         rel_path = (it["rel_path"] or "").replace("\\", "/")
         first, _, rest = rel_path.partition("/")
@@ -2196,15 +2199,26 @@ def match_project_items(project, other_dir: str) -> dict:
             cands.append((sn, rel_path))
             if it.get("season"):
                 cands.append((sn, f"{it['season']}/{rel_path}"))
+            if other_cross and rest:
+                cands.append((sn, rest))
         hit = None
+        seen.clear()
         for sn, rel in cands:
+            if (sn, rel) in seen:
+                continue
+            seen.add((sn, rel))
             hit = db.q1("SELECT id, source, rel, season, station, name, item_id FROM catalog WHERE source=? AND rel=?", (sn, rel))
             if hit:
                 break
-        if not hit and it.get("station"):
-            found = db.q("SELECT id, source, rel, season, station, name, item_id FROM catalog WHERE station=? AND name=? LIMIT 2", (it["station"], it["name"]))
-            if len(found) == 1 or (len(found) > 1 and it.get("season") and len([f for f in found if f["season"] == it["season"]]) == 1):
-                hit = found[0] if len(found) == 1 else [f for f in found if f["season"] == it["season"]][0]
+        if not hit and it.get("station"):                           # 最後は 地点 + ファイル名（調査回も分かればそれも）で 1 行だけ見つかれば
+            if it.get("season"):
+                found = db.q("SELECT id, source, rel, season, station, name, item_id FROM catalog WHERE station=? AND name=? AND season=? LIMIT 2", (it["station"], it["name"], it["season"]))
+                if len(found) == 1:
+                    hit = found[0]
+            if not hit:
+                found = db.q("SELECT id, source, rel, season, station, name, item_id FROM catalog WHERE station=? AND name=? LIMIT 2", (it["station"], it["name"]))
+                if len(found) == 1:
+                    hit = found[0]
         if not hit:
             unmatched.append(rel_path or it["name"])
             continue
@@ -2225,10 +2239,9 @@ def import_project_batch(project, other_path: str, batch: str = "", unit: str = 
     pdir, kind = _project_at(other_path)
     if not pdir:
         raise ValueError(f"プロジェクトが見つかりません: {other_path}")
-    if kind == "cross":
-        raise ValueError("横断プロジェクトは組として取り込めません（「カタログを持ってくる」か、その横断プロジェクトから「別のフォルダへ写す」で作ったものを指定してください）")
     if _key(pdir) == _key(project.dir):
         raise ValueError("いまのプロジェクト自身は取り込めません")
+    # kind が cross（gold_season のように横断プロジェクトとして作った組）でもよい: その items の相対パスは 参照先/rel なので、参照先の名前が同じならそのまま当たる
     other_name = os.path.basename(os.path.dirname(pdir)) if os.path.basename(pdir).lower() == "trapnote" else os.path.basename(pdir)
     batch = (batch or "").strip() or other_name
     low = batch.lower() + " " + other_name.lower()
@@ -2511,7 +2524,9 @@ def _label_of_dir(project, sdir: str) -> str:
             return s["name"]
         if s.get("kind") == "tree" and s.get("root") and key(sdir).startswith(key(s["root"]).rstrip("/") + "/"):
             return f"{s['name']}/{os.path.basename(os.path.dirname(norm(sdir)))}"
-    return os.path.basename(os.path.dirname(norm(sdir))) or sdir
+    sd = norm(sdir).rstrip("/")
+    base = os.path.basename(sd)
+    return (os.path.basename(os.path.dirname(sd)) if base.lower() == "trapnote" else base) or sdir      # 組として取り込んだ別のプロジェクト（F:/Copy/gold_season = フォルダ自体がプロジェクト）
 
 
 def sync_plan(project, direction: str) -> dict:
@@ -2527,7 +2542,7 @@ def sync_plan(project, direction: str) -> dict:
         if not rows:
             continue
         try:
-            src = open_source(sdir)
+            src = open_source(sdir, allow_cross=True)
         except Exception as e:
             out["by_source"][name] = dict(error=str(e))
             continue
@@ -2582,7 +2597,7 @@ def sync_apply(project, direction: str, by: str, overwrite_conflicts: bool = Fal
         rows = db.q("SELECT id, src_id, rel_path, status, updated_at, imported_at, src_updated_at, src_sig, train_exclude, recheck FROM items WHERE src_dir=? AND src_id IS NOT NULL", (sdir,))
         if not rows:
             continue
-        src = open_source(sdir)
+        src = open_source(sdir, allow_cross=True)
         try:
             changed_src_ids, changed_ids = [], []
             for n, r in enumerate(rows):

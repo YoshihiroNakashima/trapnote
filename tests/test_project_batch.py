@@ -47,7 +47,7 @@ def test_import_project_batch(tmp_path):
         cross.add_sources_under(b, root)
         cross.build_catalog(b)
         with pytest.raises(ValueError):
-            cross.import_project_batch(b, str(tmp_path / "Studies" / "gold"))      # 横断は組にできない
+            cross.import_project_batch(b, str(place))                              # 自分自身は取り込めない
         with pytest.raises(ValueError):
             cross.import_project_batch(b, str(tmp_path / "nowhere"))
         m = cross.match_project_items(b, os.path.join(gold_dir, "TrapNote"))
@@ -111,3 +111,49 @@ def test_import_project_batch(tmp_path):
         assert cross.project_batch_message(dict(results=[])) == "取り込むプロジェクトがありません"
     finally:
         c.close()
+
+
+def test_import_cross_project_as_batch(tmp_path):
+    """gold_season のように横断プロジェクトとして作った組（置き場のフォルダ自体がプロジェクト、参照先は同じ NAS、調査回を丸ごと取り込んだもの）も、
+    A で組として取り込める。items の相対パスは 参照先/rel なので参照先の名前が同じならそのまま当たり、判定も写る。書き戻しの相手（src_dir）にもなる"""
+    root, rows = make_nas(tmp_path)
+    gs = tmp_path / "Copy" / "gold_season"
+    gs.mkdir(parents=True)
+    g = Project(str(gs), root=str(gs), create=True, kind="cross")                   # 横断: フォルダ自体がプロジェクト（F:/Copy/gold_season）
+    try:
+        cross.add_source(g, root, name="NAS")                                          # 参照先の名前がこちら（PRM_N）と違っていても当たること
+        cross.build_catalog(g)
+        ids = [r["id"] for r in g.db.q("SELECT id FROM catalog WHERE season='N240415' ORDER BY id")]
+        assert len(ids) == 24
+        cross.catalog_import(g, ids, "season")
+        from trapnote.judge import save as save_judgement
+        gids = [r["id"] for r in g.db.q("SELECT id FROM items ORDER BY id LIMIT 3")]
+        for gid in gids:
+            save_judgement(g.db, gid, dict(species=["boar"]), "me")
+        assert g.is_cross and g.db.scalar("SELECT COUNT(*) FROM items") == 24
+        assert all(r[0].startswith("NAS/N240415/") for r in g.db.q("SELECT rel_path FROM items"))
+    finally:
+        g.close()
+    place = tmp_path / "Studies" / "train"
+    place.mkdir(parents=True)
+    b = Project(str(place / "TrapNote"), root=str(place), create=True, kind="cross")
+    try:
+        cross.add_sources_under(b, root)
+        cross.build_catalog(b)
+        pdir, kind = cross._project_at(str(gs))
+        assert kind == "cross"
+        m = cross.match_project_items(b, str(gs))
+        assert m["n_items"] == 24 and len(m["rows"]) == 24 and not m["unmatched"]
+        r = cross.import_project_batches(b, [dict(path=str(gs))])
+        print(r)
+        assert r["n_ok"] == 1 and r["n"] == 24 and r["batch"] == "gold_season" and r["results"][0]["unit"] == "season" and r["results"][0]["eval"] is True
+        assert cross.eval_batches(b) == ["gold_season"]
+        assert b.db.scalar("SELECT COUNT(*) FROM items WHERE batch='gold_season' AND status='verified'") == 3        # 判定が写る
+        assert cross.batch_units(b, ["gold_season"])["seasons"] == {"N240415"}
+        assert cross.catalog_counts(b, dict(exclude_batches=["gold_season"]))["total"] == 48 - 24
+        assert [x["batch"] for x in cross.batches_info(b) if x["batch"]] == ["gold_season"]                    # 除く組の候補に並ぶ
+        assert b.db.scalar("SELECT COUNT(DISTINCT src_dir) FROM items WHERE batch='gold_season'") == 1
+        plan = cross.sync_plan(b, "push")                                                                          # 書き戻しの相手として開ける（横断でも）
+        assert "gold_season" in plan["by_source"] and "error" not in plan["by_source"]["gold_season"], plan
+    finally:
+        b.close()
