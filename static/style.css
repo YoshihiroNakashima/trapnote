@@ -343,3 +343,15 @@ li.empty .info { margin: 4px 0; }
 .crop.off img { opacity: 0.25; filter: grayscale(1); }
 .crop.off::after { content: '✕'; position: absolute; left: 0; right: 0; top: 30%; text-align: center; font-size: 26px; font-weight: 700; color: #b3261e; }
 .crop:hover { outline: 2px solid var(--accent, #3b5bdb); }
+
+/* 裏の処理（右上）: 動いているときは目立つボタン、進み具合の棒、待ちがあれば数 */
+.jobs-btn { display: inline-flex; align-items: center; gap: 6px; max-width: 360px; padding: 3px 8px; border-radius: 14px; border: 1px solid var(--border); background: #f3f4f6; color: var(--muted); font-size: 12px; cursor: pointer; }
+.jobs-btn .dot { width: 8px; height: 8px; border-radius: 50%; background: #c4c7cc; flex: none; }
+.jobs-btn .prog { display: none; width: 70px; height: 6px; background: #dfe3e8; border-radius: 3px; overflow: hidden; flex: none; }
+.jobs-btn .prog > span { display: block; height: 100%; width: 0; background: #3b5bdb; }
+.jobs-btn.on { background: #e8edff; border-color: #3b5bdb; color: #1f3a9a; font-weight: 600; }
+.jobs-btn.on .dot { background: #3b5bdb; animation: jobs-blink 1.2s infinite; }
+.jobs-btn.on .prog { display: block; }
+.jobs-btn #jobText { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@keyframes jobs-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+[data-preset].on { background: #e8edff; border-color: #3b5bdb; color: #1f3a9a; }

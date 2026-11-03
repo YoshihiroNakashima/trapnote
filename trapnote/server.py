@@ -300,7 +300,7 @@ class Session:
         return dict(n_all=n_all, n_todo=n_todo, n_todo_unverified=n_todo_nv, n_done=n_done, n_failed=n_fail, n_low=n_low, pending_meta=pending_meta,
                     env=env, local_models=[dict(name=m["name"], kind=m.get("kind")) for m in train.list_models(p)], settings={k: p.setting(k) for k in ("md_model", "classifier", "speciesnet_model", "frame_first_sec", "frame_first_fps", "frame_interval_sec",
                                                                    "animal_threshold", "animal_min_frames", "person_threshold", "person_min_frames",
-                                                                   "species_p1", "species_p2", "species_k", "species_empty_p", "max_crops", "detect_image_size", "save_features", "detect_skip_verified", "country")},
+                                                                   "species_p1", "species_p2", "species_k", "species_empty_p", "species_pick", "max_crops", "detect_image_size", "save_features", "detect_skip_verified", "country")},
                     device=self.settings.get("device", "auto"), batch_size=self.settings.get("batch_size", 8))
 
     def train_plan(self) -> dict:
@@ -823,8 +823,12 @@ def make_app(session: Session) -> web.Application:
         if not env["ok"]:
             raise ApiError("torch / megadetector / speciesnet が入っていません（インストール.bat で環境を作り直してください）")
         ps = {}
+        if b.get("species_pick") in ("confidence", "count"):
+            ps["species_pick"] = str(b["species_pick"])
         for k in ("md_model", "classifier", "speciesnet_model"):
             if b.get(k) not in (None, ""):
+                if k == "classifier" and b.get("keep_classifier"):      # 「検出のみ」: 今回だけ分類器なしで、設定は変えない
+                    continue
                 ps[k] = str(b[k])
         if "country" in b:
             ps["country"] = str(b.get("country") or "").strip().upper()[:3]
@@ -862,6 +866,8 @@ def make_app(session: Session) -> web.Application:
             where, params = judge.build_where(_filters(b["filters"]))
             ids = [r["id"] for r in p.db.q(f"SELECT id FROM items WHERE {where}", params)] or [-1]
         opts = dict(redo=bool(b.get("redo")), include_verified=bool(b.get("include_verified")), use_existing=bool(b.get("use_existing")))
+        if b.get("keep_classifier") and b.get("classifier"):
+            opts["classifier"] = str(b["classifier"])                 # 今回だけこの分類器（「検出のみ」= none）。設定は変えていない
         if ids and opts["redo"] and not opts["use_existing"]:
             await io(detect.clear_detections, p.db, ids)
         S.ml.submit(DetectJob(ids, opts))

@@ -201,7 +201,7 @@ async function crossTabLabels(m, body) {
     <div class="cr-actions"><input type="text" id="crLabQ" placeholder="${esc(t('search'))}" value="${esc(CR.labelQ)}" spellcheck="false" style="width:150px">
       <span class="info">${esc(t('cr_bulk'))}</span><select id="crLabBulk">${spOpts('bird')}<option value="">${esc(t('cr_skip_label'))}</option><option value="__auto__">${esc(t('cr_auto'))}</option></select><button type="button" class="small" id="crLabApply">${esc(t('cr_bulk_apply'))}</button></div>
     <div id="crLabTable" style="max-height:48vh;overflow:auto"></div>
-    <div class="cr-actions"><button type="button" class="primary" id="crLabSaveBuild">${esc(t('cr_save_build'))}</button><button type="button" id="crLabSave">${esc(t('cr_save_only'))}</button><span class="info">${esc(t('cr_save_help'))}</span></div>
+    <div class="cr-actions"><button type="button" class="primary" id="crLabSaveBuild">${esc(t('cr_save_build'))}</button><button type="button" id="crLabSave">${esc(t('cr_save_only'))}</button><span class="info">${esc(t('cr_save_help'))} ${esc(t('cr_autosave'))}</span> <span class="info" id="crLabAuto"></span></div>
     <details class="adv"><summary>${esc(t('cr_lm_import'))}</summary><div class="note">${esc(t('cr_lm_import_help'))}</div>
       <div class="form-row"><label>${esc(t('cr_lm_import_l'))}</label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><input type="text" id="crLmPath" spellcheck="false" style="width:380px" placeholder="F:\\Studies\\gold"><button type="button" class="small" data-pick="crLmPath" data-kind="folder" data-name="">${esc(t('pick'))}</button>
         <label class="inline"><input type="checkbox" id="crLmOver"> ${esc(t('cr_lm_overwrite'))}</label><button type="button" class="primary small" id="crLmGo">${esc(t('cr_lm_import_go'))}</button></span></div></details>`;
@@ -227,6 +227,7 @@ async function crossTabLabels(m, body) {
     if (!checked.length) { toast(t('cr_bulk_none'), 'error'); return; }
     m.querySelectorAll('select[data-label]').forEach(s => { if (checked.includes(s.dataset.label)) s.value = v; });
     toast(`${checked.length} ${t('cr_bulk_done')}`);
+    autoSave();
   };
   const collect = () => {
     const map = {};
@@ -235,7 +236,22 @@ async function crossTabLabels(m, body) {
     for (const [k, v] of Object.entries(r.map || {})) if (!(k in map) && ![...m.querySelectorAll('select[data-label]')].some(s => s.dataset.label.toLowerCase() === k)) map[k] = v;
     return map;
   };
+  // 選択を変えたら自動で保存する（段を移ったり窓を閉じたりしても対応が消えないように。「保存して作り直す」はカタログへの反映まで）
+  let autoTimer = null;
+  const autoSave = () => {
+    clearTimeout(autoTimer);
+    autoTimer = setTimeout(async () => {
+      try {
+        const res = await api('/api/cross/labels/save', { map: collect(), rebuild: false });
+        r.map = {}; m.querySelectorAll('select[data-label]').forEach(sel => { if (sel.value !== '__auto__') r.map[sel.dataset.label.toLowerCase()] = sel.value; });
+        if (res.species) { S.species = res.species; rebuildSpMap(); }
+        const st = m.querySelector('#crLabAuto'); if (st) { st.textContent = `${t('saved')} (${res.n})`; }
+      } catch (e) { toast(e.message, 'error'); }
+    }, 700);
+  };
+  m.querySelector('#crLabTable').addEventListener('change', e => { if (e.target.matches('select[data-label]')) autoSave(); });
   const save = async rebuild => {
+    clearTimeout(autoTimer);
     try {
       const res = await api('/api/cross/labels/save', { map: collect(), rebuild });
       if (res.species) { S.species = res.species; rebuildSpMap(); if (typeof renderSpeciesPanel === 'function') renderSpeciesPanel(); }
@@ -311,6 +327,12 @@ function crossTabPick(m, body) {
     <div class="cr-actions"><input type="text" id="cfBatch" spellcheck="false" style="width:140px" placeholder="gold, round1" value="${esc(CR.batch || '')}"><span class="info">${esc(t('cr_batch_help'))}</span></div>
     <h4>${esc(t('cr_random_h'))}</h4>
     <div class="note">${esc(t('cr_random_help'))}</div>
+    <div class="cr-actions"><span class="info">${esc(t('cr_presets'))}</span>
+      <button type="button" class="small" data-preset="video" title="${esc(t('cr_preset_video_tip'))}">${esc(t('cr_preset_video'))}</button>
+      <button type="button" class="small" data-preset="species" title="${esc(t('cr_preset_species_tip'))}">${esc(t('cr_preset_species'))}</button>
+      <button type="button" class="small" data-preset="station" title="${esc(t('cr_preset_station_tip'))}">${esc(t('cr_preset_station'))}</button>
+      <button type="button" class="small" data-preset="season" title="${esc(t('cr_preset_season_tip'))}">${esc(t('cr_preset_season'))}</button>
+      <button type="button" class="small" data-preset="rare" title="${esc(t('cr_preset_rare_tip'))}">${esc(t('cr_preset_rare'))}</button></div>
     <div class="cr-actions"><span>${esc(t('cr_unit'))} <select id="cfUnit">${unitOpts.map(([v, l]) => `<option value="${v}" ${sm.unit === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></span>
       <span>${esc(t('cr_n'))} <input type="number" id="cfN" value="${sm.n}" min="1" step="1" style="width:70px"></span>
       <span id="cfPerUnitWrap" title="${esc(t('cr_per_unit_help'))}">${esc(t('cr_per_unit'))} <input type="number" id="cfPerUnit" value="${sm.per_unit}" min="0" style="width:70px"></span>
@@ -368,6 +390,15 @@ function crossTabPick(m, body) {
     q('#cfCapWrap').classList.toggle('hidden', u !== 'species'); q('#cfMaxAvailWrap').classList.toggle('hidden', u !== 'species');
     q('#cfPerUnitWrap').classList.toggle('hidden', !grp); q('#cfTotalWrap').classList.toggle('hidden', !grp); };
   q('#cfUnit').onchange = unitUi; unitUi();
+  m.querySelectorAll('[data-preset]').forEach(b => { b.onclick = () => {           // 型（選び方の例）を入れる。あとは数を直すだけ
+    const P = { video: { unit: 'video', n: 500 }, species: { unit: 'species', n: 200, cap: 0, max_avail: 0 }, station: { unit: 'station', n: 20, per_unit: 0, total: 3000 },
+      season: { unit: 'season', n: 1, per_unit: 0, total: 5000 }, rare: { unit: 'species', n: 100, cap: 0, max_avail: 300 } }[b.dataset.preset];
+    if (!P) return;
+    q('#cfUnit').value = P.unit; unitUi();
+    if (P.n != null) q('#cfN').value = P.n; if (P.cap != null) q('#cfCap').value = P.cap; if (P.max_avail != null) q('#cfMaxAvail').value = P.max_avail;
+    if (P.per_unit != null) q('#cfPerUnit').value = P.per_unit; if (P.total != null) q('#cfTotal').value = P.total;
+    m.querySelectorAll('[data-preset]').forEach(x => x.classList.toggle('on', x === b));
+  }; });
   const sampleParams = () => { CR.smp = { unit: q('#cfUnit').value, n: parseInt(q('#cfN').value) || 0, cap: parseInt(q('#cfCap').value) || 0, gap: parseFloat(q('#cfGap').value) || 0, seed: parseInt(q('#cfSeed').value) || 1,
       per_unit: parseInt(q('#cfPerUnit').value) || 0, total: parseInt(q('#cfTotal').value) || 0, max_avail: parseInt(q('#cfMaxAvail').value) || 0 };
     return { unit: CR.smp.unit, n: CR.smp.n, cap: CR.smp.cap, gap_min: CR.smp.gap, seed: CR.smp.seed, per_unit: CR.smp.per_unit, total: CR.smp.total, max_avail: CR.smp.max_avail, species: CR.f.species && !['none', 'any'].includes(CR.f.species) ? [CR.f.species] : [] }; };

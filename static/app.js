@@ -579,8 +579,12 @@ function renderJobs(jobs) {
   if (!jobs) return;
   const cur = (jobs.ml && jobs.ml.current) || (jobs.archive && jobs.archive.current) || (jobs.bg && jobs.bg.current) || (jobs.cross && jobs.cross.current) || (jobs.transcode && jobs.transcode.current);
   const el = $('#jobInfo');
-  el.textContent = cur ? jobLine(cur) : t('jb_title');
-  el.style.opacity = cur ? '1' : '.6';
+  const nq = ['ml', 'archive', 'bg', 'cross', 'transcode'].reduce((a, k) => a + (((jobs[k] || {}).queued || []).length), 0);
+  $('#jobText').textContent = cur ? `${jobLine(cur)}${nq ? ` · +${nq}` : ''}` : t('jb_title');
+  el.classList.toggle('on', !!cur);
+  const pct = cur && cur.total ? Math.round(100 * (cur.done + cur.skipped + cur.failed) / cur.total) : 0;
+  $('#jobBar').style.width = `${pct}%`;
+  el.title = cur ? `${jobLine(cur)}${cur.current ? '\n' + cur.current : ''}${cur.message ? '\n' + cur.message : ''}` : t('jobs_tip');
   const tc = new Set(jobs.transcoding || []);
   if ([...tc].join() !== [...S.transcoding].join()) { S.transcoding = tc; renderWindow(true); }
   const metaDone = jobs.bg && !jobs.bg.current && jobs.bg.recent && jobs.bg.recent[0] && (Date.now() / 1000 - (S._lastJobSeen || 0) > 0);
@@ -665,6 +669,7 @@ function wire() {
   $('#btnCross').onclick = () => S.project && crossDialog();
   $('#btnArchive').onclick = () => S.project && archiveDialog();
   $('#btnDetect').onclick = () => S.project && detectDialog();
+  $('#btnDetectOnly').onclick = () => S.project && detectDialog({ classifier: 'none', detect_only: true });     // MegaDetector だけ（枠を付けて目視する人向け。プロジェクトの分類器の設定は変えない）
   $('#btnTrain').onclick = () => S.project && trainDialog();
   $('#btnImport').onclick = () => S.project ? importDialog('csv') : toast(t('tl_open_first'), 'error');
   $('#btnTimelapse').onclick = () => S.project ? timelapseDialog() : toast(t('tl_open_first'), 'error');

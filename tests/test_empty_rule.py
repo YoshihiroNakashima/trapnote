@@ -69,3 +69,14 @@ def test_finish_item_empty_rule(tmp_path):
         assert json.loads(row3["auto_json"])["species"] == [] and row3["flag"] == "low"
     finally:
         p.close()
+
+
+def test_pick_confidence_vs_count():
+    """第 1 種の決め方: 確信度（上位 3 枚の平均）なら、10 枚の 0.55（石の誤判定）より 2 枚の 0.95（一瞬の動物）を採る。枚数なら従来どおり"""
+    codes = ["deer", "boar", "empty"]
+    rows = [[0.1, 0.55, 0.35]] * 10 + [[0.95, 0.03, 0.02], [0.93, 0.05, 0.02]]
+    pc = np.array(rows, dtype=np.float32)
+    r = detect.aggregate_video(pc, codes, 0.5, 0.6, 3, "confidence")
+    assert r["species"][0][0] == "deer", r["species"]
+    r2 = detect.aggregate_video(pc, codes, 0.5, 0.6, 3, "count")
+    assert r2["species"][0][0] == "boar", r2["species"]

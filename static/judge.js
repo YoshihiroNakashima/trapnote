@@ -351,6 +351,7 @@ async function loadCrops(d) {
   if (!S.cur || S.cur.id !== d.id) return;
   if (!r.has_features || !r.crops.length) { box.classList.add('hidden'); grid.innerHTML = ''; return; }
   CROPS.data = r;
+  if (typeof applyBoxMode === 'function') applyBoxMode();        // 枠の表示が「学習に使う枠」なら、どの枠かが分かった時点で描き直す
   box.classList.remove('hidden');
   const det = $('#cropsDet');
   try { det.open = localStorage.getItem('tn_crops_open') === '1'; } catch (e) { /* */ }
@@ -376,6 +377,7 @@ async function setCrops(ks, excluded) {
     r.crops.forEach(c => { c.excluded = ex.has(c.k); });
     r.excluded = res.excluded;
     renderCrops();
+    if (typeof applyBoxMode === 'function') applyBoxMode();
   } catch (e) { toast(e.message, 'error'); }
 }
 function toggleCrop(k) { const c = CROPS.data && CROPS.data.crops.find(x => x.k === k); if (c) setCrops([k], !c.excluded); }

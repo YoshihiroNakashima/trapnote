@@ -629,7 +629,7 @@ def train_head(X: np.ndarray, y: np.ndarray, w: np.ndarray, n_classes: int, opts
 # ---------- 評価（動画 1 本の判定を人の判定と突き合わせる） ----------
 def video_judgement(codes: list[str], pc: np.ndarray, s: dict) -> list[str]:
     from .detect import aggregate_video
-    cls = aggregate_video(pc, codes, float(s["species_p1"]), float(s["species_p2"]), int(s["species_k"]))
+    cls = aggregate_video(pc, codes, float(s["species_p1"]), float(s["species_p2"]), int(s["species_k"]), str(s.get("species_pick") or "confidence"))
     return [c for c, _ in cls["species"]]
 
 
@@ -1346,7 +1346,7 @@ def reclassify_item(project, hub, item: dict, s: dict) -> dict | None:
     else:
         codes2, pc2 = codes, pc
     codes2, pc2 = fold_disabled(project, codes2, pc2)         # 種リストで「使わない」にした種は「不明」に寄せる（付け直しでいまの種リストを反映）
-    cls = aggregate_video(pc2, codes2, float(s["species_p1"]), float(s["species_p2"]), int(s["species_k"]))
+    cls = aggregate_video(pc2, codes2, float(s["species_p1"]), float(s["species_p2"]), int(s["species_k"]), str(s.get("species_pick") or "confidence"))
     per_crop = []
     for n in range(len(pc2)):
         j = int(np.argmax(pc2[n]))

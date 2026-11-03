@@ -17,6 +17,7 @@ import logging
 import os
 import random
 import shutil
+import time
 from collections import Counter, defaultdict
 from datetime import datetime
 
@@ -73,6 +74,7 @@ def add_source(project, path: str, name: str | None = None, labels_csv: str | No
     """参照先を登録する。path が TrapNote のプロジェクト（ルートか TrapNote フォルダ）ならプロジェクト参照（kind = project）、
     そうでないフォルダなら親フォルダ参照（kind = tree: NAS の PRM_N など。<親>/<調査回>/<地点>/<動画> の置き方。既存の種名は labels_csv から）。
     名前は相対パスの先頭になる（/ や \\ は _ に）。最初の参照先がプロジェクトなら種リストと追加項目を写す"""
+    clear_fs_cache()
     if not project.is_cross:
         raise ValueError("横断プロジェクトではありません")
     path = norm(path)
@@ -145,6 +147,7 @@ def add_source(project, path: str, name: str | None = None, labels_csv: str | No
 def add_sources_under(project, parent: str, labels_csv: str | None = None) -> dict:
     """親フォルダ（下に調査回フォルダが並ぶもの）を 1 つの参照先として登録する。調査回フォルダに TrapNote のプロジェクトがあればその判定を、
     なければ種名の CSV を使う（調査回ごとに自動で切り替える）。親フォルダ自体がプロジェクトのルートならプロジェクト参照"""
+    clear_fs_cache()
     parent = norm(parent)
     if not os.path.isdir(parent):
         raise FileNotFoundError(f"フォルダがありません: {parent}")
@@ -162,12 +165,14 @@ def add_sources_under(project, parent: str, labels_csv: str | None = None) -> di
 
 
 def tree_season_project(root: str, season: str) -> str | None:
-    """調査回フォルダに TrapNote のプロジェクト（横断ではないもの）があればそのフォルダ（<root>/<season>/TrapNote）"""
-    d = os.path.join(root, season)
-    if not os.path.isdir(d):
-        return None
-    pdir, kind = _project_at(d)
-    return pdir if pdir and kind != "cross" else None
+    """調査回フォルダに TrapNote のプロジェクト（横断ではないもの）があればそのフォルダ（<root>/<season>/TrapNote）。NAS の stat は短く覚える"""
+    def look():
+        d = os.path.join(root, season)
+        if not os.path.isdir(d):
+            return None
+        pdir, kind = _project_at(d)
+        return pdir if pdir and kind != "cross" else None
+    return _fs_get(("sproj", key(root), season), look)
 
 
 def _human_codes(project, src, lm: dict, code_names: dict | None = None, source: str = "") -> tuple[dict[int, list], dict[int, list]]:
@@ -343,6 +348,7 @@ def _unique_name(project, wanted: str, path: str) -> str:
 
 def set_source_labels(project, name: str, labels_csv: str | None, wait: bool = True) -> dict:
     """親フォルダ参照に、既存の種名の CSV（Season, Station, File, Species[, DateTime]）を付ける・外す。wait=False なら読まずに戻る（裏で LabelsJob が読む）"""
+    clear_fs_cache()
     s = source_by_name(project, name)
     if s is None or s.get("kind") != "tree":
         raise ValueError(f"親フォルダ参照ではありません: {name}")
@@ -499,11 +505,11 @@ def label_candidates(project) -> dict:
     for s in project.sources():
         name = s["name"]
         if s.get("kind") == "tree":
-            if not labels_ready(project, s):
+            lab = labels_summary(project, s)
+            if lab is None:
                 if label_files(s):
                     pending.append(name)
                 continue
-            lab = _LABELS[name][2]
             for label, n in lab["labels"].items():
                 add(label, "csv", n, name)
         else:
@@ -553,7 +559,13 @@ def label_files(s: dict) -> list[tuple[str, str]]:
     if s.get("labels_csv"):
         return [(norm(s["labels_csv"]), "")] if os.path.isfile(s["labels_csv"]) else []
     root = norm(s.get("root") or "")
-    if not root or not os.path.isdir(root):
+    if not root:
+        return []
+    return _fs_get(("labfiles", key(root), tuple(s.get("seasons") or [])), lambda: _label_files_scan(s, root))
+
+
+def _label_files_scan(s: dict, root: str) -> list[tuple[str, str]]:
+    if not os.path.isdir(root):
         return []
     out = []
     try:
@@ -743,28 +755,44 @@ def _apply_map(project, raw: dict, reapply: bool = False) -> dict:
         d.species = tup
         by_season[d.season].append(d)
         pair_counts[(d.season, tup)] += 1
+    raw_pairs: Counter = Counter()                   # (調査回, 表記の組) → 本数（集計の元。sidecar にも残す）
+    for d in raw["rows"].values():
+        raw_pairs[(d.season, d.raw)] += 1
+    stats = _stats_from_pairs(project, raw_pairs, lm)
+    raw["season_pairs"] = raw_pairs
+    return dict(rows=raw["rows"], labels=raw["labels"], code_of=stats["code_of"], unmapped=stats["unmapped"], species=stats["species"], files=raw["files"], cols=raw["cols"],
+                by_season=dict(by_season), season_stats=stats["season_stats"])
+
+
+def _stats_from_pairs(project, raw_pairs, lm: dict | None = None) -> dict:
+    """(調査回, 表記の組) → 本数 の集計に、いまの対応表を当てて 調査回ごとの本数・人の判定の本数・種ごとの本数、対応しない表記、種ごとの本数 を出す（行を持たずに済む。数百件の組なので一瞬）"""
+    lm = label_map(project) if lm is None else lm
+    labels_all = {lab for (_se, rw) in raw_pairs for lab in rw}
+    code_of = {lab: resolve_label(project, lab, lm) for lab in labels_all}
     unmapped: Counter = Counter()
     sp_counts: Counter = Counter()
     season_stats: dict[str, dict] = {}
-    for (se, tup), n in pair_counts.items():
+    for (se, rw), n in raw_pairs.items():
+        codes: list[str] = []
+        for lab in rw:
+            c = code_of.get(lab)
+            if c:
+                if c not in codes:
+                    codes.append(c)
+            else:
+                unmapped[lab] += n
+        if "empty" in codes and len(codes) > 1:
+            codes = [c for c in codes if c != "empty"]
         st = season_stats.get(se)
         if st is None:
             st = season_stats[se] = dict(n=0, n_human=0, species=Counter())
         st["n"] += n
-        if tup:
+        if codes:
             st["n_human"] += n
-            for c in tup:
+            for c in codes:
                 st["species"][c] += n
                 sp_counts[c] += n
-    raw_counts: Counter = Counter()
-    for d in raw["rows"].values():
-        if unm_of.get(d.raw):
-            raw_counts[d.raw] += 1
-    for rw, n in raw_counts.items():
-        for lab in unm_of[rw]:
-            unmapped[lab] += n
-    return dict(rows=raw["rows"], labels=raw["labels"], code_of=code_of, unmapped=unmapped.most_common(), species=sp_counts.most_common(), files=raw["files"], cols=raw["cols"],
-                by_season=dict(by_season), season_stats=season_stats)
+    return dict(code_of=code_of, unmapped=unmapped.most_common(), species=sp_counts.most_common(), season_stats=season_stats)
 
 
 def _labels_sig(project, files: list[tuple[str, str]]) -> tuple:
@@ -785,8 +813,37 @@ def _labels_cache_path(project, s: dict) -> str:
     return os.path.join(d, safe_name(s["name"]).replace("/", "_") + ".pkl")
 
 
-def labels_ready(project, s: dict) -> bool:
-    """種名 CSV を読んだものが手元（メモリか cache/labels）にあるか。あれば対応表を当ててメモリに載せる（1 秒ほど）。CSV は読まない"""
+def _labels_side_path(project, s: dict) -> str:
+    return _labels_cache_path(project, s)[:-4] + ".json"
+
+
+def _write_side(project, s: dict, sig, raw: dict) -> None:
+    """pkl の横に、集計だけの小さな JSON（表記ごとの本数、(調査回, 表記の組) の本数、ファイル、列）。窓を出すときは pkl（120 万行で十数秒）を読まずにこれで足りる"""
+    from .config import write_json
+    pairs = raw.get("season_pairs")
+    if pairs is None:
+        pairs = Counter()
+        for d in raw["rows"].values():
+            pairs[(d.season, getattr(d, "raw", None) or d.species)] += 1
+    side = dict(sig=[list(x) for x in sig], labels=raw["labels"], files=raw["files"], cols=raw["cols"], n=len(raw["rows"]),
+                pairs=[[se, list(rw), n] for (se, rw), n in pairs.items()])
+    try:
+        write_json(_labels_side_path(project, s), side)
+    except Exception as e:
+        log.warning("種名 CSV の集計を書けません: %s", e)
+
+
+def _read_side(project, s: dict, sig) -> dict | None:
+    from .config import read_json
+    side = read_json(_labels_side_path(project, s), None)
+    if not isinstance(side, dict) or side.get("sig") != [list(x) for x in sig]:
+        return None
+    return side
+
+
+def labels_ready(project, s: dict, load: bool = True) -> bool:
+    """種名 CSV を読んだものが手元（メモリか cache/labels）にあるか。CSV は読まない。
+    load=True なら pkl を読んで対応表を当ててメモリに載せる（120 万行で十数秒）。load=False なら集計の JSON があるかだけ見る（窓を出すとき）"""
     import pickle
     files = label_files(s)
     sig = _labels_sig(project, files)
@@ -794,17 +851,45 @@ def labels_ready(project, s: dict) -> bool:
     hit = _LABELS.get(s["name"])
     if hit and hit[0] == sig and hit[1] == msig:
         return True
+    if hit and hit[0] == sig:                                     # 対応表だけ変わった: 読み直さず当て直す
+        _LABELS[s["name"]] = (sig, msig, _apply_map(project, hit[2], reapply=True))
+        return True
     cp = _labels_cache_path(project, s)
-    if os.path.isfile(cp):
-        try:
-            with open(cp, "rb") as fh:
-                csig, raw = pickle.load(fh)
-            if csig == sig and isinstance(raw, dict) and "labels" in raw:
-                _LABELS[s["name"]] = (sig, msig, _apply_map(project, raw))
-                return True
-        except Exception as e:
-            log.warning("種名 CSV のキャッシュを読めません（読み直します）: %s", e)
+    if not os.path.isfile(cp):
+        return False
+    if not load:
+        return _read_side(project, s, sig) is not None
+    try:
+        with open(cp, "rb") as fh:
+            csig, raw = pickle.load(fh)
+        if csig == sig and isinstance(raw, dict) and "labels" in raw:
+            out = _apply_map(project, raw)
+            _LABELS[s["name"]] = (sig, msig, out)
+            if _read_side(project, s, sig) is None:
+                _write_side(project, s, sig, raw)
+            return True
+    except Exception as e:
+        log.warning("種名 CSV のキャッシュを読めません（読み直します）: %s", e)
     return False
+
+
+def labels_summary(project, s: dict) -> dict | None:
+    """窓に出す集計（本数・表記ごとの本数・調査回ごとの集計・対応しない表記・ファイル）。メモリにあればそこから、なければ集計の JSON から（pkl は読まない）。なければ None"""
+    files = label_files(s)
+    sig = _labels_sig(project, files)
+    hit = _LABELS.get(s["name"])
+    if hit and hit[0] == sig:
+        if hit[1] != map_sig(project):
+            labels_ready(project, s)
+            hit = _LABELS[s["name"]]
+        lab = hit[2]
+        return dict(n=len(lab["rows"]), labels=lab["labels"], files=lab["files"], cols=lab["cols"], unmapped=lab["unmapped"], species=lab["species"], season_stats=lab["season_stats"])
+    side = _read_side(project, s, sig)
+    if side is None:
+        return None
+    pairs = Counter({(se, tuple(rw)): int(n) for se, rw, n in side.get("pairs") or []})
+    st = _stats_from_pairs(project, pairs)
+    return dict(n=int(side.get("n") or 0), labels=side.get("labels") or {}, files=side.get("files") or [], cols=side.get("cols") or {}, unmapped=st["unmapped"], species=st["species"], season_stats=st["season_stats"])
 
 
 def labels_files_info(s: dict) -> list[dict]:
@@ -823,6 +908,7 @@ def _labels(project, s: dict, progress=None, stop=None) -> dict:
     import pickle
     if labels_ready(project, s):
         return _LABELS[s["name"]][2]
+    clear_fs_cache()
     files = label_files(s)
     sig = _labels_sig(project, files)
     rows: dict[tuple, dict] = {}
@@ -844,15 +930,40 @@ def _labels(project, s: dict, progress=None, stop=None) -> dict:
     except Exception as e:
         log.warning("種名 CSV のキャッシュを書けません: %s", e)
     out = _apply_map(project, raw)
+    _write_side(project, s, sig, raw)
     _LABELS[s["name"]] = (sig, map_sig(project), out)
     return out
 
 
-def _tree_seasons(root: str) -> list[str]:
-    try:
-        return sorted(e.name for e in os.scandir(root) if e.is_dir() and not e.name.startswith(".") and e.name.lower() not in ("trapnote", "staytime"))
-    except OSError:
-        return []
+_FS: dict = {}                 # NAS のフォルダ一覧・stat の短いキャッシュ（key → (時刻, 値)）。窓を開くたびに NAS を何十回も見に行かないため
+FS_TTL = 120.0
+
+
+def _fs_get(key_, fn, ttl: float = FS_TTL):
+    now = time.time()
+    hit = _FS.get(key_)
+    if hit and now - hit[0] < ttl:
+        return hit[1]
+    v = fn()
+    _FS[key_] = (now, v)
+    return v
+
+
+def clear_fs_cache() -> None:
+    _FS.clear()
+
+
+def _tree_seasons(root: str, fresh: bool = False) -> list[str]:
+    def ls():
+        try:
+            return sorted(e.name for e in os.scandir(root) if e.is_dir() and not e.name.startswith(".") and e.name.lower() not in ("trapnote", "staytime"))
+        except OSError:
+            return []
+    if fresh:
+        v = ls()
+        _FS[("seasons", key(root))] = (time.time(), v)
+        return v
+    return _fs_get(("seasons", key(root)), ls)
 
 
 def source_seasons(s: dict) -> list[str]:
@@ -917,6 +1028,7 @@ def copy_lists(project, src) -> None:
 
 
 def remove_source(project, name: str) -> dict:
+    clear_fs_cache()
     n = int(project.db.scalar("SELECT COUNT(*) FROM items WHERE rel_path LIKE ?", (name + "/%",)) or 0)
     if n:
         raise ValueError(f"{name} から取り込んだ対象が {n} 件あるので外せません（先に対象を消してください）")
@@ -955,13 +1067,16 @@ def tree_summary(project, s: dict, wait: bool = False) -> dict:
     d = dict(name=s["name"], kind="tree", root=root, dir=None, project_name=s["name"], ok=True, available=available, seasons=seasons, project_seasons=proj_seasons, stations=[],
              n_items=None, n_verified=None, n_human=None, n_det=None, species=[], n_imported=n_in, labels_csv=s.get("labels_csv") or "", labels=None,
              only_seasons=list(s.get("seasons") or []))
-    if available and not wait and not labels_ready(project, s):
+    if available and not wait and not labels_ready(project, s, load=False):
         fi = labels_files_info(s)
         d["labels"] = dict(pending=True, files=[dict(path=f["path"], n=None, error=None) for f in fi], size=sum(f["size"] for f in fi), auto=not s.get("labels_csv")) if fi else dict(files=[], auto=not s.get("labels_csv"))
         return d
     if available:
         try:
-            lab = _labels(project, s)
+            lab = labels_summary(project, s) if not wait else None
+            if lab is None:
+                full = _labels(project, s)
+                lab = dict(n=len(full["rows"]), labels=full["labels"], files=full["files"], cols=full["cols"], unmapped=full["unmapped"], species=full["species"], season_stats=full["season_stats"])
             here = set(seasons) - set(proj_seasons)                                     # プロジェクトのある調査回は CSV ではなくプロジェクトの判定を使う
             sp: Counter = Counter()
             n_here = n_human = 0
@@ -970,7 +1085,7 @@ def tree_summary(project, s: dict, wait: bool = False) -> dict:
                     n_here += st["n"]
                     n_human += st["n_human"]
                     sp.update(st["species"])
-            d["labels"] = dict(n=len(lab["rows"]), n_here=n_here, unmapped=lab["unmapped"][:20], n_unmapped=sum(n for _, n in lab["unmapped"]), n_unmapped_labels=len(lab["unmapped"]), n_labels=len(lab["labels"]), cols=lab["cols"],
+            d["labels"] = dict(n=lab["n"], n_here=n_here, unmapped=lab["unmapped"][:20], n_unmapped=sum(n for _, n in lab["unmapped"]), n_unmapped_labels=len(lab["unmapped"]), n_labels=len(lab["labels"]), cols=lab["cols"],
                                files=[dict(path=f["path"], n=f["n"], error=f["error"]) for f in lab["files"]], auto=not s.get("labels_csv"),
                                seasons=sorted(se for se in lab["season_stats"] if se))
             d["species"] = [dict(code=c, n=n) for c, n in sp.most_common()]
@@ -1368,6 +1483,7 @@ def build_catalog(project, progress=None, stop=None) -> dict:
     """参照先の全動画の目録を作り直す（メディアは持たない）。プロジェクト参照は items と判定から、親フォルダ参照は種名の CSV から。
     速さのため: 調査回ごとに流し込む（全部をメモリに持たない）、索引は落として最後に作り直す（索引を保ちながらの挿入は HDD では桁違いに遅い）、
     1 回のトランザクションで 5 万行、キャッシュを大きくする"""
+    clear_fs_cache()
     db = project.db
     by_src: dict[str, int] = {}
     code_names: dict[str, dict] = {}

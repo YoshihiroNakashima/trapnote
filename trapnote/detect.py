@@ -683,8 +683,10 @@ def aggregate_codes(probs: np.ndarray, label_codes: list[str]) -> tuple[list[str
     return codes, probs @ M
 
 
-def aggregate_video(pc: np.ndarray, codes: list[str], p1: float, p2: float, k: int) -> dict:
-    """枠ごとの種の確率 [n, codes] から動画の判定へ。species = [(code, confidence)]、probs = コードごとの平均（上位）"""
+def aggregate_video(pc: np.ndarray, codes: list[str], p1: float, p2: float, k: int, pick: str = "confidence") -> dict:
+    """枠ごとの種の確率 [n, codes] から動画の判定へ。species = [(code, confidence)]、probs = コードごとの平均（上位）。
+    第 1 種の決め方 pick: "confidence"（既定）= p1 以上の枠のうち確率の高い上位 3 枚の平均が最大の種（一瞬だけ確実に写った動物を、ずっと写っている石の誤判定より優先する）、
+    "count" = p1 以上の枠の枚数が最多の種（同数なら平均）。第 2 種以降はどちらも p2 以上が K 枚以上"""
     if len(pc) == 0:
         return dict(species=[], probs={})
     mean = {c: float(pc[:, j].mean()) for j, c in enumerate(codes)}
@@ -693,7 +695,14 @@ def aggregate_video(pc: np.ndarray, codes: list[str], p1: float, p2: float, k: i
     cnt1 = {c: n for c, n in cnt1.items() if n}
     species = []
     if cnt1:
-        first = max(cnt1.items(), key=lambda x: (x[1], mean[x[0]]))[0]
+        if pick == "count":
+            first = max(cnt1.items(), key=lambda x: (x[1], mean[x[0]]))[0]
+        else:
+            def top_mean(c):
+                col = np.sort(pc[:, codes.index(c)])[::-1]
+                col = col[col >= p1][:3]
+                return float(col.mean()) if len(col) else 0.0
+            first = max(cnt1.items(), key=lambda x: (round(top_mean(x[0]), 4), x[1], mean[x[0]]))[0]
         j = codes.index(first)
         vals = [float(pc[i, j]) for i in range(len(pc)) if int(np.argmax(pc[i])) == j] or [float(pc[:, j].max())]
         species.append((first, round(statistics.median(vals), 3)))
@@ -868,7 +877,7 @@ def process_item(project, hub: ModelHub, item: dict, classify: bool = True, fram
             j = int(np.argmax(pc[n]))
             per_crop.append(dict(t=r[0], code=codes[j], p=round(float(pc[n, j]), 3), conf=round(r[2], 3)))
             sp_by_idx[i] = (codes[j], float(pc[n, j]))
-        cls = aggregate_video(pc, codes, p1, p2, kk)
+        cls = aggregate_video(pc, codes, p1, p2, kk, str(s.get("species_pick") or "confidence"))
         cls.update(per_crop=per_crop, model=hub.cls_label(), n_crops=len(cands), at=now_iso(), geofence=(s.get("country") or "") if mask is not None else "")
     with db.tx() as c:
         c.execute("DELETE FROM detections WHERE item_id=?", (item["id"],))

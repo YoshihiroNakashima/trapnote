@@ -169,8 +169,8 @@ async function loadBoxes(d) {
     // 判定に使った閾値より弱い枠（0.1〜）は描かない（枠が見えるのに「動物なし」、を防ぐ）
     const ath = (d.det && d.det.animal_threshold) || (S.project && S.project.settings && S.project.settings.animal_threshold) || 0.2;
     const pth = (d.det && d.det.person_threshold) || (S.project && S.project.settings && S.project.settings.person_threshold) || 0.2;
-    P.boxes = (r.boxes || []).filter(b => b.p >= (b.c === 'animal' ? ath : pth));
-    P.boxTimes = [...new Set(P.boxes.map(b => b.t))].sort((a, b) => a - b);
+    P.boxesAll = (r.boxes || []).filter(b => b.p >= (b.c === 'animal' ? ath : pth));
+    applyBoxMode();
     drawBoxes();
   } catch (e) { /* */ }
 }
@@ -183,6 +183,34 @@ function mediaRect() {   // 表示されているメディアの位置（object-
   if (!nw || !nh || !W || !H) return null;
   const s = Math.min(W / nw, H / nh), w = nw * s, h = nh * s;
   return { x: el.offsetLeft + (W - w) / 2, y: el.offsetTop + (H - h) / 2, w, h };
+}
+/* 枠の表示の絞り方（設定 box_mode）: all = 判定の閾値以上の全部 / conf = 学習に使う信頼度（train_min_conf、既定 0.5）以上 / train = 学習に使う枠（右の欄「学習に使う枠」の 12 枚。外したものは薄く） */
+function applyBoxMode() {
+  const all = P.boxesAll || [];
+  const mode = (S.settings && S.settings.box_mode) || 'all';
+  const minConf = (S.project && S.project.settings && S.project.settings.train_min_conf) || 0.5;
+  let out = all;
+  for (const b of all) { delete b.train; delete b.trainOff; }
+  if (mode === 'conf') out = all.filter(b => b.c !== 'animal' || b.p >= minConf);
+  else if (mode === 'train') {
+    const crops = (typeof CROPS !== 'undefined' && CROPS.data && CROPS.id === P.boxItem) ? CROPS.data.crops : null;
+    if (crops) {
+      out = [];
+      for (const c of crops) {
+        const bb = c.bbox || [];
+        let best = null, bd = 1e9;
+        for (const b of all) {
+          if (b.c !== 'animal' || Math.abs(b.t - c.t) > 0.06) continue;
+          const d = Math.abs(b.x - bb[0]) + Math.abs(b.y - bb[1]) + Math.abs(b.w - bb[2]) + Math.abs(b.h - bb[3]);
+          if (d < bd) { bd = d; best = b; }
+        }
+        if (best && bd < 0.02) { best.train = c.k; best.trainOff = !!c.excluded; if (!out.includes(best)) out.push(best); }
+      }
+    } else out = all.filter(b => b.c !== 'animal' || b.p >= minConf);
+  }
+  P.boxes = out;
+  P.boxTimes = [...new Set(P.boxes.map(b => b.t))].sort((a, b) => a - b);
+  drawBoxes(); boxLoop();
 }
 function boxesNow() {
   if (!P.boxes.length) return [];
@@ -207,9 +235,10 @@ function drawBoxes() {
   ctx.font = '12px system-ui, sans-serif'; ctx.textBaseline = 'top'; ctx.lineWidth = 2;
   for (const b of boxesNow()) {
     const x = r.x + b.x * r.w, y = r.y + b.y * r.h, w = b.w * r.w, h = b.h * r.h;
-    const col = BOX_COLORS[b.c] || '#fff';
-    ctx.strokeStyle = col; ctx.globalAlpha = Math.max(0.35, Math.min(1, b.p + 0.3)); ctx.strokeRect(x, y, w, h);
-    const label = `${t('det_' + b.c) || b.c} ${(100 * b.p).toFixed(0)}%` + (b.sp ? ` · ${spLabel(b.sp)} ${(100 * (b.sp_p || 0)).toFixed(0)}%` : '');
+    const col = b.train != null ? (b.trainOff ? '#9aa0a6' : '#ffd54f') : (BOX_COLORS[b.c] || '#fff');
+    ctx.lineWidth = b.train != null && !b.trainOff ? 3 : 2;
+    ctx.strokeStyle = col; ctx.globalAlpha = b.trainOff ? 0.45 : Math.max(0.35, Math.min(1, b.p + 0.3)); ctx.strokeRect(x, y, w, h);
+    const label = (b.train != null ? `${t('box_train_tag')} #${b.train + 1}${b.trainOff ? ' ✕' : ''} · ` : '') + `${t('det_' + b.c) || b.c} ${(100 * b.p).toFixed(0)}%` + (b.sp ? ` · ${spLabel(b.sp)} ${(100 * (b.sp_p || 0)).toFixed(0)}%` : '');
     const tw = ctx.measureText(label).width + 8;
     ctx.globalAlpha = 0.85; ctx.fillStyle = col; ctx.fillRect(x, Math.max(0, y - 16), tw, 16);
     ctx.fillStyle = '#111'; ctx.fillText(label, x + 4, Math.max(0, y - 16) + 2);
@@ -244,6 +273,8 @@ function wirePlayer() {
   $('#photo').addEventListener('load', drawBoxes);
   window.addEventListener('resize', drawBoxes);
   $('#vbBoxes').checked = S.settings.show_boxes !== false;
+  $('#vbBoxMode').value = S.settings.box_mode || 'all';
+  $('#vbBoxMode').addEventListener('change', () => { S.settings.box_mode = $('#vbBoxMode').value; applyBoxMode(); api('/api/settings', { box_mode: S.settings.box_mode }).catch(() => {}); });
   $('#vbBoxes').addEventListener('change', () => { S.settings.show_boxes = $('#vbBoxes').checked; drawBoxes(); boxLoop(); api('/api/settings', { show_boxes: S.settings.show_boxes }).catch(() => {}); });
   v.addEventListener('click', togglePlay);
   sl.addEventListener('input', () => { P.seeking = true; const pl = player(); const dur = pl.duration || P.duration || 0; if (dur) { pl.currentTime = dur * sl.value / 1000; $('#vbInfo').textContent = `${fmtSec(pl.currentTime)} / ${fmtSec(dur)}`; } });
