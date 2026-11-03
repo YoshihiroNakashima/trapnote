@@ -1343,10 +1343,13 @@ def make_app(session: Session) -> web.Application:
         p = need_cross()
         b = await _body(request)
         spec = dict(mode=b.get("mode") or "select", params=b.get("params") or {}, ids=b.get("ids") or [], filters=b.get("filters") or {})
-        if spec["mode"] == "project":                       # 別のプロジェクトの動画を組として（path / unit / eval）
-            if not str(b.get("path") or "").strip():
+        if spec["mode"] == "project":                       # 別のプロジェクトの動画を組として（projects = [{path, batch, unit, eval}]。古い形の path / unit / eval も 1 つとして）
+            raw = b.get("projects") if isinstance(b.get("projects"), list) else [dict(path=b.get("path"), batch=b.get("batch"), unit=b.get("unit"), eval=b.get("eval"))]
+            entries = [dict(path=norm(str(e.get("path")).strip()), batch=str(e.get("batch") or "").strip(), unit=str(e.get("unit") or ""), eval=(None if e.get("eval") is None else bool(e.get("eval"))))
+                       for e in raw if isinstance(e, dict) and str(e.get("path") or "").strip()]
+            if not entries:
                 raise ApiError("プロジェクトのフォルダを指定してください")
-            spec.update(path=norm(str(b.get("path")).strip()), unit=str(b.get("unit") or ""), eval=(None if b.get("eval") is None else bool(b.get("eval"))))
+            spec.update(projects=entries, path=entries[0]["path"], unit=entries[0]["unit"], eval=entries[0]["eval"])
         yielded = S.bg.yield_current(("meta", "scan"))      # メタデータの取得や動画の確認の後ろで待たない（取得は列の最後でやり直す。確認は「更新」で）
         S.bg.submit(CrossImportJob(spec, str(b.get("batch") or "").strip()), front=True)
         if yielded == "meta":

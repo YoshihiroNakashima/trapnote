@@ -85,3 +85,29 @@ def test_import_project_batch(tmp_path):
         assert cross.batch_units(b, ["season_gold"])["seasons"] == {"N240415"}
     finally:
         b.close()
+    # 複数のプロジェクトを並べて 1 回で（4 の段の A）: gold_station と 調査回 N240415 と 存在しないフォルダ。失敗した分は残りを止めず error に
+    place2 = tmp_path / "Studies" / "train2"
+    place2.mkdir(parents=True)
+    c = Project(str(place2 / "TrapNote"), root=str(place2), create=True, kind="cross")
+    try:
+        cross.add_sources_under(c, root)
+        cross.build_catalog(c)
+        msgs = []
+        r = cross.import_project_batches(c, [dict(path=gold_dir), dict(path=sp, batch="", unit="", eval=None), dict(path=str(tmp_path / "nowhere"))],
+                                         progress=lambda a, b_, m: msgs.append(m))
+        print(r)
+        assert r["n_ok"] == 2 and r["n_failed"] == 1 and r["n"] == 16 + (24 - 8) and r["batch"] == ""        # 複数なら一覧に出す組は決めない
+        assert [x.get("batch") for x in r["results"]] == ["gold_station", "N240415", None]
+        assert r["results"][0]["eval"] is True and r["results"][1]["eval"] is False and r["results"][1]["n_already"] == 8
+        assert "プロジェクトが見つかりません" in r["results"][2]["error"]
+        assert cross.eval_batches(c) == ["gold_station"]
+        assert c.db.scalar("SELECT COUNT(*) FROM items WHERE batch='N240415'") == 16
+        assert any(m.startswith("2 / 3: ") for m in msgs)
+        msg = cross.project_batch_message(r)
+        assert "gold_station → 組 gold_station: 16 本のうち 16 件" in msg and "評価用にしました" in msg and "N240415 → 組 N240415: 24 本のうち 16 件" in msg and "nowhere" in msg
+        # 1 つだけなら、その組を一覧に出す（batch）。全部取り込み済みでも組の名前は返る
+        r1 = cross.import_project_batches(c, [dict(path=gold_dir, batch="again")])
+        assert r1["n"] == 0 and r1["n_ok"] == 1 and r1["batch"] == "again" and r1["n_already"] == 16
+        assert cross.project_batch_message(dict(results=[])) == "取り込むプロジェクトがありません"
+    finally:
+        c.close()

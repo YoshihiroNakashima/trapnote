@@ -2257,6 +2257,43 @@ def import_project_batch(project, other_path: str, batch: str = "", unit: str = 
                 unmatched=m["unmatched"][:20], batch=batch, unit=unit, eval=bool(make_eval), project=other_name)
 
 
+def import_project_batches(project, entries: list[dict], progress=None, stop=None) -> dict:
+    """複数のプロジェクト（gold_station と gold_season など）を順に、それぞれの組として取り込む（4 の段の A。entries = [dict(path, batch, unit, eval)]）。
+    1 つが見つからないなどで失敗しても残りは続け、その分は results に error を残す。
+    返り値 dict(n=合計, n_ok=取り込めたプロジェクトの数, batch=1 つだけならその組（一覧に出す用）, results=[import_project_batch の返り値 か dict(path, error)])"""
+    results, n = [], 0
+    for i, e in enumerate(entries):
+        if stop and stop():
+            break
+        path = str(e.get("path") or "").strip()
+        if progress:
+            progress(0, 0, f"{i + 1} / {len(entries)}: {path}")
+        try:
+            r = import_project_batch(project, path, str(e.get("batch") or ""), str(e.get("unit") or ""), e.get("eval"), progress, stop)
+        except Exception as ex:                                       # 1 つの失敗で残りを止めない（見つからない・横断を指定した など）
+            log.warning("組としての取り込みの失敗 %s: %s", path, ex)
+            results.append(dict(path=path, error=str(ex), n=0))
+            continue
+        results.append(r)
+        n += r["n"]
+    ok = [r for r in results if not r.get("error")]
+    return dict(n=n, n_ok=len(ok), n_failed=len(results) - len(ok), batch=(ok[0]["batch"] if len(ok) == 1 else ""), results=results,
+                n_already=sum(r.get("n_already", 0) for r in ok), n_unmatched=sum(r.get("n_unmatched", 0) for r in ok))
+
+
+def project_batch_message(r: dict) -> str:
+    """取り込みの結果を 1 行に（処理の状態の文。プロジェクトごとに " / " でつなぐ）"""
+    parts = []
+    for x in r.get("results") or []:
+        if x.get("error"):
+            parts.append(f"{x.get('path') or ''}: {x['error']}")
+            continue
+        alr = "、".join(f"{k or '（組なし）'} {v}" for k, v in (x.get("already") or {}).items())
+        parts.append(f"{x['project']} → 組 {x['batch']}: {x['n_items']} 本のうち {x['n']} 件を取り込みました" + ("・評価用にしました" if x.get("eval") else "")
+                     + (f"（別の組に取り込み済み: {alr}）" if alr else "") + (f"（カタログで見つからなかった {x['n_unmatched']}: {', '.join(x.get('unmatched') or [])[:300]}）" if x.get("n_unmatched") else ""))
+    return " / ".join(parts) if parts else "取り込むプロジェクトがありません"
+
+
 def export_catalog(project, path: str, f: dict | None = None, long: bool = False) -> dict:
     """カタログ（参照先の全動画と判定）を 1 つの CSV に。
     long=False: 1 行 = 1 動画。Source, Season, Station, File, DateTime, Status, Species（複数は ; 区切り）, AI, Agree, Imported, RelPathInSource

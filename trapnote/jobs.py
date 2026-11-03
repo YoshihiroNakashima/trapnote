@@ -620,10 +620,11 @@ class CrossImportJob(Job):
             r = cross.catalog_import(project, smp["ids"], self.batch, dict(filters=f, params=params, counts=smp["counts"], unit=smp.get("unit"), units=smp.get("units") or []), prog, self.stop_flag.is_set)
             r["counts"] = smp["counts"]
             r["units"] = smp.get("units") or []
-        elif mode == "project":                                     # 別のプロジェクト（gold_station など）の動画を組として
+        elif mode == "project":                                     # 別のプロジェクト（gold_station など）の動画を組として。複数なら順に（projects）
             self.message = "カタログで探しています"
-            r = cross.import_project_batch(project, str(self.spec.get("path") or ""), self.batch, str(self.spec.get("unit") or ""), self.spec.get("eval"), prog, self.stop_flag.is_set)
-            self.batch = r["batch"]
+            entries = self.spec.get("projects") or [dict(path=self.spec.get("path"), batch=self.batch, unit=self.spec.get("unit"), eval=self.spec.get("eval"))]
+            r = cross.import_project_batches(project, entries, prog, self.stop_flag.is_set)
+            self.batch = r["batch"]                                 # 1 つだけならその組を一覧に出す。複数なら全部
         elif mode in ("species", "stations", "all", "csv"):           # spec 自体が select_items の params
             r = cross.import_items(project, self.spec, self.batch, prog, self.stop_flag.is_set)
         else:
@@ -632,9 +633,9 @@ class CrossImportJob(Job):
         self.done = self.total = r["n"]
         self.message = f"{r['n']} 件を取り込みました" + (f"（取り込み済みで飛ばした {r['n_already']}）" if r.get("n_already") else "") + (f"（一覧で見つからなかった {r['n_unmatched']}）" if r.get("n_unmatched") else "")
         if mode == "project":
-            alr = "、".join(f"{k or '（組なし）'} {v}" for k, v in (r.get("already") or {}).items())
-            self.message = (f"{r['project']} → 組 {r['batch']}: {r['n_items']} 本のうち {r['n']} 件を取り込みました" + ("・評価用にしました" if r.get("eval") else "")
-                            + (f"（別の組に取り込み済み: {alr}）" if alr else "") + (f"（カタログで見つからなかった {r['n_unmatched']}: {', '.join(r.get('unmatched') or [])[:300]}）" if r.get("n_unmatched") else ""))
+            self.message = cross.project_batch_message(r)
+            if r.get("n_failed") and not r.get("n_ok"):
+                raise RuntimeError(self.message)                    # 全部だめなら失敗として出す
         ctx.after_scan(dict(added=r["n"]))
 
     def status(self) -> dict:

@@ -345,8 +345,14 @@ function crossTabPick(m, body) {
   const evalNames = batches.filter(b => b.eval).map(b => b.batch);
   if (CR.f.exclude_batches === null || CR.f.exclude_batches === undefined) CR.f.exclude_batches = evalNames.slice();     // 既定: 評価用の組（gold）の地点・調査回は母集団から除く
   const unitOpts = [['station', t('cr_unit_station')], ['season', t('cr_unit_season')], ['station_season', t('cr_unit_station_season')], ['video', t('cr_unit_video')], ['species', t('cr_unit_species')]];
+  if (!CR.pj) CR.pj = [];                                                 // A で並べた別のプロジェクト（段を移っても残る。取り込んだら空に）
   body.innerHTML = `<div class="note">${esc(t('cr_pick_help'))}</div>
     ${cs.stale ? `<div class="callout warn">${esc(crStaleText(cs))}: ${esc(t('cr_pick_stale'))}</div>` : ''}
+    <h4>${esc(t('cr_pj_h'))}</h4>
+    <div class="note">${esc(t('cr_pj_help'))}</div>
+    <div class="form-row"><label>${esc(t('cr_pj_path_l'))}</label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><input type="text" id="crPjPath" spellcheck="false" style="width:380px" placeholder="F:\\Copy\\gold_station"><button type="button" class="small" data-pick="crPjPath" data-kind="folder" data-name="">${esc(t('pick'))}</button><button type="button" class="small" id="crPjAdd">${esc(t('cr_pj_add'))}</button><span class="info">${esc(t('cr_pj_add_help'))}</span></span></div>
+    <div id="crPjList"></div>
+    <div class="cr-actions"><button type="button" class="primary small" id="crPjGo">${esc(t('cr_pj_go'))} (<span id="crPjN">0</span>)</button><span class="info">${esc(t('cr_pj_go_help'))}</span></div>
     <h4>${esc(t('cr_filter_h'))} <span class="info">${esc(t('cr_filter_sub'))}</span></h4>
     <div class="cr-filters">
       <select id="cfSource"><option value="">${esc(t('cross_all_sources'))}</option>${srcs.map(s => `<option value="${esc(s.name)}" ${CR.f.source === s.name ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select>
@@ -397,20 +403,50 @@ function crossTabPick(m, body) {
     ${info.n_items ? `<h4>${esc(t('cr_remove_h'))}</h4>
     <div class="note">${esc(t('cr_remove_help'))}</div>
     <div class="cr-actions"><select id="cfRmBatch">${(info.batches || []).map(b => `<option value="${esc(b.batch)}">${esc(b.batch || t('cr_no_batch'))} (${b.n})</option>`).join('')}<option value="__all__">${esc(t('cr_all_items'))} (${info.n_items})</option></select>
-      <button type="button" class="small danger-outline" id="cfRemove">${esc(t('cr_remove_btn'))}</button></div>` : ''}
-    <h4>${esc(t('cr_pj_h'))}</h4>
-    <div class="note">${esc(t('cr_pj_help'))}</div>
-    <div class="form-row"><label>${esc(t('cr_pj_path_l'))}</label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><input type="text" id="crPjPath" spellcheck="false" style="width:380px" placeholder="F:\\Copy\\gold_station"><button type="button" class="small" data-pick="crPjPath" data-kind="folder" data-name="">${esc(t('pick'))}</button></span></div>
-    <div class="form-row"><label>${esc(t('cross_batch'))}</label><span style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><input type="text" id="crPjBatch" spellcheck="false" style="width:170px" placeholder="${esc(t('cr_pj_batch_ph'))}">
-      <select id="crPjUnit" title="${esc(t('cr_excl_batches_help'))}"><option value="">${esc(t('cr_pj_unit_auto'))}</option><option value="station">${esc(t('cr_pj_unit_station'))}</option><option value="season">${esc(t('cr_pj_unit_season'))}</option><option value="cell">${esc(t('cr_pj_unit_cell'))}</option></select>
-      <label class="chk" title="${esc(t('cr_eval_tip'))}"><input type="checkbox" id="crPjEval" checked> ${esc(t('cr_pj_eval'))}</label>
-      <button type="button" class="primary small" id="crPjGo">${esc(t('cr_pj_go'))}</button></span></div>`;
+      <button type="button" class="small danger-outline" id="cfRemove">${esc(t('cr_remove_btn'))}</button></div>` : ''}`;
   const q = sel => m.querySelector(sel);
-  histWire(q('#crPjPath'), 'cross_place');
-  q('#crPjGo').onclick = async () => {
-    const pth = q('#crPjPath').value.trim(); if (!pth) return;
-    try { const j = await api('/api/cross/import', { mode: 'project', path: pth, batch: q('#crPjBatch').value.trim(), unit: q('#crPjUnit').value, eval: q('#crPjEval').checked }); CR.f.exclude_batches = null; crossTrack(m, j, 'pick'); } catch (e) { toast(e.message, 'error'); }
+  wirePicks(m);                                                             // 「選ぶ」（OS のフォルダの窓）
+  // ---- A. 別のプロジェクトを並べて組として取り込む（CR.pj = [{path, batch, unit, eval}]）----
+  const pjBase = p => { const parts = p.replace(/[\\/]+$/, '').split(/[\\/]/); let b = parts.pop() || ''; if (b.toLowerCase() === 'trapnote') b = parts.pop() || b; return b; };
+  const pjKey = p => p.replace(/[\\/]+$/, '').replace(/\//g, '\\').toLowerCase();
+  const pjRead = () => { CR.pj.forEach((e, i) => { const b = q(`[data-pjb="${i}"]`), u = q(`[data-pju="${i}"]`), ev = q(`[data-pje="${i}"]`); if (b) e.batch = b.value.trim(); if (u) e.unit = u.value; if (ev) e.eval = ev.checked; }); };
+  const pjRender = () => {
+    const unitSel = (i, cur) => `<select data-pju="${i}" title="${esc(t('cr_excl_batches_help'))}"><option value="" ${cur === '' ? 'selected' : ''}>${esc(t('cr_pj_unit_auto_s'))}</option><option value="station" ${cur === 'station' ? 'selected' : ''}>${esc(t('cr_pj_unit_station'))}</option><option value="season" ${cur === 'season' ? 'selected' : ''}>${esc(t('cr_pj_unit_season'))}</option><option value="cell" ${cur === 'cell' ? 'selected' : ''}>${esc(t('cr_pj_unit_cell'))}</option></select>`;
+    q('#crPjList').innerHTML = CR.pj.length ? `<table class="tbl cr-pj"><tr><th>${esc(t('cr_pj_path_l'))}</th><th>${esc(t('cross_batch'))}</th><th title="${esc(t('cr_pj_unit_auto'))}">${esc(t('cr_pj_unit_h'))}</th><th>${esc(t('cr_role'))}</th><th></th></tr>
+      ${CR.pj.map((e, i) => `<tr><td class="info" title="${esc(e.path)}" style="max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.path)}</td>
+        <td><input type="text" data-pjb="${i}" value="${esc(e.batch)}" spellcheck="false" style="width:150px;font:inherit;padding:2px 4px" placeholder="${esc(t('cr_pj_batch_ph'))}"></td>
+        <td>${unitSel(i, e.unit)}</td>
+        <td style="white-space:nowrap"><label class="chk" title="${esc(t('cr_eval_tip'))}"><input type="checkbox" data-pje="${i}" ${e.eval ? 'checked' : ''}> ${esc(t('cr_pj_eval'))}</label></td>
+        <td><button type="button" class="small" data-pjx="${i}" title="${esc(t('cr_pj_remove'))}">×</button></td></tr>`).join('')}</table>` : `<div class="info" style="margin:4px 0 4px 178px">${esc(t('cr_pj_empty'))}</div>`;
+    q('#crPjN').textContent = CR.pj.length;
+    q('#crPjGo').disabled = !CR.pj.length && !q('#crPjPath').value.trim();
+    m.querySelectorAll('[data-pjx]').forEach(b => { b.onclick = () => { pjRead(); CR.pj.splice(parseInt(b.dataset.pjx), 1); pjRender(); }; });
   };
+  const pjAdd = () => {                                                     // 欄のフォルダを一覧に足す（組の名前はフォルダの名前、gold / eval なら評価用）
+    const pth = q('#crPjPath').value.trim(); if (!pth) return false;
+    if (CR.pj.some(e => pjKey(e.path) === pjKey(pth))) { toast(t('cr_pj_dup'), 'error'); return false; }
+    pjRead();
+    const name = pjBase(pth);
+    CR.pj.push({ path: pth, batch: name, unit: '', eval: /gold|eval|評価|検証/i.test(name) });
+    histRemember('cross_place', pth);
+    q('#crPjPath').value = ''; pjRender(); return true;
+  };
+  histWire(q('#crPjPath'), 'cross_place');
+  q('#crPjList').addEventListener('change', pjRead);                        // 組の名前・除く単位・評価用の変更はその場で覚える（描き直しても残る）
+  ['input', 'change'].forEach(ev => q('#crPjPath').addEventListener(ev, () => { q('#crPjGo').disabled = !CR.pj.length && !q('#crPjPath').value.trim(); }));
+  q('#crPjPath').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); pjAdd(); } });
+  q('#crPjAdd').onclick = pjAdd;
+  q('button[data-pick="crPjPath"]').onclick = async () => {                 // 「選ぶ」で選んだフォルダはそのまま一覧に足す（続けて何度でも選べる）
+    const p = await pickPath('folder', q('#crPjPath').value || undefined); if (p) { q('#crPjPath').value = p; pjAdd(); }
+  };
+  q('#crPjGo').onclick = async () => {
+    if (q('#crPjPath').value.trim() && !pjAdd()) return;                   // 欄に残っているフォルダも一緒に
+    pjRead();
+    const entries = CR.pj.map(e => ({ path: e.path, batch: e.batch, unit: e.unit, eval: e.eval }));
+    if (!entries.length) { toast(t('cr_pj_empty'), 'error'); return; }
+    try { const j = await api('/api/cross/import', { mode: 'project', projects: entries }); CR.f.exclude_batches = null; CR.pj = []; crossTrack(m, j, 'pick'); } catch (e) { toast(e.message, 'error'); }
+  };
+  pjRender();
   const readF = () => { CR.f = { source: q('#cfSource').value, season: q('#cfSeason').value, station: q('#cfStation').value.trim(), species: q('#cfSpecies').value, status: q('#cfStatus').value, imported: q('#cfImported').value, text: q('#cfText').value.trim(), exclude_stations: q('#cfExclude').value.trim(), single_only: q('#cfSingle').checked, csv_text: q('#cfCsv').value,
     exclude_batches: [...m.querySelectorAll('input[data-exb]:checked')].map(c => c.dataset.exb) }; };
   q('#cfApply').onclick = () => { readF(); crossLoadCatalog(m); };
