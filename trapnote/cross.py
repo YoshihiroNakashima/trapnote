@@ -1910,8 +1910,9 @@ def catalog_where(f: dict, project=None) -> tuple[str, list]:
     w, p = ["1=1"], []
     if f.get("source"):
         w.append("source=?"); p.append(f["source"])
-    if f.get("season"):
-        w.append("season=?"); p.append(f["season"])
+    se = [x.strip() for x in str(f.get("season") or "").replace("、", ",").split(",") if x.strip()] if isinstance(f.get("season"), str) else [str(x) for x in (f.get("season") or []) if str(x)]
+    if se:                                                           # 調査回は 1 つでも複数でも（コンマ区切り、または列）。複数の調査回を母集団にする（直近 1 年分など）
+        w.append(f"season IN ({','.join('?' * len(se))})"); p += se
     st = [x.strip() for x in str(f.get("station") or "").replace("、", ",").split(",") if x.strip()]
     if st:
         w.append(f"station IN ({','.join('?' * len(st))})"); p += st

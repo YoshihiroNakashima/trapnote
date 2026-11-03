@@ -284,6 +284,10 @@ li.item .nbox { color: #6b7280; }
 .tabs .tab { background: none; border: none; border-bottom: 2px solid transparent; padding: 6px 12px; cursor: pointer; color: var(--muted); font-size: 13px; }
 .tabs .tab.on { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
 .cr-filters { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 6px 0; }
+.msel { position: relative; display: inline-block; }
+.msel-pop { position: absolute; left: 0; top: 100%; z-index: 1100; background: #fff; border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 6px 20px rgba(0,0,0,.18); padding: 6px 8px; min-width: 420px; max-height: 320px; overflow: auto; font-size: 12px; }
+.msel-head { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 4px; }
+.msel-grid { display: grid; grid-template-columns: repeat(4, max-content); gap: 2px 14px; }
 .cr-filters select, .cr-filters input[type=text] { font-size: 12px; }
 .cr-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
 .cr-pager { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 6px 0; }

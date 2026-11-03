@@ -77,6 +77,21 @@ def test_thin_in_units(tmp_path):
         p.close()
 
 
+def test_season_filter_multi(tmp_path):
+    """調査回の絞り込みは 1 つでも複数でも（コンマ区切り・列）。複数の調査回を母集団にして種ごとに選べる"""
+    make_nas(tmp_path)
+    p = make_cross(tmp_path)
+    try:
+        assert cross.catalog_counts(p, {"season": "N240128"})["total"] == 24
+        assert cross.catalog_counts(p, {"season": "N240128, N240415"})["total"] == 48
+        assert cross.catalog_counts(p, {"season": ["N240128", "N240415"]})["total"] == 48
+        assert cross.catalog_counts(p, {"season": ""})["total"] == 48
+        r = cross.catalog_sample(p, {"season": "N240128,N240415"}, dict(unit="species", n=2, seed=1, species=["boar"], spread="station"))
+        assert r["n"] == 2 and r["n_stations"] == 2
+    finally:
+        p.close()
+
+
 def test_spread_by_station(tmp_path):
     """「地点をできるだけたがえる」: 種ごとの n 本を地点を順繰りに取る → 地点数が最大になる。地点の順・地点の中の順は乱数、種で再現できる"""
     make_nas(tmp_path)

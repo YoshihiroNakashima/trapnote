@@ -356,7 +356,7 @@ function crossTabPick(m, body) {
     <h4>${esc(t('cr_filter_h'))} <span class="info">${esc(t('cr_filter_sub'))}</span></h4>
     <div class="cr-filters">
       <select id="cfSource"><option value="">${esc(t('cross_all_sources'))}</option>${srcs.map(s => `<option value="${esc(s.name)}" ${CR.f.source === s.name ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select>
-      <select id="cfSeason"><option value="">${esc(t('all_seasons'))}</option></select>
+      <span class="msel" id="cfSeasonBox"><button type="button" class="small" id="cfSeasonBtn" title="${esc(t('cr_seasons_tip'))}"></button><div class="msel-pop hidden" id="cfSeasonPop"></div></span>
       <input type="text" id="cfStation" placeholder="${esc(t('cross_station_ph'))}" value="${esc(CR.f.station)}" spellcheck="false" style="width:150px">
       <select id="cfSpecies"><option value="">${esc(t('all_species'))}</option><option value="none" ${CR.f.species === 'none' ? 'selected' : ''}>${esc(t('sp_none'))}</option><option value="any" ${CR.f.species === 'any' ? 'selected' : ''}>${esc(t('sp_any'))}</option></select>
       <select id="cfStatus"><option value="">${esc(t('all_status'))}</option><option value="verified" ${CR.f.status === 'verified' ? 'selected' : ''}>${esc(t('st_verified'))}</option><option value="auto" ${CR.f.status === 'auto' ? 'selected' : ''}>${esc(t('cross_st_labelled'))}</option><option value="new" ${CR.f.status === 'new' ? 'selected' : ''}>${esc(t('st_new'))}</option></select>
@@ -448,7 +448,24 @@ function crossTabPick(m, body) {
     try { const j = await api('/api/cross/import', { mode: 'project', projects: entries }); CR.f.exclude_batches = null; CR.pj = []; crossTrack(m, j, 'pick'); } catch (e) { toast(e.message, 'error'); }
   };
   pjRender();
-  const readF = () => { CR.f = { source: q('#cfSource').value, season: q('#cfSeason').value, station: q('#cfStation').value.trim(), species: q('#cfSpecies').value, status: q('#cfStatus').value, imported: q('#cfImported').value, text: q('#cfText').value.trim(), exclude_stations: q('#cfExclude').value.trim(), single_only: q('#cfSingle').checked, csv_text: q('#cfCsv').value,
+  // 調査回は複数選べる（直近 1 年分など）。CR.f.season はコンマ区切り（空 = すべて）
+  const allSeasons = [...new Set(srcs.flatMap(s => (s.seasons || []).concat(s.project_seasons || [])).map(x => typeof x === 'string' ? x : (x && (x.season || x.name)) || '').filter(Boolean))].sort();
+  const seasonChecked = () => [...m.querySelectorAll('#cfSeasonPop input:checked')].map(c => c.dataset.se);
+  const seasonLabel = () => { const v = seasonChecked(); q('#cfSeasonBtn').textContent = !v.length ? t('all_seasons') : (v.length <= 3 ? `${t('filter_season_s')}: ${v.join(', ')}` : `${t('filter_season_s')} ${v.length} ${t('cr_seasons_u')}`) + ' ▾'; if (!v.length) q('#cfSeasonBtn').textContent += ' ▾'; };
+  const seasonInit = (CR.f.season || '').split(',').map(x => x.trim()).filter(Boolean);
+  q('#cfSeasonPop').innerHTML = `<div class="msel-head"><button type="button" class="small" id="cfSeasonNone">${esc(t('cr_seasons_none'))}</button><button type="button" class="small" id="cfSeasonAll">${esc(t('cr_seasons_all'))}</button><span class="info">${esc(t('cr_seasons_help'))}</span></div><div class="msel-grid">${allSeasons.map(se => `<label class="chk"><input type="checkbox" data-se="${esc(se)}" ${seasonInit.includes(se) ? 'checked' : ''}> ${esc(se)}</label>`).join('')}</div>`;
+  q('#cfSeasonBtn').onclick = e => { e.stopPropagation(); q('#cfSeasonPop').classList.toggle('hidden'); };
+  q('#cfSeasonPop').onclick = e => e.stopPropagation();
+  if (m._seasonCloser) m.removeEventListener('click', m._seasonCloser);
+  m._seasonCloser = () => { const pop = m.querySelector('#cfSeasonPop'); if (pop) pop.classList.add('hidden'); };
+  m.addEventListener('click', m._seasonCloser);
+  const seasonChanged = () => { CR.f.season = seasonChecked().join(','); seasonLabel(); readF(); crossLoadCatalog(m); };     // 印を変えたらすぐ数え直す（「絞り込む」を押さなくてよい）
+  q('#cfSeasonPop').addEventListener('change', seasonChanged);
+  q('#cfSeasonNone').onclick = () => { m.querySelectorAll('#cfSeasonPop input').forEach(c => { c.checked = false; }); seasonChanged(); };
+  q('#cfSeasonAll').onclick = () => { m.querySelectorAll('#cfSeasonPop input').forEach(c => { c.checked = true; }); seasonChanged(); };
+  m.addEventListener('keydown', e => { if (e.key === 'Escape') { const pop = m.querySelector('#cfSeasonPop'); if (pop && !pop.classList.contains('hidden')) { pop.classList.add('hidden'); e.stopPropagation(); } } }, true);
+  seasonLabel();
+  const readF = () => { CR.f = { source: q('#cfSource').value, season: seasonChecked().join(','), station: q('#cfStation').value.trim(), species: q('#cfSpecies').value, status: q('#cfStatus').value, imported: q('#cfImported').value, text: q('#cfText').value.trim(), exclude_stations: q('#cfExclude').value.trim(), single_only: q('#cfSingle').checked, csv_text: q('#cfCsv').value,
     exclude_batches: [...m.querySelectorAll('input[data-exb]:checked')].map(c => c.dataset.exb) }; };
   q('#cfApply').onclick = () => { readF(); crossLoadCatalog(m); };
   q('#cfClear').onclick = () => { CR.f = Object.assign({}, CR_F0, { exclude_batches: evalNames.slice() }); crossRenderTab(m); };
@@ -533,8 +550,6 @@ async function crossLoadCatalog(m) {
   q('#cfLoad').innerHTML = '';
   CR.counts = cnt;
   // 絞り込みの候補（調査回・種）は集計から
-  const seasonSel = q('#cfSeason');
-  if (seasonSel && seasonSel.options.length <= 1) fillSelect(seasonSel, [['', t('all_seasons')]].concat(cnt.seasons.map(s => [s, s])), CR.f.season);
   const spSel = q('#cfSpecies');
   if (spSel && spSel.options.length <= 3) {
     const codes = sortCodes(Object.keys(cnt.by_species).filter(c => c !== '(none)'));
