@@ -492,8 +492,31 @@ def make_app(session: Session) -> web.Application:
             tg = await io(cross.export_target, p, out, str(b.get("name") or "").strip())
         except ValueError as e:
             return jr(dict(ok=False, error=str(e)))
-        n = len(await io(_subset_ids, p, b)) if (b.get("ids") or b.get("filters")) else None
-        return jr(dict(ok=True, n=n, **tg))
+        n = total_bytes = None
+        if b.get("ids") or b.get("filters"):
+            ids = await io(_subset_ids, p, b)
+            n = len(ids)
+
+            def _bytes():
+                tot = 0
+                for i0 in range(0, len(ids), 900):
+                    part = ids[i0:i0 + 900]
+                    tot += p.db.scalar(f"SELECT COALESCE(SUM(size), 0) FROM items WHERE id IN ({','.join('?' * len(part))})", part) or 0
+                return tot
+            total_bytes = await io(_bytes)
+        free_bytes = None
+        try:                                                           # 写す先のドライブの空き（まだないフォルダなら、ある親まで上がって見る）
+            d = tg["dataset_dir"]
+            while d and not os.path.isdir(d):
+                nd = os.path.dirname(d.rstrip("/"))
+                if nd == d:
+                    break
+                d = nd
+            if d and os.path.isdir(d):
+                free_bytes = shutil.disk_usage(d).free
+        except OSError:
+            pass
+        return jr(dict(ok=True, n=n, total_bytes=total_bytes, free_bytes=free_bytes, **tg))
 
     async def project_tidy(request):
         """旧形式の「名前を付けたプロジェクト」（動画は親フォルダに）を自己完結のフォルダに整える。いま開いているプロジェクトなら閉じてから整え、開き直す"""

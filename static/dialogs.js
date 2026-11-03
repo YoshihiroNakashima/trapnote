@@ -1200,7 +1200,9 @@ async function subsetDialog(ids, opts) {
         if (r.n != null) q('#subN').textContent = r.n;
         const sep = out.includes('\\') ? '\\' : '/';
         const show = p => (p || '').replace(/\//g, sep);
+        const gb = v => v == null ? '' : (v >= 1e12 ? `${(v / 1e12).toFixed(2)} TB` : `${(v / 1e9).toFixed(1)} GB`);
         let html = `<div><b>${esc(t('sub_plan_make'))}</b> ${esc(show(r.dataset_dir))}${sep} <span class="info">${esc(t('sub_plan_layout'))}</span></div>`;
+        if (r.total_bytes != null || r.free_bytes != null) html += `<div class="${r.total_bytes != null && r.free_bytes != null && r.total_bytes > r.free_bytes ? 'ng' : 'info'}">${esc(t('sub_plan_size'))} ${esc(gb(r.total_bytes))}${r.free_bytes != null ? ` · ${esc(t('sub_plan_free'))} ${esc(gb(r.free_bytes))}` : ''}${r.total_bytes != null && r.free_bytes != null && r.total_bytes > r.free_bytes ? ` · ${esc(t('sub_plan_no_space'))}` : ''}</div>`;
         if (r.exists) html += `<div class="info">${esc(r.legacy ? t('sub_plan_legacy') : t('sub_plan_exists'))}: ${esc(show(r.pdir))}</div>`;
         if (r.rename_cross) html += `<div class="warn">${esc(t('sub_plan_rename_cross'))}: ${esc(show(r.rename_cross))}</div>`;
         el.className = 'callout ok'; el.innerHTML = html;
