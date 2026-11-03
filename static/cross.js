@@ -335,6 +335,7 @@ function crossTabPick(m, body) {
     </div>
     <details class="adv" ${CR.f.exclude_stations || CR.f.csv_text || (CR.f.exclude_batches || []).length ? 'open' : ''}><summary>${esc(t('cross_more_filters'))}</summary>
       ${batches.length ? `<div class="form-row"><label>${esc(t('cr_excl_batches'))}</label><span style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${batches.map(b => `<label class="chk"><input type="checkbox" data-exb="${esc(b.batch)}" ${(CR.f.exclude_batches || []).includes(b.batch) ? 'checked' : ''}> ${esc(b.batch)}${b.eval ? ` <span class="chip human">${esc(t('cr_eval_chip'))}</span>` : ''} <span class="info">(${b.n})</span></label>`).join('')}<span class="info">${esc(t('cr_excl_batches_help'))}</span></span></div>` : ''}
+      ${evalNames.length ? '' : `<div class="form-row"><label></label><span class="info">${esc(t('cr_excl_hint_pj'))}</span></div>`}
       <div class="form-row"><label>${esc(t('cross_exclude'))}</label><input type="text" id="cfExclude" value="${esc(CR.f.exclude_stations)}" spellcheck="false" style="width:420px" placeholder="BSN0590, BSN0620, …"><span class="info">${esc(t('cross_exclude_help'))}</span></div>
       <div class="form-row"><label>${esc(t('cross_csv'))}</label><span style="display:flex;flex-direction:column;gap:4px"><textarea id="cfCsv" rows="4" style="width:520px;font-family:monospace" spellcheck="false" placeholder="Season,Station,File&#10;N240128,BSN0812,IMG_0011.AVI">${esc(CR.f.csv_text)}</textarea><span class="info">${esc(t('cross_csv_filter_help'))}</span></span></div>
     </details>
@@ -370,8 +371,20 @@ function crossTabPick(m, body) {
     ${info.n_items ? `<h4>${esc(t('cr_remove_h'))}</h4>
     <div class="note">${esc(t('cr_remove_help'))}</div>
     <div class="cr-actions"><select id="cfRmBatch">${(info.batches || []).map(b => `<option value="${esc(b.batch)}">${esc(b.batch || t('cr_no_batch'))} (${b.n})</option>`).join('')}<option value="__all__">${esc(t('cr_all_items'))} (${info.n_items})</option></select>
-      <button type="button" class="small danger-outline" id="cfRemove">${esc(t('cr_remove_btn'))}</button></div>` : ''}`;
+      <button type="button" class="small danger-outline" id="cfRemove">${esc(t('cr_remove_btn'))}</button></div>` : ''}
+    <h4>${esc(t('cr_pj_h'))}</h4>
+    <div class="note">${esc(t('cr_pj_help'))}</div>
+    <div class="form-row"><label>${esc(t('cr_pj_path_l'))}</label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><input type="text" id="crPjPath" spellcheck="false" style="width:380px" placeholder="F:\\Copy\\gold_station"><button type="button" class="small" data-pick="crPjPath" data-kind="folder" data-name="">${esc(t('pick'))}</button></span></div>
+    <div class="form-row"><label>${esc(t('cross_batch'))}</label><span style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><input type="text" id="crPjBatch" spellcheck="false" style="width:170px" placeholder="${esc(t('cr_pj_batch_ph'))}">
+      <select id="crPjUnit" title="${esc(t('cr_excl_batches_help'))}"><option value="">${esc(t('cr_pj_unit_auto'))}</option><option value="station">${esc(t('cr_pj_unit_station'))}</option><option value="season">${esc(t('cr_pj_unit_season'))}</option><option value="cell">${esc(t('cr_pj_unit_cell'))}</option></select>
+      <label class="chk" title="${esc(t('cr_eval_tip'))}"><input type="checkbox" id="crPjEval" checked> ${esc(t('cr_pj_eval'))}</label>
+      <button type="button" class="primary small" id="crPjGo">${esc(t('cr_pj_go'))}</button></span></div>`;
   const q = sel => m.querySelector(sel);
+  histWire(q('#crPjPath'), 'cross_place');
+  q('#crPjGo').onclick = async () => {
+    const pth = q('#crPjPath').value.trim(); if (!pth) return;
+    try { const j = await api('/api/cross/import', { mode: 'project', path: pth, batch: q('#crPjBatch').value.trim(), unit: q('#crPjUnit').value, eval: q('#crPjEval').checked }); CR.f.exclude_batches = null; crossTrack(m, j, 'pick'); } catch (e) { toast(e.message, 'error'); }
+  };
   const readF = () => { CR.f = { source: q('#cfSource').value, season: q('#cfSeason').value, station: q('#cfStation').value.trim(), species: q('#cfSpecies').value, status: q('#cfStatus').value, imported: q('#cfImported').value, text: q('#cfText').value.trim(), exclude_stations: q('#cfExclude').value.trim(), single_only: q('#cfSingle').checked, csv_text: q('#cfCsv').value,
     exclude_batches: [...m.querySelectorAll('input[data-exb]:checked')].map(c => c.dataset.exb) }; };
   q('#cfApply').onclick = () => { readF(); crossLoadCatalog(m); };

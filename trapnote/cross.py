@@ -1401,7 +1401,7 @@ def import_rows(project, picked: list, batch: str, progress=None, stop=None) -> 
                         srow = dict(srow)
                         src_rel = srow["rel_path"]
                         prefix = r.get("prefix") or ""                     # 親フォルダ参照の中の調査回プロジェクトなら <調査回>/ が付く
-                        rel = f"{name}/{prefix}/{src_rel}" if prefix else f"{name}/{src_rel}"
+                        rel = r.get("rel_full") or (f"{name}/{prefix}/{src_rel}" if prefix else f"{name}/{src_rel}")   # rel_full = カタログの 参照先/rel に合わせた相対パス
                         vals = {c_: srow.get(c_) for c_ in copy_cols}
                         st0 = map_state(lm, item_state(src.db, sid))      # 判定の種コードに対応表を当てる（書き戻し・再取得の比較もこの形で）
                         vals.update(rel_path=rel, rel_key=rel_key(rel), folder=os.path.dirname(rel), season=srow.get("season") or prefix or name,
@@ -2064,6 +2064,89 @@ def catalog_import(project, ids: list[int], batch: str, record: dict | None = No
     project.data.setdefault("imports", []).append(rec)
     project.save()
     return dict(n=n, n_requested=len(ids))
+
+
+def match_project_items(project, other_dir: str) -> dict:
+    """別のプロジェクト（gold_station など。横断から「別のフォルダへ写す」で作ったものでも、調査回のプロジェクトでも）の動画をカタログで探す。
+    相対パスの先頭が参照先の名前ならそれ（横断から写したもの）、そうでなければ各参照先で rel そのもの・調査回/rel、最後は 地点 + ファイル名（1 行だけ見つかれば）。
+    返り値 dict(rows=[(カタログ行, 相手の items 行)], already={組: 本数}, unmatched=[名前...], n_items)"""
+    db = project.db
+    src_names = [s["name"] for s in project.sources()]
+    other = open_source(other_dir)
+    try:
+        items = [dict(r) for r in other.db.q("SELECT id, rel_path, name, station, season FROM items ORDER BY id")]
+    finally:
+        other.close()
+    rows, already, unmatched = [], defaultdict(int), []
+    for it in items:
+        rel_path = (it["rel_path"] or "").replace("\\", "/")
+        first, _, rest = rel_path.partition("/")
+        cands = []
+        if first in src_names and rest:
+            cands.append((first, rest))
+        for sn in src_names:
+            cands.append((sn, rel_path))
+            if it.get("season"):
+                cands.append((sn, f"{it['season']}/{rel_path}"))
+        hit = None
+        for sn, rel in cands:
+            hit = db.q1("SELECT id, source, rel, season, station, name, item_id FROM catalog WHERE source=? AND rel=?", (sn, rel))
+            if hit:
+                break
+        if not hit and it.get("station"):
+            found = db.q("SELECT id, source, rel, season, station, name, item_id FROM catalog WHERE station=? AND name=? LIMIT 2", (it["station"], it["name"]))
+            if len(found) == 1 or (len(found) > 1 and it.get("season") and len([f for f in found if f["season"] == it["season"]]) == 1):
+                hit = found[0] if len(found) == 1 else [f for f in found if f["season"] == it["season"]][0]
+        if not hit:
+            unmatched.append(rel_path or it["name"])
+            continue
+        hit = dict(hit)
+        if hit["item_id"] is not None:
+            b = db.scalar("SELECT batch FROM items WHERE id=?", (hit["item_id"],))
+            already[str(b or "")] += 1
+            continue
+        rows.append((hit, it))
+    return dict(rows=rows, already=dict(already), unmatched=unmatched, n_items=len(items))
+
+
+def import_project_batch(project, other_path: str, batch: str = "", unit: str = "", make_eval: bool | None = None, progress=None, stop=None) -> dict:
+    """別のプロジェクトの動画を、その組として取り込む（判定・枠・特徴量はそのプロジェクトから写す。src_dir/src_id が付くので書き戻し・再取得もできる）。
+    batch が空ならそのプロジェクトの名前。unit（station / season / ""）は 4 の段の「除く組」で何を母集団から外すか（地点を丸ごと / 調査回を丸ごと / 地点 × 調査回）。
+    空なら名前から推測（station・地点 → station、season・調査回 → season）。make_eval が None なら名前に gold / eval が入っていれば評価用に"""
+    from .paths import key as _key
+    pdir, kind = _project_at(other_path)
+    if not pdir:
+        raise ValueError(f"プロジェクトが見つかりません: {other_path}")
+    if kind == "cross":
+        raise ValueError("横断プロジェクトは組として取り込めません（「カタログを持ってくる」か、その横断プロジェクトから「別のフォルダへ写す」で作ったものを指定してください）")
+    if _key(pdir) == _key(project.dir):
+        raise ValueError("いまのプロジェクト自身は取り込めません")
+    other_name = os.path.basename(os.path.dirname(pdir)) if os.path.basename(pdir).lower() == "trapnote" else os.path.basename(pdir)
+    batch = (batch or "").strip() or other_name
+    low = batch.lower() + " " + other_name.lower()
+    if not unit:
+        unit = "station" if ("station" in low or "地点" in low) else ("season" if ("season" in low or "調査回" in low) else "")
+    if make_eval is None:
+        make_eval = any(k in low for k in ("gold", "eval", "評価", "検証"))
+    if progress:
+        progress(0, 0, "カタログで探しています")
+    m = match_project_items(project, pdir)
+    picked = []
+    for hit, it in m["rows"]:
+        picked.append((hit["source"], pdir, dict(id=it["id"], rel_path=it["rel_path"], name=hit["name"], station=hit["station"], season=hit["season"], prefix=hit["season"] or "",
+                                                 rel_full=f"{hit['source']}/{hit['rel']}")))
+    n = import_rows(project, picked, batch, progress, stop)
+    rec = dict(at=now_iso(), batch=batch, params=dict(mode="project", path=pdir, unit=unit, eval=bool(make_eval)), n=n, counts={}, by_source={})
+    for name, _, _ in picked:
+        rec["by_source"][name] = rec["by_source"].get(name, 0) + 1
+    project.data.setdefault("imports", []).append(rec)
+    project.save()
+    if make_eval and n:
+        ev = eval_batches(project)
+        if batch not in ev:
+            set_eval_batches(project, ev + [batch])
+    return dict(n=n, n_items=m["n_items"], n_matched=len(m["rows"]), n_already=sum(m["already"].values()), already=m["already"], n_unmatched=len(m["unmatched"]),
+                unmatched=m["unmatched"][:20], batch=batch, unit=unit, eval=bool(make_eval), project=other_name)
 
 
 def export_catalog(project, path: str, f: dict | None = None, long: bool = False) -> dict:
