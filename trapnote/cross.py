@@ -1097,11 +1097,16 @@ def tree_summary(project, s: dict, wait: bool = False) -> dict:
 
 
 def sources_info(project, wait: bool = False) -> list[dict]:
-    """登録した参照先の様子（開けないものは error）。wait=False なら種名 CSV をまだ読んでいない親フォルダ参照は labels.pending"""
+    """登録した参照先の様子（開けないものは error）。wait=False なら種名 CSV をまだ読んでいない親フォルダ参照は labels.pending。各参照先にかかった秒数を _elapsed に"""
     out = []
     for s in project.sources():
+        t0 = time.time()
         if s.get("kind") == "tree":
-            out.append(tree_summary(project, s, wait))
+            d = tree_summary(project, s, wait)
+            d["_elapsed"] = round(time.time() - t0, 1)
+            if d["_elapsed"] > 2:
+                log.info("参照先 %s の様子を見るのに %.1f 秒（NAS %s）", s["name"], d["_elapsed"], s.get("root"))
+            out.append(d)
             continue
         try:
             src = open_source(s["dir"])

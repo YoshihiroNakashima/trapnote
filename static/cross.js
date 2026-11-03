@@ -13,9 +13,26 @@ const CR_TABS_BY = { merge: ['sources', 'labels', 'build', 'merge'], train: ['so
 let CR_TABS = CR_TABS_BY[''];
 const crPurpose = info => ((info.project.settings || {}).cross_purpose || '');
 
-async function crossDialog(tab) {
+/* 窓を出すときの info は覚えておく（CR.infoCache）: 確認の窓でキャンセルしたときなどに開き直すのが一瞬で済む。裏で新しい info を取り直し、数字が変わっていれば描き直す */
+async function crossDialog(tab, opts) {
   let info;
-  try { info = await api('/api/cross/info'); } catch (e) { toast(e.message, 'error'); return; }
+  const cache = CR.infoCache;
+  const fresh = !(opts && opts.cached) || !cache || !S.project || cache.dir !== S.project.dir || Date.now() - cache.at > 180000;
+  if (fresh) {
+    showOverlayLater(t('loading'), t('cr_opening'), 400);              // 反応がないように見えないよう、すぐ「読み込み中」を出す
+    try { info = await api('/api/cross/info'); } catch (e) { hideOverlay(); toast(e.message, 'error'); return; }
+    hideOverlay();
+    CR.infoCache = { at: Date.now(), dir: S.project && S.project.dir, info };
+  } else {
+    info = cache.info;
+    api('/api/cross/info').then(fi => {                                 // 裏で取り直す。要点が変わっていれば描き直す
+      CR.infoCache = { at: Date.now(), dir: S.project && S.project.dir, info: fi };
+      const m = crossModalEl; if (!m || !m.isConnected) return;
+      const sig = x => JSON.stringify([x.n_catalog, x.n_items, x.sources.length, x.n_label_map, (x.catalog_status || {}).stale, (x.batches || []).length]);
+      if (sig(fi) !== sig(info)) { crossModalEl = null; crossDialog(CR.tab); }
+      else m._info = fi;
+    }).catch(() => {});
+  }
   const cs = info.catalog_status || {};
   const purpose = crPurpose(info);
   CR_TABS = CR_TABS_BY[purpose] || CR_TABS_BY[''];
@@ -156,7 +173,7 @@ function crossTabSources(m, body) {
   m.querySelectorAll('[data-rm]').forEach(b => { b.onclick = async () => {
     crossModalEl = null;
     if (await confirmModal(t('cross_title'), `${esc(t('cross_remove_q'))}: ${esc(b.dataset.rm)}`, t('cross_remove'), true)) { try { const r = await api('/api/cross/sources/remove', { name: b.dataset.rm }); setSnapshot(r.state); } catch (e) { toast(e.message, 'error'); } }
-    crossDialog('sources');
+    crossDialog('sources', { cached: true });
   }; });
   m.querySelectorAll('[data-read]').forEach(b => { b.onclick = async () => { try { const j = await api('/api/cross/labels/read', { name: b.dataset.read }); crossTrack(m, j, 'sources'); } catch (e) { toast(e.message, 'error'); } }; });
   m.querySelectorAll('[data-golabels]').forEach(a => { a.onclick = e => { e.preventDefault(); CR.tab = 'labels'; m.querySelectorAll('#crTabs .stp').forEach(x => x.classList.toggle('on', x.dataset.tab === 'labels')); crossRenderTab(m); }; });
@@ -370,7 +387,7 @@ function crossTabPick(m, body) {
     const n = CR.counts ? CR.counts.total - CR.counts.imported : 0;
     crossModalEl = null;
     const ok = await confirmModal(t('cross_title'), `${esc(t('cross_import_filtered_q'))}: ${n}`, t('cross_do_import'));
-    await crossDialog('pick');
+    await crossDialog('pick', { cached: true });
     if (!ok) return;
     try { const j = await api('/api/cross/import', { mode: 'catalog_sample', filters: CR.f, params: { unit: 'all' }, batch: b }); const mm = crossModalEl; if (mm) { crossTrack(mm, j, 'pick'); } } catch (e) { toast(e.message, 'error'); }
   };
@@ -381,7 +398,7 @@ function crossTabPick(m, body) {
     const n = all ? info.n_items : ((info.batches || []).find(b => b.batch === v) || {}).n;
     crossModalEl = null;
     const ok = await confirmModal(t('cr_remove_h'), `<div>${esc(all ? t('cr_all_items') : (v || t('cr_no_batch')))}: ${n} ${esc(t('items'))}</div><div class="note">${esc(t('cr_remove_q'))}</div>`, t('cr_remove_btn'), true);
-    await crossDialog('pick');
+    await crossDialog('pick', { cached: true });
     if (!ok) return;
     try { const j = await api('/api/cross/items/remove', all ? { all: true } : { batch: v }); const mm = crossModalEl; if (mm) crossTrack(mm, j, 'pick'); } catch (e) { toast(e.message, 'error'); }
   };
@@ -468,6 +485,7 @@ function crossRenderStudy(m, body) {
   const named = (info.batches || []).filter(b => b.batch);
   const noBatch = (info.batches || []).find(b => !b.batch);
   const evalNames = named.filter(b => b.eval).map(b => b.batch);
+  const looksEval = named.filter(b => !b.eval && /gold|eval|評価|検証/i.test(b.batch)).map(b => b.batch);     // 名前は gold なのに評価用の印がない組 → 学習に入ってしまう
   const models = info.models || [], cur = info.classifier || 'speciesnet';
   const curName = cur.startsWith('local:') ? cur.slice(6) : 'SpeciesNet';
   const fmtImports = b => (b.imports || []).map(x => `${crUnitWord(x.unit)}${x.n_units ? ' ' + x.n_units : ''}`).filter(Boolean).join(', ');
@@ -480,7 +498,8 @@ function crossRenderStudy(m, body) {
       <li>${esc(t('cr_proto_1'))}</li><li>${esc(t('cr_proto_2'))}</li><li>${esc(t('cr_proto_3'))}</li><li>${esc(t('cr_proto_4'))}</li><li>${esc(t('cr_proto_5'))}</li></ol></details>
     <h4>${esc(t('cr_batches_h'))} <span class="info">${esc(t('cr_batches_sub'))}</span></h4>
     ${named.length ? `<div style="max-height:32vh;overflow:auto"><table class="tbl cr-batches"><tr><th>${esc(t('cross_batch'))}</th><th>${esc(t('cr_role'))}</th><th>${esc(t('items'))}</th><th>${esc(t('st_verified'))}</th><th>${esc(t('cr_ai_done'))}</th><th title="${esc(t('cr_dis_tip'))}">${esc(t('cr_disagree'))}</th><th></th></tr>${rows}</table></div>
-      ${noBatch ? `<div class="info">${esc(t('cr_no_batch'))}: ${noBatch.n} ${esc(t('items'))}</div>` : ''}` : `<div class="callout warn">${esc(t('cr_study_no_batches'))}</div>`}
+      ${noBatch ? `<div class="info">${esc(t('cr_no_batch'))}: ${noBatch.n} ${esc(t('items'))}</div>` : ''}
+      ${looksEval.length ? `<div class="callout warn">${esc(t('cr_eval_unmarked'))}: ${esc(looksEval.join(', '))}</div>` : ''}` : `<div class="callout warn">${esc(t('cr_study_no_batches'))}</div>`}
     <h4>${esc(t('cr_model_h'))}</h4>
     <div class="cr-actions"><span>${esc(t('cr_model_now'))}: <b>${esc(curName)}</b></span>
       <button type="button" class="small" id="crStApply" title="${esc(t('cr_apply_tip'))}">${esc(t('cr_apply_btn'))}</button>
@@ -490,7 +509,12 @@ function crossRenderStudy(m, body) {
   const q = sel => m.querySelector(sel);
   m.querySelectorAll('input[data-evb]').forEach(c => { c.onchange = async () => {
     const names = [...m.querySelectorAll('input[data-evb]:checked')].map(x => x.dataset.evb);
-    try { await api('/api/cross/eval_batches', { batches: names }); CR.f.exclude_batches = null; crossModalEl = null; crossDialog('study'); } catch (e) { toast(e.message, 'error'); }
+    try {
+      await api('/api/cross/eval_batches', { batches: names }); CR.f.exclude_batches = null;
+      (info.batches || []).forEach(b => { b.eval = names.includes(b.batch); });                  // 覚えている情報を直してすぐ開き直す（/api/cross/info は裏で取り直す）
+      CR.infoCache = { at: Date.now(), dir: S.project && S.project.dir, info };
+      crossModalEl = null; crossDialog('study', { cached: true });
+    } catch (e) { toast(e.message, 'error'); }
   }; });
   m.querySelectorAll('[data-list]').forEach(b => { b.onclick = () => { crossModalEl = null; closeModal(); showBatch(b.dataset.list); }; });
   m.querySelectorAll('[data-dis]').forEach(b => { b.onclick = async () => { crossModalEl = null; closeModal(); await showBatch(b.dataset.dis); S.filter.agree = 'disagree'; renderFilters(); saveUi(); await reloadList(); toast(`${t('filter_batch')} ${b.dataset.dis} · ${t('cmp_disagree')}: ${S.total} ${t('items')}`); }; });
@@ -601,7 +625,7 @@ function crossTabSync(m, body) {
     const ow = q('#crOverwrite').checked;
     crossModalEl = null;
     const ok = await confirmModal(t('cross_title'), `<div>${esc(dir === 'push' ? t('cross_push_q') : t('cross_pull_q'))}</div>`, dir === 'push' ? t('cross_push') : t('cross_pull'));
-    await crossDialog('sync');
+    await crossDialog('sync', { cached: true });
     if (!ok) return;
     try { const j = await api('/api/cross/sync', { direction: dir, overwrite: ow }); S._bgWasRunning = true; const mm = crossModalEl; if (mm) { crossTrack(mm, j, 'sync'); } } catch (e) { toast(e.message, 'error'); }
   };

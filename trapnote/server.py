@@ -1211,7 +1211,9 @@ def make_app(session: Session) -> web.Application:
 
     async def cross_info(request):
         p = need_cross()
+        t0 = time.time()
         sources = await io(cross.sources_info, p)
+        t_src = time.time() - t0
         paused = {s["name"] for s in p.sources() if s.get("labels_paused")}
         for s in sources:                                   # 種名 CSV をまだ読んでいない親フォルダ参照は裏で読む（画面は待たない。止めたものは「読み込む」を押すまで読まない）
             lab = s.get("labels") or {}
@@ -1224,11 +1226,20 @@ def make_app(session: Session) -> web.Application:
         cat = p.data.get("catalog") or None
         if cat:
             cat = {k: v for k, v in cat.items() if k != "code_names"}
-        return jr(dict(sources=sources, imports=p.data.get("imports") or [], project=p.to_dict(), catalog=cat, catalog_status=cross.catalog_status(p),
-                       n_catalog=int(p.db.scalar("SELECT COUNT(*) FROM catalog") or 0), n_items=int(p.db.scalar("SELECT COUNT(*) FROM items") or 0),
-                       n_sync=int(p.db.scalar("SELECT COUNT(*) FROM items WHERE src_id IS NOT NULL") or 0),
-                       n_label_map=len(cross.label_map(p)), label_map_at=p.data.get("label_map_at"),
-                       batches=cross.batches_info(p), eval_batches=cross.eval_batches(p), models=train.list_models(p), classifier=p.setting("classifier")))
+        t1 = time.time()
+        cst = await io(cross.catalog_status, p)
+        t_cst = time.time() - t1
+        t2 = time.time()
+        out = dict(sources=sources, imports=p.data.get("imports") or [], project=p.to_dict(), catalog=cat, catalog_status=cst,
+                   n_catalog=int(p.db.scalar("SELECT COUNT(*) FROM catalog") or 0), n_items=int(p.db.scalar("SELECT COUNT(*) FROM items") or 0),
+                   n_sync=int(p.db.scalar("SELECT COUNT(*) FROM items WHERE src_id IS NOT NULL") or 0),
+                   n_label_map=len(cross.label_map(p)), label_map_at=p.data.get("label_map_at"),
+                   batches=await io(cross.batches_info, p), eval_batches=cross.eval_batches(p), models=await io(train.list_models, p), classifier=p.setting("classifier"))
+        total = time.time() - t0
+        if total > 2:                                       # 遅いときは内訳を残す（NAS の応答が遅いときの切り分け用）
+            log.info("横断の窓の読み込みに %.1f 秒（参照先 %.1f / カタログの状態 %.1f / その他 %.1f）: %s", total, t_src, t_cst, time.time() - t2,
+                     "; ".join(f"{x['name']}: {x.get('_elapsed', '?')} 秒" for x in sources))
+        return jr(out)
 
     async def cross_report(request):
         """組（gold など）の評価: 既存の判定（CSV・調査回のプロジェクト）と AI の判定を、目視（確認済み）と比べる"""
