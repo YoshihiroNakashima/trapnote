@@ -5,6 +5,7 @@ import asyncio
 import json
 import logging
 import os
+import sys
 import shutil
 import threading
 import time
@@ -340,7 +341,7 @@ class Session:
         return d
 
     def jobs_status(self) -> dict:
-        return dict(bg=self.bg.status(), transcode=self.tc.status(), archive=self.ar.status(), ml=self.ml.status(), cross=self.cr.status(), transcoding=sorted(self.transcoding_ids()))
+        return dict(bg=self.bg.status(), transcode=self.tc.status(), archive=self.ar.status(), ml=self.ml.status(), cross=self.cr.status(), transcoding=sorted(self.transcoding_ids()), build=BUILD)
 
     def close(self) -> None:
         self.cr.stop_all()
@@ -1586,6 +1587,22 @@ def make_app(session: Session) -> web.Application:
         asyncio.get_running_loop().call_later(0.2, request.app["shutdown"].set)
         return jr(dict(ok=True))
 
+    async def restart(request):
+        """起動し直す（プログラムのファイルを入れ替えたあと）: 同じ Python で app.py をもう 1 つ起動する。新しい方が、起動時の決まり（app.py）で
+        古い版のこのサーバーに終了を頼んで同じポートを引き継ぐ。画面はポーリングで build が変わったのを見て読み直す（新しい方はブラウザを開かない）"""
+        import subprocess
+        app_py = os.path.join(str(APP_DIR), "app.py")
+        args = [sys.executable, app_py, "--no-browser"] + [a for a in sys.argv[1:] if a != "--no-browser"]
+        flags = 0
+        if sys.platform.startswith("win"):
+            flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        try:
+            subprocess.Popen(args, cwd=str(APP_DIR), close_fds=True, creationflags=flags, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception as e:
+            raise ApiError(f"起動し直せません: {e}")
+        log.info("起動し直しの要求: %s", " ".join(args))
+        return jr(dict(ok=True, build=BUILD))
+
     r = app.router
     r.add_get("/", index)
     r.add_get("/api/ping", ping)
@@ -1706,6 +1723,7 @@ def make_app(session: Session) -> web.Application:
     r.add_post("/api/settings", settings_post)
     r.add_post("/api/ui", ui_post)
     r.add_post("/api/quit", quit_)
+    r.add_post("/api/restart", restart)
     r.add_static("/static/", STATIC_DIR, show_index=False)
     return app
 

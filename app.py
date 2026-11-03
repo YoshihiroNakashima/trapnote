@@ -75,6 +75,8 @@ def setup_logging() -> None:
 
 def port_free(port: int) -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        if not sys.platform.startswith("win"):
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)      # Linux / Mac: 止めた直後の TIME_WAIT で「使用中」と見ないため（待ち受け中のものは変わらず使用中）。Windows では付けると待ち受け中でも bind できてしまうので付けない
         try:
             s.bind(("127.0.0.1", port))
             return True

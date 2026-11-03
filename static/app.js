@@ -606,7 +606,12 @@ function renderJobs(jobs) {
   if (typeof crossOnJobs === 'function') crossOnJobs(jobs);
 }
 async function pollJobs() {
-  try { const j = await api('/api/jobs'); renderJobs(j); } catch (e) { /* 終了中など */ }
+  try {
+    const j = await api('/api/jobs');
+    if (j.build && S.build && j.build !== S.build) { location.reload(); return; }     // サーバーが起動し直された（プログラムの入れ替え）→ 画面も読み直す
+    if (j.build) S.build = j.build;
+    renderJobs(j);
+  } catch (e) { /* 終了中など */ }
 }
 function startJobsPolling() { clearInterval(S.jobsTimer); S.jobsTimer = setInterval(pollJobs, 2000); }
 
