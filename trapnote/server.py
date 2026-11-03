@@ -469,6 +469,18 @@ def make_app(session: Session) -> web.Application:
             S.bg.submit(MetaJob())
         return jr(S.jobs_status())
 
+    async def fs_prune_empty(request):
+        """フォルダの下の空のフォルダを消す（ファイルは消さない。「整える」のあとに残った空の動画フォルダの片付け用）"""
+        from .project import prune_empty_dirs
+        b = await _body(request)
+        path = norm(str(b.get("path") or ""))
+        if not path or not os.path.isdir(path):
+            raise ApiError("フォルダを指定してください")
+        if os.path.dirname(path.rstrip("/")) in ("", path.rstrip("/")):
+            raise ApiError("ドライブの直下は指定できません")
+        n = await io(prune_empty_dirs, path)
+        return jr(dict(n=n, gone=not os.path.isdir(path)))
+
     async def export_subset_check(request):
         """「別のフォルダへ写す」の窓の表示用: 写す先の決まり（できるフォルダ・足す先・横断の名前の変更）と対象の数"""
         p = S.need()
@@ -1610,6 +1622,7 @@ def make_app(session: Session) -> web.Application:
     r.add_post("/api/dialog", dialog)
     r.add_post("/api/project/open", project_open)
     r.add_post("/api/project/tidy", project_tidy)
+    r.add_post("/api/fs/prune_empty", fs_prune_empty)
     r.add_post("/api/export/subset_check", export_subset_check)
     r.add_get("/api/projects/recent", projects_recent)
     r.add_post("/api/export/subset", export_subset)

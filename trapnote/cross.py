@@ -24,7 +24,7 @@ from datetime import datetime
 
 from .db import now_iso
 from .judge import _apply_state, item_state
-from .paths import key, norm, rel_key, safe_name
+from .paths import is_under, key, norm, rel_key, safe_name
 from .species import FIXED_CODES
 
 log = logging.getLogger(__name__)
@@ -2522,7 +2522,7 @@ def _label_of_dir(project, sdir: str) -> str:
     for s in project.sources():
         if s.get("dir") and key(s["dir"]) == key(sdir):
             return s["name"]
-        if s.get("kind") == "tree" and s.get("root") and key(sdir).startswith(key(s["root"]).rstrip("/") + "/"):
+        if s.get("kind") == "tree" and s.get("root") and is_under(sdir, s["root"]):
             return f"{s['name']}/{os.path.basename(os.path.dirname(norm(sdir)))}"
     sd = norm(sdir).rstrip("/")
     base = os.path.basename(sd)
@@ -2688,7 +2688,7 @@ def export_target(project, out_dir: str, name: str = "") -> dict:
     if os.path.dirname(dataset_dir.rstrip("/")) in ("", dataset_dir.rstrip("/")):
         raise ValueError("ドライブの直下には写せません（<写す先>/TrapNote がアプリのフォルダと重なりかねない）。フォルダを 1 つ作るか名前を付けてください（例: 写す先 F:/Copy、名前 gold_station）")
     for base in (project.root, project.dir):
-        if base and (key(dataset_dir) == key(base) or key(dataset_dir).startswith(key(base).rstrip("/") + "/")):
+        if base and (key(dataset_dir) == key(base) or is_under(dataset_dir, base)):
             raise ValueError("写す先に、いまのプロジェクトのフォルダ（動画のフォルダとその中）は指定できません")
     rename_cross = None
     legacy = False

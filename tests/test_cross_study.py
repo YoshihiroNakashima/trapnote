@@ -378,6 +378,11 @@ def test_tidy_named_project(tmp_path):
         assert res["n_moved"] == 3 and res["n_missing"] == 0 and cross.norm(res["project_dir"]) == cross.norm(os.path.join(ds, PROJECT_DIRNAME)) and cross.norm(res["root"]) == cross.norm(ds)
         assert os.path.isfile(os.path.join(ds, "PRM_N", "N240128", "BSN0812", "IMG_0000.AVI")) and not os.path.exists(os.path.join(parent, "PRM_N", "N240128", "BSN0812"))
         assert os.path.isfile(extra)                                                   # ほかの動画は残る
+        assert res["n_pruned"] >= 1 and not os.path.exists(os.path.join(parent, "PRM_N", "N240128", "BSN0812"))   # 空になった動画のフォルダは消える（ほかの動画のあるフォルダは残る）
+        from trapnote.project import prune_empty_dirs
+        os.makedirs(os.path.join(parent, "empty", "a", "b"))
+        assert prune_empty_dirs(os.path.join(parent, "empty")) == 3 and not os.path.exists(os.path.join(parent, "empty"))
+        assert prune_empty_dirs(os.path.join(parent, "PRM_N")) == 0 and os.path.isfile(extra)
         assert os.path.isfile(os.path.join(ds, PROJECT_DIRNAME, "data.sqlite")) and not os.path.isfile(os.path.join(ds, "data.sqlite")) and not os.path.isfile(os.path.join(ds, "project.json"))
         d = Project(os.path.join(ds, PROJECT_DIRNAME))
         try:

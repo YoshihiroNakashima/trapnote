@@ -11,7 +11,7 @@ from . import APP_ID, VERSION
 from .config import read_json, write_json
 from .db import Database
 from .fields import Fields
-from .paths import norm, key
+from .paths import is_under, key, norm
 from .species import SpeciesList
 
 log = logging.getLogger(__name__)
@@ -363,15 +363,10 @@ def tidy_named_project(pdir: str, progress=None) -> dict:
         n_moved += 1
         if progress and i % 100 == 0:
             progress(i, len(rels), rel)
-    # 空になった動画のフォルダは消す（親の直下の参照先フォルダまで。中にほかのファイルがあれば残る）
-    for rel in rels:
-        d = os.path.dirname(os.path.join(parent, *rel.split("/")))
-        while key(d) != key(parent) and key(d).startswith(key(parent).rstrip("/") + "/"):
-            try:
-                os.rmdir(d)
-            except OSError:
-                break
-            d = os.path.dirname(d)
+    # 空になった動画のフォルダは消す（親の直下の参照先フォルダ <親>/PRM_N まで。中にほかのファイルがあれば残る）
+    n_pruned = 0
+    for top in sorted({rel.split("/")[0] for rel in rels if "/" in rel}):
+        n_pruned += prune_empty_dirs(os.path.join(parent, top))
     # 2. プロジェクトのファイルを <名前>/TrapNote に（動画のフォルダは残す）
     os.makedirs(new_pdir, exist_ok=True)
     moved_names = []
@@ -394,4 +389,22 @@ def tidy_named_project(pdir: str, progress=None) -> dict:
         p.close()
     except Exception as e:
         log.warning("整えたプロジェクトを開けません: %s", e)
-    return dict(project_dir=norm(new_pdir), root=norm(new_root), n_moved=n_moved, n_missing=n_missing, moved=moved_names)
+    return dict(project_dir=norm(new_pdir), root=norm(new_root), n_moved=n_moved, n_missing=n_missing, moved=moved_names, n_pruned=n_pruned)
+
+
+def prune_empty_dirs(top: str) -> int:
+    """top の下の空のフォルダを下から消す（top 自体も空になれば消す）。ファイルは一切消さない。返り値は消したフォルダの数"""
+    n = 0
+    top = norm(top)
+    if not os.path.isdir(top):
+        return 0
+    for dirpath, dirnames, filenames in os.walk(top, topdown=False):
+        if filenames:
+            continue
+        try:
+            if not os.listdir(dirpath):
+                os.rmdir(dirpath)
+                n += 1
+        except OSError as e:
+            log.debug("空のフォルダを消せません %s: %s", dirpath, e)
+    return n

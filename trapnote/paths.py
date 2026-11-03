@@ -19,8 +19,15 @@ def norm(p) -> str:
 
 
 def key(p) -> str:
-    """比較用（Windows では大文字小文字を区別しない）"""
+    """比較用（Windows では大文字小文字を区別しない）。Windows では区切りが \\ になるので、「中にあるか」は is_under で見る（key 同士の startswith は / と \\ が混ざって当たらない）"""
     return os.path.normcase(norm(p))
+
+
+def is_under(p, base) -> bool:
+    """p が base の中にあるか（base 自体は含まない）。区切りを / にそろえてから比べる"""
+    kp = key(p).replace("\\", "/")
+    kb = key(base).replace("\\", "/").rstrip("/")
+    return kp.startswith(kb + "/")
 
 
 def kind_of(p) -> str | None:
