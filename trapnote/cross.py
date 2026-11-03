@@ -2050,6 +2050,7 @@ def catalog_sample(project, f: dict, params: dict) -> dict:
       station_season  地点 × 調査回の組を n 組選び、その動画を全部
       （station / season / station_season は gap_min で連続動画を間引いてから、per_unit = 単位ごとの上限、total = 合計の上限で、選んだ単位の中から乱数で間引ける。gold の「地点 20・合計 3,000 本」など）
       （species は max_avail = 既存の本数がこれ以下の種だけ、で稀な種の補いができる）
+      （video / species は spread = "station" で地点をできるだけたがえる: 地点を順繰りに 1 本ずつ取る（地点の順も地点の中の順も乱数）。学習データの地点の偏りを減らす）
     乱数の種 seed で同じ結果が再現できる。返り値 dict(ids, n, counts={code: n}, available={code: n}（種ごと）, units=[(名前, 選んだ本数)], units_pool=[(名前, 母数)], n_pool, n_pool_thin, n_units_available)"""
     db = project.db
     where, p = catalog_where(dict(f, imported="0"), project)
@@ -2063,6 +2064,7 @@ def catalog_sample(project, f: dict, params: dict) -> dict:
     cap = int(params.get("cap") or 0)
     gap_min = float(params.get("gap_min") or 0)
     seed = int(params.get("seed") or 1)
+    spread = str(params.get("spread") or "") in ("station", "1", "true", "True")
     rng = random.Random(seed)
     if unit in _UNIT_KEY:                                   # 地点・調査回・その組: 数は SQL で数え、選んだ単位の行だけ読む
         kx = _UNIT_KEY[unit]
@@ -2104,10 +2106,12 @@ def catalog_sample(project, f: dict, params: dict) -> dict:
         cands = _thin_rows(rows, gap_min)
         cands.sort(key=lambda r: r[0])
         rng.shuffle(cands)
+        if spread:
+            cands = _spread_by_station(cands)
         picked = cands[:n_want]
         cnt = lambda rs: dict(Counter(code for r in rs for code in (r[5] or "(none)").split(";")))
         return dict(ids=[r[0] for r in picked], counts=cnt(picked), available=cnt(cands), n=len(picked), units=[], n_units_available=len(cands), unit=unit,
-                    n_pool=len(rows), n_pool_thin=len(cands), gap_min=gap_min)
+                    n_pool=len(rows), n_pool_thin=len(cands), gap_min=gap_min, spread=spread, n_stations=len({(r[1], r[3]) for r in picked}))
     # unit == species
     n_per = n_want
     want_sp = set(params.get("species") or [])
@@ -2123,10 +2127,13 @@ def catalog_sample(project, f: dict, params: dict) -> dict:
     ids = []
     seen: set[int] = set()
     counts2: dict[str, int] = {}
+    picked_rows: list[tuple] = []
     for code in sorted(pool):
         cands = list(pool[code])
         cands.sort(key=lambda r: r[0])
         rng.shuffle(cands)
+        if spread:                                                   # 地点を順繰りに（同じ地点から続けて選ばない）
+            cands = _spread_by_station(cands)
         per_cell: dict[tuple, int] = defaultdict(int)
         n_sp = 0
         for r in cands:
@@ -2139,9 +2146,28 @@ def catalog_sample(project, f: dict, params: dict) -> dict:
                 continue
             per_cell[cell] += 1
             seen.add(r[0]); ids.append(r[0]); n_sp += 1
+            picked_rows.append(r)
         counts2[code] = n_sp
     return dict(ids=ids, counts=counts2, available={k: len(v) for k, v in pool.items()}, n=len(ids), units=[], n_units_available=len(pool), unit=unit,
-                n_pool=len(rows), n_pool_thin=len(thinned), gap_min=gap_min)
+                n_pool=len(rows), n_pool_thin=len(thinned), gap_min=gap_min, spread=spread, n_stations=len({(r[1], r[3]) for r in picked_rows}))
+
+
+def _spread_by_station(rows: list[tuple]) -> list[tuple]:
+    """乱数で並べた行（id, source, season, station, datetime, species）を、地点をできるだけたがえる順に並べ直す:
+    地点ごとにまとめ（地点の順は最初に現れた順 = 乱数の順）、各地点から 1 本ずつ順繰りに取る。先頭から n 本取れば地点が最大限ばらける"""
+    groups: dict[tuple, list[tuple]] = {}
+    for r in rows:
+        groups.setdefault((r[1], r[3] or ""), []).append(r)
+    out: list[tuple] = []
+    queues = [list(v) for v in groups.values()]
+    while queues:
+        nxt = []
+        for q in queues:
+            out.append(q.pop(0))
+            if q:
+                nxt.append(q)
+        queues = nxt
+    return out
 
 
 def catalog_import(project, ids: list[int], batch: str, record: dict | None = None, progress=None, stop=None) -> dict:

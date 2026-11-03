@@ -77,6 +77,34 @@ def test_thin_in_units(tmp_path):
         p.close()
 
 
+def test_spread_by_station(tmp_path):
+    """「地点をできるだけたがえる」: 種ごとの n 本を地点を順繰りに取る → 地点数が最大になる。地点の順・地点の中の順は乱数、種で再現できる"""
+    make_nas(tmp_path)
+    p = make_cross(tmp_path)
+    try:
+        # Deer は 1 地点 1 調査回に 4 本 × 3 地点 × 2 調査回 = 24 本（地点は BSN0812 / 0590 / 0620 / 0700 の 4 つ）
+        r = cross.catalog_sample(p, {}, dict(unit="species", n=4, seed=1, species=["deer"], spread="station"))
+        assert r["n"] == 4 and r["spread"] and r["n_stations"] == 4                                   # 4 本なら 4 地点
+        rows = p.db.q(f"SELECT station FROM catalog WHERE id IN ({','.join('?' * 4)})", r["ids"])
+        assert len({x[0] for x in rows}) == 4
+        r8 = cross.catalog_sample(p, {}, dict(unit="species", n=8, seed=1, species=["deer"], spread="station"))
+        assert r8["n"] == 8 and r8["n_stations"] == 4                                                  # 8 本なら各地点 2 本
+        rows = [x[0] for x in p.db.q(f"SELECT station FROM catalog WHERE id IN ({','.join('?' * 8)})", r8["ids"])]
+        assert all(rows.count(st) == 2 for st in set(rows))
+        same = cross.catalog_sample(p, {}, dict(unit="species", n=8, seed=1, species=["deer"], spread="station"))
+        assert same["ids"] == r8["ids"]                                                                # 乱数の種で再現
+        # たがえなければ地点が偏ることがある（種 3 で確かめる）。動画の単位でも効く
+        plain = [cross.catalog_sample(p, {}, dict(unit="species", n=4, seed=sd, species=["deer"]))["n_stations"] for sd in range(1, 9)]
+        assert min(plain) < 4                                                                          # 乱数だけだと 4 地点にならない種がある
+        rv = cross.catalog_sample(p, {}, dict(unit="video", n=4, seed=1, spread="station"))
+        assert rv["n"] == 4 and rv["n_stations"] == 4
+        # 地点の数は 4 なので 5 本目からは同じ地点が重なる（上限 cap は地点 × 調査回で効く）
+        rc = cross.catalog_sample(p, {}, dict(unit="species", n=10, seed=1, species=["deer"], spread="station", cap=1))
+        assert rc["n"] == 6 and rc["n_stations"] == 4                                                  # 地点 × 調査回 6 組 × 1 本
+    finally:
+        p.close()
+
+
 def _import(p, f, params, batch):
     r = cross.catalog_sample(p, f, params)
     cross.catalog_import(p, r["ids"], batch, dict(filters=f, params=params, counts=r["counts"], unit=r.get("unit"), units=r.get("units") or []))
