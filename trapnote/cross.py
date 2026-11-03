@@ -17,6 +17,7 @@ import logging
 import os
 import random
 import shutil
+import threading
 import time
 from collections import Counter, defaultdict
 from datetime import datetime
@@ -166,12 +167,13 @@ def add_sources_under(project, parent: str, labels_csv: str | None = None) -> di
 
 def tree_season_project(root: str, season: str) -> str | None:
     """調査回フォルダに TrapNote のプロジェクト（横断ではないもの）があればそのフォルダ（<root>/<season>/TrapNote）。NAS の stat は短く覚える"""
+    from .project import PROJECT_DIRNAME, PROJECT_JSON, is_project_dir, read_json
     def look():
-        d = os.path.join(root, season)
-        if not os.path.isdir(d):
+        p = os.path.join(root, season, PROJECT_DIRNAME)                 # <調査回>/TrapNote だけ（find_project_for_root のように地点フォルダ全部を stat すると NAS で 1 分かかる）
+        if not is_project_dir(p):
             return None
-        pdir, kind = _project_at(d)
-        return pdir if pdir and kind != "cross" else None
+        data = read_json(os.path.join(p, PROJECT_JSON), None) or {}
+        return norm(p) if (isinstance(data, dict) and data.get("kind") != "cross") else None
     return _fs_get(("sproj", key(root), season), look)
 
 
@@ -561,7 +563,7 @@ def label_files(s: dict) -> list[tuple[str, str]]:
     root = norm(s.get("root") or "")
     if not root:
         return []
-    return _fs_get(("labfiles", key(root), tuple(s.get("seasons") or [])), lambda: _label_files_scan(s, root))
+    return [tuple(f) for f in _fs_get(("labfiles", key(root), tuple(s.get("seasons") or [])), lambda: _label_files_scan(s, root))]
 
 
 def _label_files_scan(s: dict, root: str) -> list[tuple[str, str]]:
@@ -935,8 +937,10 @@ def _labels(project, s: dict, progress=None, stop=None) -> dict:
     return out
 
 
-_FS: dict = {}                 # NAS のフォルダ一覧・stat の短いキャッシュ（key → (時刻, 値)）。窓を開くたびに NAS を何十回も見に行かないため
-FS_TTL = 120.0
+_FS: dict = {}                 # NAS のフォルダ一覧・stat のキャッシュ（key → (時刻, 値)）。窓を開くたびに NAS を何十回も見に行かないため。参照先の増減・CSV の指定・カタログ作成・CSV 読み込み・「見直す」で捨てる
+FS_TTL = 900.0
+_SCANNING: set = set()         # 裏で見直し中の参照先（key）
+_SCAN_LOCK = threading.Lock()
 
 
 def _fs_get(key_, fn, ttl: float = FS_TTL):
@@ -1056,17 +1060,111 @@ def source_summary(src, name: str, project=None) -> dict:
                 speciesnet_model=src.setting("speciesnet_model"), pattern=src.setting("pattern"))
 
 
+def _seen_path(project) -> str:
+    d = project.cache_dir("")
+    os.makedirs(d, exist_ok=True)
+    return os.path.join(d, "nas_seen.json")
+
+
+def _seen_read(project) -> dict:
+    from .config import read_json
+    d = read_json(_seen_path(project), None)
+    return d if isinstance(d, dict) else {}
+
+
+def _seen_write(project, name: str, v: dict) -> None:
+    from .config import write_json
+    try:
+        d = _seen_read(project)
+        d[name] = v
+        write_json(_seen_path(project), d)
+    except OSError as e:
+        log.warning("参照先の様子を残せません: %s", e)
+
+
+def _tree_scan_now(s: dict) -> dict:
+    """NAS を実際に見る: 調査回の一覧、プロジェクトのある調査回、種名 CSV の候補。結果は _FS の各項目（seasons / sproj / labfiles）にも入れる"""
+    root = norm(s.get("root") or "")
+    t0 = time.time()
+    seasons_all = _tree_seasons(root, fresh=True)
+    seasons = source_seasons(s)
+    now = time.time()
+    proj = []
+    for se in seasons:
+        _FS.pop(("sproj", key(root), se), None)
+        if tree_season_project(root, se):
+            proj.append(se)
+    files = _label_files_scan(s, root)
+    _FS[("labfiles", key(root), tuple(s.get("seasons") or []))] = (now, files)
+    return dict(at=now_iso(), root=root, only=list(s.get("seasons") or []), seasons=seasons, seasons_all=seasons_all, proj_seasons=proj, files=[list(f) for f in files],
+                elapsed=round(time.time() - t0, 1))
+
+
+def _prime_fs(s: dict, v: dict) -> None:
+    """前回の結果で _FS の各項目を埋める（切れているものだけ）。窓を出す間に label_files などが NAS を見に行かないため。裏の見直しが終われば新しいもので上書きされる"""
+    root = norm(s.get("root") or "")
+    now = time.time()
+    for k, val in ((("seasons", key(root)), list(v.get("seasons_all") or v.get("seasons") or [])), (("labfiles", key(root), tuple(s.get("seasons") or [])), [tuple(f) for f in v.get("files") or []])):
+        hit = _FS.get(k)
+        if not hit or now - hit[0] >= FS_TTL:
+            _FS[k] = (now, val)
+    proj = set(v.get("proj_seasons") or [])
+    for se in v.get("seasons") or []:
+        k = ("sproj", key(root), se)
+        hit = _FS.get(k)
+        if not hit or now - hit[0] >= FS_TTL:
+            _FS[k] = (now, (norm(os.path.join(root, se, "TrapNote")) if se in proj else None))
+
+
+def tree_scan(project, s: dict, fresh: bool = False) -> dict:
+    """親フォルダ参照の NAS を見る分（調査回・プロジェクトのある調査回・種名 CSV の候補）。_FS に FS_TTL 秒、cache/nas_seen.json に前回の結果。
+    fresh=False でキャッシュが切れていても前回の結果があればそれをすぐ返し（stale=True）、裏のスレッドで見直す（次に窓を出したときに新しくなる）。初めてなら今見る"""
+    root = norm(s.get("root") or "")
+    k = ("scan", key(root), tuple(s.get("seasons") or []))
+    now = time.time()
+    hit = _FS.get(k)
+    if hit and not fresh and now - hit[0] < FS_TTL:
+        return dict(hit[1], stale=False)
+    if not fresh:
+        seen = _seen_read(project).get(s["name"])
+        if isinstance(seen, dict) and seen.get("root") == root and list(seen.get("only") or []) == list(s.get("seasons") or []):
+            with _SCAN_LOCK:
+                go = k not in _SCANNING
+                if go:
+                    _SCANNING.add(k)
+            if go:
+                def work():
+                    try:
+                        v = _tree_scan_now(s)
+                        _FS[k] = (time.time(), v)
+                        _seen_write(project, s["name"], v)
+                        log.info("参照先 %s を裏で見直しました（%.1f 秒）", s["name"], v["elapsed"])
+                    except Exception as e:
+                        log.warning("参照先 %s の見直しに失敗: %s", s["name"], e)
+                    finally:
+                        with _SCAN_LOCK:
+                            _SCANNING.discard(k)
+                threading.Thread(target=work, name=f"nas-scan-{s['name']}", daemon=True).start()
+            _prime_fs(s, seen)
+            return dict(seen, stale=True)
+    v = _tree_scan_now(s)
+    _FS[k] = (time.time(), v)
+    _seen_write(project, s["name"], v)
+    return dict(v, stale=False)
+
+
 def tree_summary(project, s: dict, wait: bool = False) -> dict:
     """親フォルダ参照の様子: ルートがあるか、調査回のフォルダ数、種名 CSV（本数・種ごと・対応しない値）。
     wait=False で種名 CSV をまだ読んでいなければ labels=dict(pending=True, files=[...]) を返す（読むのは LabelsJob）"""
     root = norm(s.get("root") or "")
     available = bool(root and os.path.isdir(root))
-    seasons = source_seasons(s) if available else []
+    sc = tree_scan(project, s) if available else dict(seasons=[], proj_seasons=[], stale=False)
+    seasons = sc["seasons"]
     n_in = int(project.db.scalar("SELECT COUNT(*) FROM items WHERE rel_path LIKE ?", (s["name"] + "/%",)) or 0)
-    proj_seasons = [se for se in seasons if tree_season_project(root, se)] if available else []
+    proj_seasons = sc["proj_seasons"]
     d = dict(name=s["name"], kind="tree", root=root, dir=None, project_name=s["name"], ok=True, available=available, seasons=seasons, project_seasons=proj_seasons, stations=[],
              n_items=None, n_verified=None, n_human=None, n_det=None, species=[], n_imported=n_in, labels_csv=s.get("labels_csv") or "", labels=None,
-             only_seasons=list(s.get("seasons") or []))
+             only_seasons=list(s.get("seasons") or []), stale=bool(sc.get("stale")), seen_at=sc.get("at"))
     if available and not wait and not labels_ready(project, s, load=False):
         fi = labels_files_info(s)
         d["labels"] = dict(pending=True, files=[dict(path=f["path"], n=None, error=None) for f in fi], size=sum(f["size"] for f in fi), auto=not s.get("labels_csv")) if fi else dict(files=[], auto=not s.get("labels_csv"))
@@ -1094,6 +1192,16 @@ def tree_summary(project, s: dict, wait: bool = False) -> dict:
         except Exception as e:
             d["labels"] = dict(error=str(e))
     return d
+
+
+def refresh_sources(project) -> dict:
+    """参照先を見直す（NAS のキャッシュを捨てて今見る）。かかった秒数を参照先ごとに返す"""
+    clear_fs_cache()
+    out = {}
+    for s in project.sources():
+        if s.get("kind") == "tree" and s.get("root") and os.path.isdir(s["root"]):
+            out[s["name"]] = tree_scan(project, s, fresh=True)["elapsed"]
+    return dict(elapsed=out)
 
 
 def sources_info(project, wait: bool = False) -> list[dict]:

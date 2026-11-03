@@ -1247,6 +1247,12 @@ def make_app(session: Session) -> web.Application:
         b = await _body(request)
         return jr(await io(cross.batch_report, p, str(b.get("batch") or "")))
 
+    async def cross_sources_refresh(request):
+        """参照先を見直す（NAS のキャッシュを捨てて今見る）"""
+        p = need_cross()
+        r = await io(cross.refresh_sources, p)
+        return jr(r)
+
     async def cross_eval_batches(request):
         """評価用の組（学習には使わない）を決める"""
         p = need_cross()
@@ -1593,6 +1599,7 @@ def make_app(session: Session) -> web.Application:
     r.add_post("/api/cross/catalog/export", cross_catalog_export)
     r.add_post("/api/cross/report", cross_report)
     r.add_post("/api/cross/eval_batches", cross_eval_batches)
+    r.add_post("/api/cross/sources/refresh", cross_sources_refresh)
     r.add_post("/api/cross/plan", cross_plan)
     r.add_post("/api/cross/import", cross_import)
     r.add_post("/api/cross/items/remove", cross_items_remove)

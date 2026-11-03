@@ -14,6 +14,27 @@ let CR_TABS = CR_TABS_BY[''];
 const crPurpose = info => ((info.project.settings || {}).cross_purpose || '');
 
 /* 窓を出すときの info は覚えておく（CR.infoCache）: 確認の窓でキャンセルしたときなどに開き直すのが一瞬で済む。裏で新しい info を取り直し、数字が変わっていれば描き直す */
+// 窓の要点（これが変わったときだけ描き直す）
+const crInfoSig = x => JSON.stringify([x.n_catalog, x.n_items, (x.sources || []).length, x.n_label_map, (x.catalog_status || {}).stale, (x.batches || []).length,
+  (x.sources || []).map(s => [s.stale, (s.seasons || []).length, (s.project_seasons || []).length, s.available, s.labels && (s.labels.pending ? 'p' : (s.labels.n_here ?? s.labels.n ?? ''))])]);
+const crSeen = v => (v || '').replace('T', ' ').slice(0, 16);
+
+// 参照先の様子が「前回に見たもの」（裏で見直し中）なら、終わるまで数秒おきに取り直して描き直す
+function crossWatchStale(info, tries) {
+  if (!(info.sources || []).some(s => s.stale)) return;
+  if ((tries || 0) > 20) return;
+  setTimeout(async () => {
+    const m = crossModalEl; if (!m || !m.isConnected) return;
+    try {
+      const fi = await api('/api/cross/info');
+      CR.infoCache = { at: Date.now(), dir: S.project && S.project.dir, info: fi };
+      const mm = crossModalEl; if (!mm || !mm.isConnected) return;
+      if (crInfoSig(fi) !== crInfoSig(info)) { crossModalEl = null; crossDialog(CR.tab, { cached: true }); }
+      else { mm._info = fi; crossWatchStale(fi, (tries || 0) + 1); }
+    } catch (e) { /* 次の機会に */ }
+  }, 4000);
+}
+
 async function crossDialog(tab, opts) {
   let info;
   const cache = CR.infoCache;
@@ -28,11 +49,11 @@ async function crossDialog(tab, opts) {
     api('/api/cross/info').then(fi => {                                 // 裏で取り直す。要点が変わっていれば描き直す
       CR.infoCache = { at: Date.now(), dir: S.project && S.project.dir, info: fi };
       const m = crossModalEl; if (!m || !m.isConnected) return;
-      const sig = x => JSON.stringify([x.n_catalog, x.n_items, x.sources.length, x.n_label_map, (x.catalog_status || {}).stale, (x.batches || []).length]);
-      if (sig(fi) !== sig(info)) { crossModalEl = null; crossDialog(CR.tab); }
-      else m._info = fi;
+      if (crInfoSig(fi) !== crInfoSig(info)) { crossModalEl = null; crossDialog(CR.tab, { cached: true }); }
+      else { m._info = fi; crossWatchStale(fi, 0); }
     }).catch(() => {});
   }
+  if (fresh) crossWatchStale(info, 0);
   const cs = info.catalog_status || {};
   const purpose = crPurpose(info);
   CR_TABS = CR_TABS_BY[purpose] || CR_TABS_BY[''];
@@ -138,12 +159,12 @@ function crossTabSources(m, body) {
     return `<span class="info" title="${esc(files.map(f => `${f.path} (${f.error || f.n})`).join('\n') + (colsTxt ? '\n' + colsTxt : ''))}">${esc(t('cross_labels'))} ${files.length} ${esc(l.auto ? t('cross_labels_auto') : t('cross_labels_given'))} · ${l.n_here ?? l.n ?? 0} ${esc(t('items'))}${colsTxt ? ` <span class="info">(${esc(colsTxt)})</span>` : ''}${bad.length ? ` <span class="ng">${esc(t('cross_labels_bad'))} ${bad.length}</span>` : ''}${l.n_unmapped ? ` <a href="#" class="ng" data-golabels="1" title="${esc(un)}">${esc(t('cross_unmapped'))} ${l.n_unmapped_labels || ''} → ${esc(t('cr_tab_labels'))}</a>` : ''}</span>`;
   };
   const rows = srcs.map(s => `<tr><td><b>${esc(s.name)}</b> <span class="chip ${s.kind === 'tree' ? 'human' : 'ai'}">${esc(s.kind === 'tree' ? t('cross_kind_tree') : t('cross_kind_project'))}</span>${s.ok ? '' : ` <span class="ng">✗</span>`}</td>
-    <td class="info" title="${esc(s.dir || s.root || '')}">${esc(s.ok ? (s.root || '') : (s.error || ''))}${s.ok && !s.available ? ` <span class="ng">${esc(t('cross_unavailable'))}</span>` : ''}${s.kind === 'tree' && s.seasons ? `<div>${esc(t('cross_seasons'))} ${s.seasons.length}${(s.only_seasons || []).length ? ` <span class="chip human" title="${esc(t('cross_only_season_tip'))}">${esc(t('cross_only_season'))} ${esc(s.only_seasons.join(', '))}</span>` : ''}${(s.project_seasons || []).length ? ` (${esc(t('cross_proj_seasons'))} ${s.project_seasons.length})` : ''} · ${labInfo(s)}</div>` : ''}</td>
+    <td class="info" title="${esc(s.dir || s.root || '')}">${esc(s.ok ? (s.root || '') : (s.error || ''))}${s.ok && !s.available ? ` <span class="ng">${esc(t('cross_unavailable'))}</span>` : ''}${s.kind === 'tree' && s.seasons ? `<div>${esc(t('cross_seasons'))} ${s.seasons.length}${(s.only_seasons || []).length ? ` <span class="chip human" title="${esc(t('cross_only_season_tip'))}">${esc(t('cross_only_season'))} ${esc(s.only_seasons.join(', '))}</span>` : ''}${(s.project_seasons || []).length ? ` (${esc(t('cross_proj_seasons'))} ${s.project_seasons.length})` : ''} · ${labInfo(s)}${s.stale ? ` <span class="info" title="${esc(t('cr_stale_tip'))}">(${esc(t('cr_stale_seen'))} ${esc(crSeen(s.seen_at))} · ${esc(t('cr_stale_refreshing'))})</span>` : ''}</div>` : ''}</td>
     <td>${s.ok && s.n_items != null ? s.n_items : '—'}</td><td>${s.ok && s.n_verified != null ? s.n_verified : '—'}</td><td>${s.ok && s.n_human != null ? s.n_human : '—'}</td><td>${s.n_imported || 0}</td>
     <td>${s.kind === 'tree' ? `<button type="button" class="small" data-lab="${esc(s.name)}">${esc(t('cross_set_labels'))}</button> ` : ''}<button type="button" class="small" data-rm="${esc(s.name)}">${esc(t('cross_remove'))}</button></td></tr>`).join('');
   body.innerHTML = `<div class="note">${esc(t('cross_sources_help'))}</div>
     ${srcs.length ? `<div style="max-height:30vh;overflow:auto"><table class="tbl cr-src"><tr><th>${esc(t('cross_src_name'))}</th><th>${esc(t('cross_src_root'))}</th><th>${esc(t('items'))}</th><th>${esc(t('st_verified'))}</th><th>${esc(t('cross_human'))}</th><th>${esc(t('cross_imported'))}</th><th></th></tr>${rows}</table></div>
-      <div class="note">${esc(t('cr_sources_next'))}</div>` : `<div class="callout">${esc(t('cross_no_sources'))}</div>`}
+      <div class="note">${esc(t('cr_sources_next'))} <button type="button" class="small" id="crSrcRefresh" title="${esc(t('cr_src_refresh_tip'))}">${esc(t('cr_src_refresh'))}</button></div>` : `<div class="callout">${esc(t('cross_no_sources'))}</div>`}
     <h4>${esc(t('cross_add_src'))} <span class="info">${esc(t('cross_add_src_multi'))}</span></h4>
     <div class="form-row"><label>${esc(t('cross_folder_l'))}</label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><input type="text" id="crSrcPath" spellcheck="false" style="width:380px" placeholder="Y:\\PRM_N"><button type="button" class="small" data-pick="crSrcPath" data-kind="folder" data-name="">${esc(t('pick'))}</button><button type="button" class="small" id="crSrcUp" title="${esc(t('cross_up_tip'))}">${esc(t('cross_up'))}</button></span></div>
     <div class="form-row"><label></label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><button type="button" class="primary small" id="crSrcAddUnder">${esc(t('cross_add_under'))}</button><button type="button" class="small" id="crSrcAdd">${esc(t('cross_add_one'))}</button></span></div>
@@ -155,6 +176,11 @@ function crossTabSources(m, body) {
   wirePicks(m);
   const q = sel => m.querySelector(sel);
   histWire(q('#crSrcPath'), 'source_path'); histWire(q('#crSrcLabels'), 'labels_csv');
+  if (q('#crSrcRefresh')) q('#crSrcRefresh').onclick = async () => {
+    showOverlayLater(t('loading'), t('cr_src_refreshing'), 300);
+    try { const r = await api('/api/cross/sources/refresh', {}); hideOverlay(); toast(`${t('cr_src_refresh')}: ` + (Object.entries(r.elapsed || {}).map(([k, v]) => `${k} ${v} s`).join(' · ') || 'OK')); crossModalEl = null; crossDialog('sources'); }
+    catch (e) { hideOverlay(); toast(e.message, 'error'); }
+  };
   q('#crSrcUp').onclick = () => { const v = q('#crSrcPath').value.trim().replace(/[\\/]+$/, ''); const i = Math.max(v.lastIndexOf('/'), v.lastIndexOf('\\')); if (i > 1) q('#crSrcPath').value = v.slice(0, i); };
   q('#crSrcAdd').onclick = async () => {
     const pth = q('#crSrcPath').value.trim(); if (!pth) return;
