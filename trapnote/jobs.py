@@ -435,7 +435,7 @@ class DetectJob(Job):
             if use_existing:
                 ex = detect.existing_boxes(db, row["id"])
                 if ex:
-                    times = sorted({x[0] for x in ex})
+                    times = detect.crop_times(ex, s)        # 種判別に入れる枠のフレームだけ
             item = dict(row)
             if row["kind"] == "video" and row["meta_state"] != 1:          # メタデータがまだ（横断で取り込んだ動画など）なら、ここで取る（長さが分からないとフレームを選べない）
                 got = ensure_meta(project, row["id"], ffmpeg_path)

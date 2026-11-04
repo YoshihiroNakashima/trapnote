@@ -340,23 +340,67 @@ function wireJudge() {
 }
 
 
-// ---- 学習に使う枠（右の欄）: 自動判定で分類器に入れた枠を並べ、クリックで学習から外す ----
-const CROPS = { id: null, data: null };
+// ---- 学習に使う枠（右の欄）: 自動判定で分類器に入れた枠を並べる。クリックで選んでそのフレームへ、✕ で学習から外す ----
+const CROPS = { id: null, data: null, sel: null, loading: false };
 async function loadCrops(d) {
-  const box = $('#cropsBox'), grid = $('#cropsGrid');
-  CROPS.id = d ? d.id : null; CROPS.data = null;
+  CROPS.id = d ? d.id : null; CROPS.data = null; CROPS.sel = null; CROPS.loading = true;
+  try { await loadCropsInner(d); }
+  finally {
+    if (!d || CROPS.id === d.id) {
+      CROPS.loading = false;
+      if (typeof applyBoxMode === 'function') applyBoxMode();        // 枠の表示が「学習に使う枠」なら、どの枠かが分かった時点で描き直す
+      if (typeof applyOpenMode === 'function') applyOpenMode();      // 開いたとき「学習枠で止める」なら、ここで枠のフレームへ
+    }
+  }
+}
+async function loadCropsInner(d) {
+  const box = $('#cropsBox'), grid = $('#cropsGrid'), none = $('#cropsNone');
   if (!d || d.kind !== 'video' && d.kind !== 'image' || !d.det_state) { box.classList.add('hidden'); grid.innerHTML = ''; return; }
   let r;
   try { r = await api(`/api/items/${d.id}/crops`); } catch (e) { box.classList.add('hidden'); return; }
   if (!S.cur || S.cur.id !== d.id) return;
-  if (!r.has_features || !r.crops.length) { box.classList.add('hidden'); grid.innerHTML = ''; return; }
-  CROPS.data = r;
-  if (typeof applyBoxMode === 'function') applyBoxMode();        // 枠の表示が「学習に使う枠」なら、どの枠かが分かった時点で描き直す
-  box.classList.remove('hidden');
   const det = $('#cropsDet');
+  if (!r.has_features || !r.crops.length) {                          // 枠の記録がない（判定していない・特徴量を保存しない設定・方式 B の古い版で判定した）
+    box.classList.remove('hidden'); grid.innerHTML = '';
+    $('#cropsCount').textContent = '0';
+    none.classList.remove('hidden'); none.textContent = t(r.has_features ? 'crops_zero' : 'crops_none');
+    det.ontoggle = null;
+    return;
+  }
+  none.classList.add('hidden');
+  CROPS.data = r;
+  const c0 = cropDefault();
+  CROPS.sel = c0 ? c0.k : null;
+  box.classList.remove('hidden');
   try { det.open = localStorage.getItem('tn_crops_open') === '1'; } catch (e) { /* */ }
   det.ontoggle = () => { try { localStorage.setItem('tn_crops_open', det.open ? '1' : '0'); } catch (e) { /* */ } if (det.open) renderCrops(); };
   renderCrops();
+}
+/* 開いた直後に選ぶ枠: 学習に使う枠（外していない・静止枠でない）のうち時刻のいちばん早いもの。なければ外していないもの、それもなければ最初の枠 */
+function cropDefault() {
+  const r = CROPS.data; if (!r || !r.crops.length) return null;
+  const byT = r.crops.slice().sort((a, b) => a.t - b.t || a.k - b.k);
+  return byT.find(c => !c.excluded && !c.static) || byT.find(c => !c.excluded) || byT[0];
+}
+function cropSelected() { const r = CROPS.data; return r ? (r.crops.find(c => c.k === CROPS.sel) || null) : null; }
+/* 枠を選ぶ（右の欄で枠が光る。seek なら動画をそのフレームで止める）。枠の表示が「学習に使う枠」なら動画の上でも太く */
+function selectCrop(k, seek) {
+  const c = CROPS.data && CROPS.data.crops.find(x => x.k === k); if (!c) return;
+  CROPS.sel = k;
+  $('#cropsGrid').querySelectorAll('.crop').forEach(f => f.classList.toggle('sel', parseInt(f.dataset.k, 10) === k));
+  if (seek && S.cur && S.cur.kind === 'video' && typeof seekTo === 'function') { const v = player(); if (!v.classList.contains('hidden') && v.src) { v.pause(); seekTo(c.t); } }
+  if (typeof applyBoxMode === 'function') applyBoxMode();
+}
+/* ↑ ↓ キー: 時刻順で前・次の枠へ（外した枠は飛ばす。全部外していれば全部の中で） */
+function cropStep(dir) {
+  const r = CROPS.data; if (!r || !r.crops.length) return false;
+  let list = r.crops.filter(c => !c.excluded).sort((a, b) => a.t - b.t || a.k - b.k);
+  if (!list.length) list = r.crops.slice().sort((a, b) => a.t - b.t || a.k - b.k);
+  let i = list.findIndex(c => c.k === CROPS.sel);
+  if (i < 0) i = dir > 0 ? -1 : list.length;
+  i = Math.max(0, Math.min(list.length - 1, i + dir));
+  selectCrop(list[i].k, true);
+  return true;
 }
 function renderCrops() {
   const r = CROPS.data, grid = $('#cropsGrid'), det = $('#cropsDet');
@@ -364,9 +408,12 @@ function renderCrops() {
   const nOff = r.crops.filter(c => c.excluded).length, nStatic = r.crops.filter(c => c.static && !c.excluded).length;
   $('#cropsCount').textContent = `${r.crops.length}${nOff ? ` · ${t('crops_excluded')} ${nOff}` : ''}${nStatic ? ` · ${t('crops_static')} ${nStatic}` : ''}`;
   if (!det.open) { grid.innerHTML = ''; return; }
-  grid.innerHTML = r.crops.map(c => `<figure class="crop ${c.excluded ? 'off' : ''} ${c.static && !c.excluded ? 'static' : ''}" data-k="${c.k}" title="${esc(`${c.t.toFixed(1)} s · conf ${c.conf.toFixed(2)}${c.code ? ` · ${spLabel(c.code)} ${(c.p * 100).toFixed(0)}%` : ''}${c.static ? ` · ${t('crops_static_tip')}` : ''}`)}">
-      <img src="/api/items/${r.id}/crop/${c.k}" loading="lazy" alt=""><figcaption>${c.t.toFixed(1)}s · ${c.conf.toFixed(2)}${c.code ? ` · ${esc(spLabel(c.code))}` : ''}${c.static && !c.excluded ? ` · <span class="static-tag">${esc(t('crops_static'))}</span>` : ''}</figcaption></figure>`).join('');
-  grid.querySelectorAll('.crop').forEach(f => { f.onclick = () => toggleCrop(parseInt(f.dataset.k, 10)); });
+  grid.innerHTML = r.crops.map(c => `<figure class="crop ${c.excluded ? 'off' : ''} ${c.static && !c.excluded ? 'static' : ''} ${c.k === CROPS.sel ? 'sel' : ''}" data-k="${c.k}" title="${esc(`${c.t.toFixed(1)} s · conf ${c.conf.toFixed(2)}${c.code ? ` · ${spLabel(c.code)} ${(c.p * 100).toFixed(0)}%` : ''}${c.static ? ` · ${t('crops_static_tip')}` : ''} · ${t('crop_click_tip')}`)}">
+      <img src="/api/items/${r.id}/crop/${c.k}" loading="lazy" alt=""><button type="button" class="crop-x" title="${esc(t(c.excluded ? 'crop_restore_tip' : 'crop_x_tip'))}">${c.excluded ? '↺' : '✕'}</button><figcaption>${c.t.toFixed(1)}s · ${c.conf.toFixed(2)}${c.code ? ` · ${esc(spLabel(c.code))}` : ''}${c.static && !c.excluded ? ` · <span class="static-tag">${esc(t('crops_static'))}</span>` : ''}</figcaption></figure>`).join('');
+  grid.querySelectorAll('.crop').forEach(f => {
+    f.onclick = () => selectCrop(parseInt(f.dataset.k, 10), true);
+    f.querySelector('.crop-x').onclick = e => { e.preventDefault(); e.stopPropagation(); toggleCrop(parseInt(f.dataset.k, 10)); };
+  });
 }
 async function setCrops(ks, excluded) {
   const r = CROPS.data; if (!r || !ks.length) return;

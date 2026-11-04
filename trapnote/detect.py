@@ -788,6 +788,15 @@ def pick_crops(rows: list, a_th: float, max_crops: int, min_gap: float = 0.6, pe
     return chosen
 
 
+def crop_times(rows: list, s: dict) -> list[float]:
+    """既存の枠（existing_boxes の [t, category, conf, x, y, w, h]）のうち、種判別に入れる枠（pick_crops）のフレームの秒。
+    枠はいまあるものを使うとき、動画から読むのはこのフレームだけでよい（枠のない・動物の枠のない対象でも 1 フレームは読む）"""
+    if not rows:
+        return []
+    cands = pick_crops(rows, float(s["animal_threshold"]), max(1, int(s["max_crops"])), float(s.get("crop_min_gap_sec", 0.6)), int(s.get("crop_per_frame", 2)))
+    return sorted({float(r[0]) for _, r in cands}) or [float(rows[0][0])]
+
+
 def process_item(project, hub: ModelHub, item: dict, classify: bool = True, frames=None, use_existing: bool = False) -> dict:
     """検出（と判別）を 1 本について行い、DB に書く。返り値は要約。frames は load_frames() で先に読んだもの（省略可）。
     use_existing なら detections 表にある枠（YOLO のラベルなど）をそのまま使い、検出はせずに種判別と特徴量だけ付ける（枠がなければ普通に検出）"""
@@ -800,20 +809,24 @@ def process_item(project, hub: ModelHub, item: dict, classify: bool = True, fram
     t0 = time.time()
     rows = existing_boxes(db, item["id"]) if use_existing else []      # [t, category, conf, x, y, w, h]
     det_model = hub.detector_name
+    n_frames_before = None
     if rows:
-        need = sorted({r[0] for r in rows})
+        need = crop_times(rows, s)                      # 種判別に入れる枠のフレームだけ読む（検出はしないので、全フレームは要らない）
         if frames is None or not all(t in {ft for ft, _ in frames} for t in need):
             frames = load_frames(project, item, hub.device, need)
         if not frames:
             raise RuntimeError("フレームを読めません")
         have = {ft for ft, _ in frames}
-        if not all(t in have for t in need):           # 近い時刻のフレームに寄せる（動画の秒がぴったり合わないとき）
+        if not all(t in have for t in need):           # 近い時刻のフレームに寄せる（動画の秒がぴったり合わないとき。読んだフレームを使う枠だけ）
             ts = sorted(have)
+            need_set = set(need)
             for r in rows:
-                if r[0] not in have:
+                if r[0] in need_set and r[0] not in have:
                     r[0] = min(ts, key=lambda x: abs(x - r[0]))
         try:
-            det_model = json.loads(item.get("det_json") or "{}").get("model") or "existing"
+            dj = json.loads(item.get("det_json") or "{}")
+            det_model = dj.get("model") or "existing"
+            n_frames_before = dj.get("n_frames")
         except Exception:
             det_model = "existing"
     else:
@@ -834,7 +847,7 @@ def process_item(project, hub: ModelHub, item: dict, classify: bool = True, fram
 
     def nframes(cat, th):
         return len({r[0] for r in rows if r[1] == cat and r[2] >= th})
-    summary = dict(n_frames=len(frames), animal_frames=nframes("animal", a_th), person_frames=nframes("person", p_th), vehicle_frames=nframes("vehicle", p_th),
+    summary = dict(n_frames=int(n_frames_before or 0) or max(len(frames), len({r[0] for r in rows})), animal_frames=nframes("animal", a_th), person_frames=nframes("person", p_th), vehicle_frames=nframes("vehicle", p_th),
                    max_animal=round(max([r[2] for r in rows if r[1] == "animal"], default=0.0), 3),
                    max_person=round(max([r[2] for r in rows if r[1] == "person"], default=0.0), 3),
                    max_vehicle=round(max([r[2] for r in rows if r[1] == "vehicle"], default=0.0), 3),
@@ -852,6 +865,16 @@ def process_item(project, hub: ModelHub, item: dict, classify: bool = True, fram
         if hub.local and hub.local.get("kind") == "B":
             # 方式 B: 本体を学習し直したモデルは種コードを直接出す（geofence・ラベルの対応は要らない）
             codes, pc, mask = list(hub.local["classes"]), probs, None
+            if s.get("save_features", True):
+                # 学習に使う枠（t・bbox・conf）と判定はここでも保存する（学習データの収集・枠の欄・判定の付け直しはこの npz を見る）。
+                # 特徴量は学習し直した本体のものなので、元のモデルの特徴量を使う方式 A には使えない → model に「+ 名前」を残し、collect() はそれを見て feats を使わない
+                fdir = project.cache_dir("features")
+                os.makedirs(fdir, exist_ok=True)
+                np.savez_compressed(os.path.join(fdir, cache_name(item["rel_path"]) + ".npz"),
+                                    feats=feats.astype(np.float16) if feats is not None else np.zeros((0, 0), dtype=np.float16),
+                                    t=np.array([r[0] for _, r in cands], dtype=np.float32), bbox=np.array([r[3:7] for _, r in cands], dtype=np.float32),
+                                    conf=np.array([r[2] for _, r in cands], dtype=np.float32), codes=np.array(codes), pc=pc.astype(np.float16),
+                                    model=np.array(hub.cls_label()))
         else:
             label_codes = build_label_map(hub.labels, project.species.rows)
             # 種リストの具体的な行（綱・目の行は除く）に対応するラベルは geofence で消さない

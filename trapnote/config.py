@@ -35,6 +35,7 @@ DEFAULTS = {
     "loop": False,                  # ループ再生
     "show_boxes": True,             # 検出枠の重ね描き（第 2 段階）
     "box_mode": "all",              # 枠の表示: all（判定の閾値以上の全部）/ conf（学習に使う信頼度以上）/ train（学習に使う枠だけ）
+    "open_mode": "play",            # 動画を開いたとき: play（先頭から自動再生）/ pause（先頭のフレームで停止）/ crop（学習に使う枠の最初のフレームで停止。枠がなければ先頭）
     "keys": {},                     # キー割当の上書き（画面側の既定に対して）
     "recent_projects": [],          # 最近開いたプロジェクトのフォルダ（新しい順、最大 10）
     "input_history": {},            # 入力欄の候補（欄の名前 → 過去に入れた値。× で消せる）
@@ -110,6 +111,8 @@ class Settings:
         d["show_boxes"] = bool(d.get("show_boxes", True))
         if d.get("box_mode") not in ("all", "conf", "train"):
             d["box_mode"] = "all"
+        if d.get("open_mode") not in ("play", "pause", "crop"):
+            d["open_mode"] = "play"
         if not isinstance(d.get("keys"), dict):
             d["keys"] = {}
         rp = d.get("recent_projects")

@@ -140,6 +140,21 @@ def features_path(project, rel_path: str) -> str:
     return os.path.join(project.cache_dir("features"), cache_name(rel_path) + ".npz")
 
 
+def load_features(fp: str) -> dict:
+    """特徴量 npz（学習に使う枠の記録）を読む: dict(feats|None, codes, pc, t, bbox, conf, model, base)。
+    base = 元のモデル（SpeciesNet 本体）で取ったもの。本体を学習し直したモデル（方式 B）で判定したときは model が「元 + 名前」になり、
+    その特徴量・確率は元のモデルのものではないので feats は None（方式 A の学習・判定の付け直しには使わない。枠 t・bbox・conf は使える）"""
+    with np.load(fp, allow_pickle=False) as z:
+        model = str(z["model"]) if "model" in z else ""
+        base = " + " not in model
+        feats = z["feats"].astype(np.float32) if "feats" in z and base else None
+        out = dict(feats=feats, codes=[str(c) for c in z["codes"]], pc=z["pc"].astype(np.float32), t=z["t"].astype(np.float32),
+                   bbox=z["bbox"].astype(np.float32), conf=z["conf"].astype(np.float32), model=model, base=base)
+    if out["feats"] is not None and (out["feats"].ndim != 2 or len(out["feats"]) != len(out["conf"])):
+        out["feats"] = None
+    return out
+
+
 # ---------- ほかのプロジェクトを材料に加える ----------
 def open_source(path: str):
     """材料に加えるプロジェクトを開く（プロジェクトのフォルダ <root>/TrapNote か、そのルート）。使い終わったら close() する"""
@@ -332,13 +347,8 @@ def collect(project, opts: dict, progress=None, stop=None) -> dict:
             n_nofeat += 1
             continue
         try:
-            with np.load(fp, allow_pickle=False) as z:
-                feats = z["feats"].astype(np.float32) if "feats" in z else None
-                codes = [str(c) for c in z["codes"]]
-                pc = z["pc"].astype(np.float32)
-                t = z["t"].astype(np.float32)
-                bbox = z["bbox"].astype(np.float32)
-                conf = z["conf"].astype(np.float32)
+            z = load_features(fp)
+            feats, codes, pc, t, bbox, conf = z["feats"], z["codes"], z["pc"], z["t"], z["bbox"], z["conf"]
         except Exception as e:
             log.warning("特徴量を読めません %s: %s", fp, e)
             n_nofeat += 1
@@ -484,12 +494,9 @@ def item_crops(project, item_id: int) -> dict:
     if not out["has_features"]:
         return out
     try:
-        with np.load(fp, allow_pickle=False) as z:
-            codes = [str(c) for c in z["codes"]]
-            pc = z["pc"].astype(np.float32)
-            t = z["t"].astype(np.float32)
-            bbox = z["bbox"].astype(np.float32)
-            conf = z["conf"].astype(np.float32)
+        z = load_features(fp)
+        codes, pc, t, bbox, conf = z["codes"], z["pc"], z["t"], z["bbox"], z["conf"]
+        out["model"] = z["model"]
     except Exception as e:
         out["error"] = f"特徴量を読めません: {e}"
         return out
@@ -499,7 +506,7 @@ def item_crops(project, item_id: int) -> dict:
     out["static_applies"] = auto_off
     for k in range(len(conf)):
         j = int(np.argmax(pc[k])) if len(codes) and pc.shape[1] else -1
-        out["crops"].append(dict(k=k, t=round(float(t[k]), 2), conf=round(float(conf[k]), 3), bbox=[round(float(v), 4) for v in bbox[k]],
+        out["crops"].append(dict(k=k, t=round(float(t[k]), 3), conf=round(float(conf[k]), 3), bbox=[round(float(v), 4) for v in bbox[k]],
                                  code=codes[j] if j >= 0 else None, p=round(float(pc[k][j]), 3) if j >= 0 else None, excluded=k in ex,
                                  static=bool(static[k]) and auto_off, has_image=_crop_ok(crop_path(project, r["rel_path"], k))))
     return out
@@ -1390,15 +1397,12 @@ def reclassify_item(project, hub, item: dict, s: dict) -> dict | None:
     fp = features_path(project, item["rel_path"])
     if not os.path.isfile(fp):
         return None
-    with np.load(fp, allow_pickle=False) as z:
-        feats = z["feats"].astype(np.float32) if "feats" in z else None
-        codes = [str(c) for c in z["codes"]]
-        pc = z["pc"].astype(np.float32)
-        t = z["t"].astype(np.float32)
-        bbox = z["bbox"].astype(np.float32)
-        conf = z["conf"].astype(np.float32)
+    z = load_features(fp)
+    feats, codes, pc, t, bbox, conf = z["feats"], z["codes"], z["pc"], z["t"], z["bbox"], z["conf"]
     if len(pc) == 0:
         return None
+    if not z["base"] and not (hub.local and hub.local.get("kind") == "B"):
+        return None                                      # 方式 B のモデルで判定した記録には元のモデルの特徴量・確率がない → 方式 A / SpeciesNet で付け直すには検出（枠はいまあるものを使う）から
     if hub.local and hub.local.get("kind") == "B":
         it = dict(rel_path=item["rel_path"], t=t, bbox=bbox)
         ensure_crops(project, {item["id"]: it}, [item["id"]])

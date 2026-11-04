@@ -1,7 +1,7 @@
 'use strict';
 /* 再生（video 要素）。AVI などはサーバーが再生用 MP4 を作るので、できるまで待つ。速さ 0.5 / 1 / 2 / 4、コマ送り、ループ */
 
-const P = { fps: 25, duration: 0, pollTimer: null, seeking: false, boxes: [], boxTimes: [], boxItem: null, raf: null };
+const P = { fps: 25, duration: 0, pollTimer: null, seeking: false, boxes: [], boxTimes: [], boxItem: null, raf: null, ready: null, openDone: null };
 
 /* いま使っている再生器: <video>（MP4 など）か、MJPEG の AVI をそのまま描く AviPlayer（avi.js。<video> と同じ顔） */
 function player() { return (P.avi && P.avi.active) ? P.avi : $('#player'); }
@@ -89,7 +89,7 @@ async function playAvi(d, token, nextMjpeg) {
     P.fps = info.fps || P.fps; P.duration = a.duration || P.duration;
     a.playbackRate = S.settings.play_speed || 1; a.loop = !!$('#vbLoop').checked;
     hideOverlay(); renderVideoBar(); drawBoxes();
-    a.play();
+    mediaReady(d.id, token);
     const fx = a._fetch;
     const startPre = () => { if (token === S.playToken) aviPrefetch((nextMjpeg || []).slice(0, Math.max(1, Math.min(3, S.settings.prefetch_n ?? 3))), d.id); };
     if (fx && !fx.done) fx.promise.then(startPre, () => {}); else startPre();     // いまの動画を読み終えてから次を読む（読み出しを取り合わない）
@@ -105,12 +105,50 @@ async function playAvi(d, token, nextMjpeg) {
 function playSrc(id, token) {
   const v = $('#player');
   showOverlayLater(t('loading'), '', 600);
+  v.preload = 'auto';
   v.src = `/api/items/${id}/video`;
   v.playbackRate = S.settings.play_speed || 1;
   v.loop = !!$('#vbLoop').checked;
-  v.onloadedmetadata = () => { if (token !== S.playToken) return; P.duration = v.duration || P.duration; hideOverlay(); renderVideoBar(); v.play().catch(() => {}); };
+  v.onloadedmetadata = () => { if (token !== S.playToken) return; P.duration = v.duration || P.duration; hideOverlay(); renderVideoBar(); mediaReady(id, token); };
   v.onerror = () => { if (token !== S.playToken) return; showOverlay(t('cannot_play'), v.error ? v.error.message : ''); };
   v.load();
+}
+
+/* 開いたとき（設定 open_mode）: play = 先頭から自動再生 / pause = 先頭のフレームで止める / crop = 学習に使う枠（右下の欄で選んだ枠。開いた直後は時刻のいちばん早い枠）のフレームで止める。
+   学習に使う枠はまだ読んでいる途中かもしれないので、そのときは先頭で止めて待ち、読み終わったら loadCrops がもう一度 applyOpenMode() を呼ぶ */
+function mediaReady(id, token) {
+  if (token !== S.playToken) return;
+  P.ready = id; P.openDone = null;
+  applyOpenMode();
+}
+function applyOpenMode() {
+  if (!S.cur || P.ready !== S.cur.id || P.openDone === S.cur.id) return;
+  const v = player();
+  if (v.classList.contains('hidden') || !v.src) return;
+  const mode = (S.settings && S.settings.open_mode) || 'play';
+  if (mode === 'play') { P.openDone = S.cur.id; v.play().catch(() => {}); return; }
+  v.pause();
+  if (mode === 'pause') { P.openDone = S.cur.id; seekTo(0); return; }
+  if (typeof CROPS === 'undefined' || CROPS.id !== S.cur.id || CROPS.loading) { seekTo(0); return; }      // 枠がまだ: 先頭で待つ
+  P.openDone = S.cur.id;
+  const c = (typeof cropSelected === 'function') ? cropSelected() : null;
+  seekTo(c ? c.t : 0);
+}
+/* 秒 t のフレームへ（止めたまま）。AVI をそのまま読んでいる途中でそのコマがまだ届いていなければ、届いてから */
+function seekTo(t) {
+  const v = player();
+  const a = (P.avi && v === P.avi) ? P.avi : null;
+  if (a && a.loading && Math.round(t * a.fps) >= a.frames.length) {
+    const idx = Math.round(t * a.fps), id = S.cur && S.cur.id;
+    const later = () => {
+      if (!S.cur || S.cur.id !== id || player() !== a) { a.removeEventListener('progress', later); a.removeEventListener('durationchange', later); return; }
+      if (a.frames.length > idx || !a.loading) { a.removeEventListener('progress', later); a.removeEventListener('durationchange', later); a.seekFrame(Math.min(idx, a.frames.length - 1)); renderVideoBar(); }
+    };
+    a.addEventListener('progress', later); a.addEventListener('durationchange', later);
+    return;
+  }
+  v.currentTime = t;
+  renderVideoBar();
 }
 
 function renderVideoBar() {
@@ -158,7 +196,7 @@ function currentTimeSec() { const v = player(); return (!v.classList.contains('h
 const BOX_COLORS = { animal: '#3ddc84', person: '#ffb020', vehicle: '#4ea1ff' };
 async function loadBoxes(d) {
   if (typeof BE !== 'undefined' && BE.on) boxEditEnd(false);
-  P.boxes = []; P.boxTimes = []; P.boxItem = d.id;
+  P.boxes = []; P.boxTimes = []; P.boxesAll = []; P.boxItem = d.id;
   const wrap = $('#vbBoxesWrap');
   drawBoxes();
   if (!d.det || d.det_state !== 1) { wrap.classList.add('dim'); return; }
@@ -184,29 +222,28 @@ function mediaRect() {   // 表示されているメディアの位置（object-
   const s = Math.min(W / nw, H / nh), w = nw * s, h = nh * s;
   return { x: el.offsetLeft + (W - w) / 2, y: el.offsetTop + (H - h) / 2, w, h };
 }
-/* 枠の表示の絞り方（設定 box_mode）: all = 判定の閾値以上の全部 / conf = 学習に使う信頼度（train_min_conf、既定 0.5）以上 / train = 学習に使う枠（右の欄「学習に使う枠」の 12 枚。外したものは薄く） */
+/* 枠の表示の絞り方（設定 box_mode）: all = 判定の閾値以上の全部 / conf = 学習に使う信頼度（train_min_conf、既定 0.5）以上 / train = 学習に使う枠（右の欄「学習に使う枠」の 12 枚だけ。外したものは薄く）。
+   train で枠の記録がない（まだ読んでいる途中・記録なし）ときは何も描かない（以前は 0.5 以上に落としていたので、多くのフレームに枠が出た） */
 function applyBoxMode() {
   const all = P.boxesAll || [];
   const mode = (S.settings && S.settings.box_mode) || 'all';
   const minConf = (S.project && S.project.settings && S.project.settings.train_min_conf) || 0.5;
   let out = all;
-  for (const b of all) { delete b.train; delete b.trainOff; }
+  for (const b of all) { delete b.train; delete b.trainOff; delete b.trainSel; }
   if (mode === 'conf') out = all.filter(b => b.c !== 'animal' || b.p >= minConf);
   else if (mode === 'train') {
-    const crops = (typeof CROPS !== 'undefined' && CROPS.data && CROPS.id === P.boxItem) ? CROPS.data.crops : null;
-    if (crops) {
-      out = [];
-      for (const c of crops) {
-        const bb = c.bbox || [];
-        let best = null, bd = 1e9;
-        for (const b of all) {
-          if (b.c !== 'animal' || Math.abs(b.t - c.t) > 0.06) continue;
-          const d = Math.abs(b.x - bb[0]) + Math.abs(b.y - bb[1]) + Math.abs(b.w - bb[2]) + Math.abs(b.h - bb[3]);
-          if (d < bd) { bd = d; best = b; }
-        }
-        if (best && bd < 0.02) { best.train = c.k; best.trainOff = !!c.excluded; if (!out.includes(best)) out.push(best); }
+    const crops = (typeof CROPS !== 'undefined' && CROPS.data && CROPS.id === P.boxItem && !CROPS.loading) ? CROPS.data.crops : [];
+    out = [];
+    for (const c of crops) {
+      const bb = c.bbox || [];
+      let best = null, bd = 1e9;
+      for (const b of all) {
+        if (b.c !== 'animal' || Math.abs(b.t - c.t) > 0.06) continue;
+        const d = Math.abs(b.x - bb[0]) + Math.abs(b.y - bb[1]) + Math.abs(b.w - bb[2]) + Math.abs(b.h - bb[3]);
+        if (d < bd) { bd = d; best = b; }
       }
-    } else out = all.filter(b => b.c !== 'animal' || b.p >= minConf);
+      if (best && bd < 0.02) { best.train = c.k; best.trainOff = !!c.excluded; best.trainSel = (CROPS.sel === c.k); if (!out.includes(best)) out.push(best); }
+    }
   }
   P.boxes = out;
   P.boxTimes = [...new Set(P.boxes.map(b => b.t))].sort((a, b) => a - b);
@@ -235,8 +272,8 @@ function drawBoxes() {
   ctx.font = '12px system-ui, sans-serif'; ctx.textBaseline = 'top'; ctx.lineWidth = 2;
   for (const b of boxesNow()) {
     const x = r.x + b.x * r.w, y = r.y + b.y * r.h, w = b.w * r.w, h = b.h * r.h;
-    const col = b.train != null ? (b.trainOff ? '#9aa0a6' : '#ffd54f') : (BOX_COLORS[b.c] || '#fff');
-    ctx.lineWidth = b.train != null && !b.trainOff ? 3 : 2;
+    const col = b.train != null ? (b.trainOff ? '#9aa0a6' : (b.trainSel ? '#ff9f1a' : '#ffd54f')) : (BOX_COLORS[b.c] || '#fff');
+    ctx.lineWidth = b.train != null && !b.trainOff ? (b.trainSel ? 4 : 3) : 2;
     ctx.strokeStyle = col; ctx.globalAlpha = b.trainOff ? 0.45 : Math.max(0.35, Math.min(1, b.p + 0.3)); ctx.strokeRect(x, y, w, h);
     const label = (b.train != null ? `${t('box_train_tag')} #${b.train + 1}${b.trainOff ? ' ✕' : ''} · ` : '') + `${t('det_' + b.c) || b.c} ${(100 * b.p).toFixed(0)}%` + (b.sp ? ` · ${spLabel(b.sp)} ${(100 * (b.sp_p || 0)).toFixed(0)}%` : '');
     const tw = ctx.measureText(label).width + 8;
@@ -275,6 +312,8 @@ function wirePlayer() {
   $('#vbBoxes').checked = S.settings.show_boxes !== false;
   $('#vbBoxMode').value = S.settings.box_mode || 'all';
   $('#vbBoxMode').addEventListener('change', () => { S.settings.box_mode = $('#vbBoxMode').value; applyBoxMode(); api('/api/settings', { box_mode: S.settings.box_mode }).catch(() => {}); });
+  $('#vbOpenMode').value = S.settings.open_mode || 'play';
+  $('#vbOpenMode').addEventListener('change', () => { S.settings.open_mode = $('#vbOpenMode').value; api('/api/settings', { open_mode: S.settings.open_mode }).catch(() => {}); });
   $('#vbBoxes').addEventListener('change', () => { S.settings.show_boxes = $('#vbBoxes').checked; drawBoxes(); boxLoop(); api('/api/settings', { show_boxes: S.settings.show_boxes }).catch(() => {}); });
   v.addEventListener('click', togglePlay);
   sl.addEventListener('input', () => { P.seeking = true; const pl = player(); const dur = pl.duration || P.duration || 0; if (dur) { pl.currentTime = dur * sl.value / 1000; $('#vbInfo').textContent = `${fmtSec(pl.currentTime)} / ${fmtSec(dur)}`; } });

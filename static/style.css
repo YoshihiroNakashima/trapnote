@@ -355,6 +355,10 @@ li.empty .info { margin: 4px 0; }
 .crop .static-tag { color: #8a5a00; font-weight: 600; }
 .crop.off::after { content: '✕'; position: absolute; left: 0; right: 0; top: 30%; text-align: center; font-size: 26px; font-weight: 700; color: #b3261e; }
 .crop:hover { outline: 2px solid var(--accent, #3b5bdb); }
+.crop.sel { outline: 3px solid #ff9f1a; outline-offset: -3px; }
+.crop .crop-x { position: absolute; top: 2px; right: 2px; width: 18px; height: 18px; padding: 0; line-height: 16px; font-size: 11px; border-radius: 3px; border: 1px solid rgba(0,0,0,0.3); background: rgba(255,255,255,0.85); color: #b3261e; cursor: pointer; opacity: 0; }
+.crop:hover .crop-x, .crop.off .crop-x { opacity: 1; }
+.crop.off::after { top: 36%; }
 
 /* 裏の処理（右上）: 動いているときは目立つボタン、進み具合の棒、待ちがあれば数 */
 .jobs-btn { display: inline-flex; align-items: center; gap: 6px; max-width: 360px; padding: 3px 8px; border-radius: 14px; border: 1px solid var(--border); background: #f3f4f6; color: var(--muted); font-size: 12px; cursor: pointer; }
