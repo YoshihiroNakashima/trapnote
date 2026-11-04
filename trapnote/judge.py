@@ -57,6 +57,8 @@ def build_where(f: dict) -> tuple[str, list]:
         w.append("NOT EXISTS (SELECT 1 FROM judgements j WHERE j.item_id = items.id)")
     elif sp == "any":
         w.append("EXISTS (SELECT 1 FROM judgements j WHERE j.item_id = items.id AND j.species NOT IN ('empty','area'))")
+    elif sp == "multi":                                  # 2 種以上が付いている動画（人・車・有効範囲・動物なしは数えない）
+        w.append("(SELECT COUNT(DISTINCT j.species) FROM judgements j WHERE j.item_id = items.id AND j.species NOT IN ('empty','area','human','vehicle')) >= 2")
     elif sp:
         # 複数の種: "deer+boar" = 全部が付いている動画（2 種が同時に映ったもの）、"deer,boar" = どれかが付いている動画
         if isinstance(sp, str) and "+" in sp:

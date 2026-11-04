@@ -242,7 +242,7 @@ function renderCounts() {
 // S.filter.species: '' / 'none' / 'any' / 'deer' / 'deer+boar'（全部含む）/ 'deer,boar'（いずれか）
 function spFilterParse(v) {
   if (!v) return { kind: '', codes: [], mode: 'all' };
-  if (v === 'none' || v === 'any') return { kind: v, codes: [], mode: 'all' };
+  if (v === 'none' || v === 'any' || v === 'multi') return { kind: v, codes: [], mode: 'all' };
   if (v.includes('+')) return { kind: 'codes', codes: v.split('+').filter(Boolean), mode: 'all' };
   return { kind: 'codes', codes: v.split(',').filter(Boolean), mode: 'any' };
 }
@@ -251,6 +251,7 @@ function spFilterLabel(v) {
   if (!f.kind) return t('all_species');
   if (f.kind === 'none') return t('sp_none');
   if (f.kind === 'any') return t('sp_any');
+  if (f.kind === 'multi') return t('sp_multi');
   const names = f.codes.map(spLabel);
   return f.codes.length === 1 ? names[0] : `${names.join(f.mode === 'all' ? ' + ' : ' / ')}`;
 }
@@ -259,7 +260,7 @@ function renderSpeciesFilter(sc) {
   const cur = spFilterParse(S.filter.species);
   btn.textContent = spFilterLabel(S.filter.species) + ' ▾';
   const all = (S.species.species || []).concat(S.species.fixed || []).filter(s => s.enabled || sc[s.code] || s.fixed || cur.codes.includes(s.code));
-  pop.innerHTML = `<div class="msel-head"><label class="chk"><input type="radio" name="fspKind" value="" ${!cur.kind ? 'checked' : ''}> ${esc(t('all_species'))}</label><label class="chk"><input type="radio" name="fspKind" value="none" ${cur.kind === 'none' ? 'checked' : ''}> ${esc(t('sp_none'))}</label><label class="chk"><input type="radio" name="fspKind" value="any" ${cur.kind === 'any' ? 'checked' : ''}> ${esc(t('sp_any'))}</label></div>
+  pop.innerHTML = `<div class="msel-head"><label class="chk"><input type="radio" name="fspKind" value="" ${!cur.kind ? 'checked' : ''}> ${esc(t('all_species'))}</label><label class="chk"><input type="radio" name="fspKind" value="none" ${cur.kind === 'none' ? 'checked' : ''}> ${esc(t('sp_none'))}</label><label class="chk"><input type="radio" name="fspKind" value="any" ${cur.kind === 'any' ? 'checked' : ''}> ${esc(t('sp_any'))}</label><label class="chk" title="${esc(t('sp_multi_tip'))}"><input type="radio" name="fspKind" value="multi" ${cur.kind === 'multi' ? 'checked' : ''}> ${esc(t('sp_multi'))}</label></div>
     <div class="msel-mode"><span class="info">${esc(t('sp_pick_help'))}</span><label class="chk" title="${esc(t('sp_mode_all_tip'))}"><input type="radio" name="fspMode" value="all" ${cur.mode === 'all' ? 'checked' : ''}> ${esc(t('sp_mode_all'))}</label><label class="chk" title="${esc(t('sp_mode_any_tip'))}"><input type="radio" name="fspMode" value="any" ${cur.mode === 'any' ? 'checked' : ''}> ${esc(t('sp_mode_any'))}</label></div>
     <div class="msel-grid">${all.map(s => `<label class="chk"><input type="checkbox" data-sp="${esc(s.code)}" ${cur.codes.includes(s.code) ? 'checked' : ''}> ${esc(spName(s))}${sc[s.code] ? ` <span class="info">(${sc[s.code]})</span>` : ''}</label>`).join('')}</div>`;
   const apply = () => {

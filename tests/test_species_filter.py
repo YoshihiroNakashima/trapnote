@@ -34,6 +34,9 @@ def test_species_filter_multi(tmp_path):
         assert q({"species": "deer,boar"}) == sorted([ids[0], ids[1], ids[2]])       # どちらか
         assert q({"species": ["deer", "boar"]}) == sorted([ids[0], ids[1], ids[2]])
         assert q({"species": "none"}) == [ids[3]]
+        assert q({"species": "multi"}) == [ids[1]]                            # 2 種以上
+        save_judgement(p.db, ids[2], dict(species=["boar", "human"]), "me")
+        assert q({"species": "multi"}) == [ids[1]]                            # 人は数えない
         assert q({"species": "any"}) == sorted([ids[0], ids[1], ids[2]])
         assert q({"species": ""}) == ids
     finally:
