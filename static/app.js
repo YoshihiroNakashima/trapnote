@@ -141,11 +141,7 @@ function renderFilters() {
   fillSelect($('#fBatch'), [['', t('all_batches')]].concat(bt.map(b => [b, b])), S.filter.batch);
   $('#fBatch').classList.toggle('hidden', !bt.length);
   fillSelect($('#fStatus'), [['', t('all_status')], ['new', t('st_new')], ['auto', t('st_auto')], ['verified', t('st_verified')], ['unverified', t('st_unverified')]], S.filter.status);
-  const sc = f.species_counts || {};
-  const spOpts = [['', t('all_species')], ['none', t('sp_none')], ['any', t('sp_any')]];
-  const all = (S.species.species || []).concat(S.species.fixed || []);
-  all.filter(s => s.enabled || sc[s.code] || s.fixed).forEach(s => spOpts.push([s.code, `${spName(s)}${sc[s.code] ? ' (' + sc[s.code] + ')' : ''}`]));
-  fillSelect($('#fSpecies'), spOpts, S.filter.species);
+  renderSpeciesFilter(f.species_counts || {});
   const asg = f.assignees || [];
   $('#fAssignee').classList.toggle('hidden', !asg.length);
   fillSelect($('#fAssignee'), [['', t('all_assignees')]].concat(asg.map(a => [a, a])), S.filter.assignee);
@@ -238,8 +234,46 @@ function renderCounts() {
   if (active.length) $('#counts').innerHTML += ` <span class="cnt st-filter clickable" id="cntFilter" title="${esc(active.join(' · '))}">${esc(t('filter_on'))} ${active.length} ✕</span>`;
   const cf = $('#cntFilter');
   if (cf) cf.onclick = clearFilters;
-  ['fStation', 'fSeason', 'fBatch', 'fStatus', 'fSpecies', 'fAssignee', 'fDet'].forEach(id => { const el = $('#' + id); if (el) el.classList.toggle('active', !!el.value); });
+  ['fStation', 'fSeason', 'fBatch', 'fStatus', 'fAssignee', 'fDet'].forEach(id => { const el = $('#' + id); if (el) el.classList.toggle('active', !!el.value); });
+  $('#fSpecies').classList.toggle('active', !!S.filter.species);
   $('#fText').classList.toggle('active', !!S.filter.text);
+}
+// 種の絞り込み: 印を付ける窓。何も付けなければ全部。「動物なし」「種あり」は単独。2 種以上に印を付けたら「全部含む」（2 種が同時に映った動画）か「いずれか」
+// S.filter.species: '' / 'none' / 'any' / 'deer' / 'deer+boar'（全部含む）/ 'deer,boar'（いずれか）
+function spFilterParse(v) {
+  if (!v) return { kind: '', codes: [], mode: 'all' };
+  if (v === 'none' || v === 'any') return { kind: v, codes: [], mode: 'all' };
+  if (v.includes('+')) return { kind: 'codes', codes: v.split('+').filter(Boolean), mode: 'all' };
+  return { kind: 'codes', codes: v.split(',').filter(Boolean), mode: 'any' };
+}
+function spFilterLabel(v) {
+  const f = spFilterParse(v);
+  if (!f.kind) return t('all_species');
+  if (f.kind === 'none') return t('sp_none');
+  if (f.kind === 'any') return t('sp_any');
+  const names = f.codes.map(spLabel);
+  return f.codes.length === 1 ? names[0] : `${names.join(f.mode === 'all' ? ' + ' : ' / ')}`;
+}
+function renderSpeciesFilter(sc) {
+  const btn = $('#fSpecies'), pop = $('#fSpeciesPop');
+  const cur = spFilterParse(S.filter.species);
+  btn.textContent = spFilterLabel(S.filter.species) + ' ▾';
+  const all = (S.species.species || []).concat(S.species.fixed || []).filter(s => s.enabled || sc[s.code] || s.fixed || cur.codes.includes(s.code));
+  pop.innerHTML = `<div class="msel-head"><label class="chk"><input type="radio" name="fspKind" value="" ${!cur.kind ? 'checked' : ''}> ${esc(t('all_species'))}</label><label class="chk"><input type="radio" name="fspKind" value="none" ${cur.kind === 'none' ? 'checked' : ''}> ${esc(t('sp_none'))}</label><label class="chk"><input type="radio" name="fspKind" value="any" ${cur.kind === 'any' ? 'checked' : ''}> ${esc(t('sp_any'))}</label></div>
+    <div class="msel-mode"><span class="info">${esc(t('sp_pick_help'))}</span><label class="chk" title="${esc(t('sp_mode_all_tip'))}"><input type="radio" name="fspMode" value="all" ${cur.mode === 'all' ? 'checked' : ''}> ${esc(t('sp_mode_all'))}</label><label class="chk" title="${esc(t('sp_mode_any_tip'))}"><input type="radio" name="fspMode" value="any" ${cur.mode === 'any' ? 'checked' : ''}> ${esc(t('sp_mode_any'))}</label></div>
+    <div class="msel-grid">${all.map(s => `<label class="chk"><input type="checkbox" data-sp="${esc(s.code)}" ${cur.codes.includes(s.code) ? 'checked' : ''}> ${esc(spName(s))}${sc[s.code] ? ` <span class="info">(${sc[s.code]})</span>` : ''}</label>`).join('')}</div>`;
+  const apply = () => {
+    const kind = pop.querySelector('input[name="fspKind"]:checked').value;
+    const codes = [...pop.querySelectorAll('input[data-sp]:checked')].map(c => c.dataset.sp);
+    const mode = pop.querySelector('input[name="fspMode"]:checked').value;
+    S.filter.species = codes.length ? codes.join(mode === 'all' ? '+' : ',') : kind;
+    btn.textContent = spFilterLabel(S.filter.species) + ' ▾';
+    btn.classList.toggle('active', !!S.filter.species);
+    saveUi(); reloadList();
+  };
+  pop.querySelectorAll('input[name="fspKind"]').forEach(r => { r.onchange = () => { pop.querySelectorAll('input[data-sp]').forEach(c => { c.checked = false; }); apply(); }; });
+  pop.querySelectorAll('input[name="fspMode"]').forEach(r => { r.onchange = apply; });
+  pop.querySelectorAll('input[data-sp]').forEach(c => { c.onchange = () => { pop.querySelector('input[name="fspKind"][value=""]').checked = true; apply(); }; });
 }
 function activeFilterNames() {
   const f = S.filter, out = [];
@@ -247,7 +281,7 @@ function activeFilterNames() {
   if (f.season) out.push(`${t('filter_season')}: ${f.season}`);
   if (f.batch) out.push(`${t('filter_batch')}: ${f.batch}`);
   if (f.status) out.push(`${t('filter_status')}: ${t('st_' + f.status)}`);
-  if (f.species) out.push(`${t('filter_species')}: ${f.species === 'none' ? t('sp_none') : f.species === 'any' ? t('sp_any') : spLabel(f.species)}`);
+  if (f.species) out.push(`${t('filter_species')}: ${spFilterLabel(f.species)}`);
   if (f.assignee) out.push(`${t('filter_assignee')}: ${f.assignee}`);
   if (f.text) out.push(`${t('filter_text')}: ${f.text}`);
   if (f.favorite) out.push('★');
@@ -687,9 +721,13 @@ function wire() {
   $('#jobInfo').onclick = () => jobsDialog();
   $('#btnLang').onclick = async () => { const lang = LANG === 'ja' ? 'en' : 'ja'; S.settings = await api('/api/settings', { language: lang }); LANG = lang; applyLang(); renderFilters(); renderWindow(true); renderCounts(); renderTree(); if (S.cur) { renderItemHead(S.cur); renderSpeciesPanel(); renderFieldsPanel(); } renderTarget(); };
   $('#btnQuit').onclick = quitApp;
-  ['fStation', 'fSeason', 'fBatch', 'fStatus', 'fSpecies', 'fAssignee'].forEach(id => {
+  ['fStation', 'fSeason', 'fBatch', 'fStatus', 'fAssignee'].forEach(id => {
     $('#' + id).addEventListener('change', () => { S.filter[id.slice(1).toLowerCase()] = $('#' + id).value; saveUi(); reloadList(); });
   });
+  $('#fSpecies').onclick = e => { e.stopPropagation(); $('#fSpeciesPop').classList.toggle('hidden'); };
+  $('#fSpeciesPop').onclick = e => e.stopPropagation();
+  document.addEventListener('click', () => $('#fSpeciesPop').classList.add('hidden'));
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#fSpeciesPop').classList.contains('hidden')) { $('#fSpeciesPop').classList.add('hidden'); e.stopPropagation(); } }, true);
   $('#fFav').addEventListener('change', () => { S.filter.favorite = $('#fFav').checked ? '1' : ''; saveUi(); reloadList(); });
   $('#fDet').addEventListener('change', () => { const v = $('#fDet').value; S.filter.flag = v === 'low' ? 'low' : ''; S.filter.exclude = v === 'excl' ? '1' : ''; S.filter.boxes = v.startsWith('box:') ? v.slice(4) : ''; S.filter.agree = v.startsWith('cmp:') ? v.slice(4) : ''; S.filter.det = (v === 'low' || v === 'excl' || v.startsWith('cmp:') || v.startsWith('box:')) ? '' : v; saveUi(); reloadList(); });
   let textTimer = null;

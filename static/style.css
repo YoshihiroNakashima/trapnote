@@ -219,7 +219,12 @@ table.tl-map select { max-width: 360px; }
 #detInfo .cmp b { font-weight: 600; }
 #detInfo .cmp-a b { color: #3b5bdb; }
 .cnt.st-filter { background: #3b5bdb; color: #fff; cursor: pointer; }
-.list-tools select.active, .list-tools input.active { border-color: #3b5bdb; background: #eef2ff; }
+.list-tools select.active, .list-tools input.active, .list-tools button.fsel.active { border-color: #3b5bdb; background: #eef2ff; }
+.list-tools button.fsel { font: inherit; font-size: 12px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 4px; background: #fff; max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.list-tools .msel-pop { min-width: 300px; max-width: 420px; font-size: 12px; }
+.list-tools .msel-grid { grid-template-columns: repeat(2, max-content); }
+.msel-mode { display: flex; gap: 10px; align-items: center; margin: 2px 0 6px; padding-bottom: 4px; border-bottom: 1px solid #e4e6ea; }
+.list-tools .msel-pop label.chk { color: inherit; }
 /* 人の判定（緑）と AI の判定（青）: 右の欄の箱と一覧の行で同じ色 */
 .jtag { display: inline-block; font-size: 10px; font-weight: 700; padding: 0 4px; border-radius: 3px; color: #fff; margin-right: 3px; vertical-align: 1px; }
 .jtag.human { background: #2e9e44; }

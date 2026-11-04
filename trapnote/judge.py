@@ -58,7 +58,16 @@ def build_where(f: dict) -> tuple[str, list]:
     elif sp == "any":
         w.append("EXISTS (SELECT 1 FROM judgements j WHERE j.item_id = items.id AND j.species NOT IN ('empty','area'))")
     elif sp:
-        w.append("EXISTS (SELECT 1 FROM judgements j WHERE j.item_id = items.id AND j.species = ?)"); p.append(sp)
+        # 複数の種: "deer+boar" = 全部が付いている動画（2 種が同時に映ったもの）、"deer,boar" = どれかが付いている動画
+        if isinstance(sp, str) and "+" in sp:
+            for c in [x.strip() for x in sp.split("+") if x.strip()]:
+                w.append("EXISTS (SELECT 1 FROM judgements j WHERE j.item_id = items.id AND j.species = ?)"); p.append(c)
+        else:
+            codes = [x.strip() for x in str(sp).split(",") if x.strip()] if isinstance(sp, str) else [str(x) for x in sp if str(x)]
+            if len(codes) == 1:
+                w.append("EXISTS (SELECT 1 FROM judgements j WHERE j.item_id = items.id AND j.species = ?)"); p.append(codes[0])
+            elif codes:
+                w.append(f"EXISTS (SELECT 1 FROM judgements j WHERE j.item_id = items.id AND j.species IN ({','.join('?' * len(codes))}))"); p += codes
     if f.get("date_from"):
         w.append(f"{EFF_DT} >= ?"); p.append(str(f["date_from"]).replace("-", "/")[:19])
     if f.get("date_to"):
