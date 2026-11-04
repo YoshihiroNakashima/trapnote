@@ -234,7 +234,7 @@ def collect_all(project, sources: list[str] | None, opts: dict, progress=None, s
         projs.append(src)
         seen.add(key(src.dir))
     items: dict = {}
-    n_verified = n_nofeat = n_static = n_disagree = 0
+    n_verified = n_nofeat = n_static = n_disagree = n_anchor_manual = n_anchor_auto = 0
     srcs = []
     dims: set[int] = set()
     try:
@@ -254,6 +254,8 @@ def collect_all(project, sources: list[str] | None, opts: dict, progress=None, s
             n_verified += col["n_verified"]
             n_nofeat += col["n_nofeat"]
             n_static += col.get("n_static", 0)
+            n_anchor_manual += col.get("n_anchor_manual", 0)
+            n_anchor_auto += col.get("n_anchor_auto", 0)
             n_disagree += col.get("n_disagree", 0)
             srcs.append(dict(name=label, dir=pr.dir, n_items=len(col["items"]), n_verified=col["n_verified"], n_nofeat=col["n_nofeat"]))
             if stop and stop():
@@ -263,7 +265,7 @@ def collect_all(project, sources: list[str] | None, opts: dict, progress=None, s
     except Exception:
         close_sources(projs[1:])
         raise
-    return dict(items=items, n_verified=n_verified, n_nofeat=n_nofeat, n_static=n_static, n_disagree=n_disagree, sources=srcs, projects=projs)
+    return dict(items=items, n_verified=n_verified, n_nofeat=n_nofeat, n_static=n_static, n_disagree=n_disagree, n_anchor_manual=n_anchor_manual, n_anchor_auto=n_anchor_auto, train_frames=str(opts.get("train_frames") or "one"), sources=srcs, projects=projs)
 
 
 def close_sources(projs: list) -> None:
@@ -323,8 +325,11 @@ def collect(project, opts: dict, progress=None, stop=None) -> dict:
     use_empty = bool(s.get("train_use_empty", True))
     drop_static = bool(s.get("train_drop_static", True))        # 静止した枠（倒木・石）は動画の種ではなく「動物なし」に（use_empty が切れていれば学習から外す）
     check_agree = bool(s.get("train_check_agree", False))       # 動画の種が枠の判定の上位 3 位に入らない枠は学習に使わない（元のモデルで枠を選別。モデルが当てにならないうちは切る）
-    n_static = n_disagree = 0
-    rows = db.q("SELECT id, rel_path, station, status, agree, recheck, train_exclude, batch, crop_excl FROM items WHERE status='verified' AND missing=0 AND det_state=1 AND cls_state=1 ORDER BY station, id")
+    frames = str(s.get("train_frames") or "one")                # one = 学習フレーム 1 枚（種ごと）/ one_plus = + 同じ種とモデルも判定した静止でない枠 / all = 全部
+    if frames not in ("one", "one_plus", "all"):
+        frames = "one"
+    n_static = n_disagree = n_anchor_manual = n_anchor_auto = 0
+    rows = db.q("SELECT id, rel_path, station, status, agree, recheck, train_exclude, batch, crop_excl, crop_anchor FROM items WHERE status='verified' AND missing=0 AND det_state=1 AND cls_state=1 ORDER BY station, id")
     ids = [r["id"] for r in rows]
     js: dict[int, list[dict]] = {i: [] for i in ids}
     for chunk in range(0, len(ids), 900):
@@ -390,12 +395,37 @@ def collect(project, opts: dict, progress=None, stop=None) -> dict:
         for i in range(n):
             if labels[i] is not None and conf[i] < min_conf:
                 labels[i] = None
-        for i in crop_excl_list(r["crop_excl"]):         # 枠の画面で「学習から外す」にした枠
-            if 0 <= i < n:
-                labels[i] = None
+        excl = {i for i in crop_excl_list(r["crop_excl"]) if 0 <= i < n}
+        for i in excl:                                   # 枠の画面で「学習から外す」にした枠
+            labels[i] = None
+        anchors: dict[str, int] = {}
+        if frames != "all" and any(l is not None for l in labels):
+            # 1 動画 1 枚: 種ごとの学習フレーム（人が確定したときに選んでいた枠。なければ信頼度が最も高い静止でない枠）だけを残す。
+            # one_plus はそれに加えて、同じ種で静止でなく、モデルの第 1 候補もその種の枠を残す。「動物なし」の枠（静止枠・動物なしの動画）は one なら信頼度が最も高い 1 枚、one_plus なら全部
+            st_now = static if (any(static) and not all(static)) else [False] * n
+            anchors, auto = resolve_anchors(crop_anchor_dict(r["crop_anchor"]), animals, codes, pc, conf, st_now, excl)
+            if animals:
+                n_anchor_auto += 1 if auto else 0
+                n_anchor_manual += 0 if auto else 1
+            keep_k = set(anchors.values())
+            top = [codes[int(np.argmax(pc[i]))] if len(codes) and pc.shape[1] else None for i in range(n)]
+            empties = [i for i in range(n) if labels[i] == "empty"]
+            keep_empty = set(empties) if frames == "one_plus" or not empties else {max(empties, key=lambda i: (float(conf[i]), -i))}
+            by_k = {k: sp for sp, k in anchors.items()}
+            for i in range(n):
+                if i in by_k:                            # 学習フレーム: その種を付ける（人の選択が勝つ。信頼度の下限・静止枠の扱い・モデルの候補より優先）
+                    labels[i] = by_k[i]
+                    continue
+                if labels[i] is None:
+                    continue
+                if labels[i] == "empty":
+                    if i not in keep_empty:
+                        labels[i] = None
+                elif not (frames == "one_plus" and not st_now[i] and top[i] == labels[i]):
+                    labels[i] = None
         items[r["id"]] = dict(id=r["id"], rel_path=r["rel_path"], station=r["station"] or "", batch=r["batch"] or "", human=human, excluded=bool(r["train_exclude"]),
-                              hard=bool(r["agree"] == 3 or r["recheck"]), codes=codes, pc=pc, feats=feats, t=t, bbox=bbox, conf=conf, labels=labels, holdout=False, static=static)
-    return dict(items=items, n_verified=len(rows), n_nofeat=n_nofeat, n_static=n_static, n_disagree=n_disagree)
+                              hard=bool(r["agree"] == 3 or r["recheck"]), codes=codes, pc=pc, feats=feats, t=t, bbox=bbox, conf=conf, labels=labels, holdout=False, static=static, anchors=anchors)
+    return dict(items=items, n_verified=len(rows), n_nofeat=n_nofeat, n_static=n_static, n_disagree=n_disagree, n_anchor_manual=n_anchor_manual, n_anchor_auto=n_anchor_auto, train_frames=frames)
 
 
 def split_stations(stations: list[str], frac: float, seed: int, explicit: list[str] | None = None) -> set[str]:
@@ -483,14 +513,114 @@ def crop_excl_list(v) -> list[int]:
         return []
 
 
+def crop_anchor_dict(v) -> dict[str, int]:
+    """items.crop_anchor（JSON {種コード: 枠の番号}）→ dict"""
+    if not v:
+        return {}
+    try:
+        d = json.loads(v)
+        return {str(k): int(x) for k, x in d.items()} if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+
+
+def default_anchors(animals: set[str], codes: list[str], pc, conf, static: list[bool], excluded: set[int], by_model: bool | None = None) -> dict[str, int]:
+    """学習フレームの既定（人が選んでいないとき）: 外していない・静止でない枠のうち信頼度が最も高い枠（なければ静止枠も含めて、それもなければ全部から）。
+    種が複数の動画（by_model）は種ごとに、モデルの第 1 候補がその種の枠の中で信頼度が最も高いもの（その種と判定した枠がなければ付けない）"""
+    n = len(conf)
+    if n == 0 or not animals:
+        return {}
+    if by_model is None:
+        by_model = len(animals) > 1
+    pools = [[k for k in range(n) if k not in excluded and not static[k]], [k for k in range(n) if k not in excluded], list(range(n))]
+    if not by_model:
+        sp = next(iter(animals))
+        for pool in pools:
+            if pool:
+                return {sp: int(max(pool, key=lambda k: (float(conf[k]), -k)))}
+        return {}
+    out: dict[str, int] = {}
+    top = [codes[int(np.argmax(pc[k]))] if len(codes) and len(pc[k]) else None for k in range(n)]
+    for sp in sorted(animals):
+        for pool in pools:
+            cand = [k for k in pool if top[k] == sp]
+            if cand:
+                out[sp] = int(max(cand, key=lambda k: (float(conf[k]), -k)))
+                break
+    return out
+
+
+def resolve_anchors(stored: dict[str, int], animals: set[str], codes: list[str], pc, conf, static: list[bool], excluded: set[int]) -> tuple[dict[str, int], bool]:
+    """学習フレーム: 人が選んだもの（crop_anchor）があればそれ（いまの種にあるもの・枠の範囲内・外していないものだけ）、足りない種は既定で補う。
+    返り値 (種 → 枠の番号, 全部が自動か)"""
+    n = len(conf)
+    out = {sp: k for sp, k in (stored or {}).items() if sp in animals and 0 <= k < n and k not in excluded}
+    manual = bool(out)
+    if len(out) < len(animals):
+        for sp, k in default_anchors(animals - set(out), codes, pc, conf, static, excluded, by_model=len(animals) > 1).items():
+            out[sp] = k
+    return out, not manual
+
+
+def set_anchor(project, item_id: int, k: int | None, species: str | None = None) -> dict[str, int]:
+    """人が確定したときに選んでいた枠 k を、その動画の学習フレームとして記録する。種が 1 つならその種の枠。種が複数なら species（省略ならその枠のモデルの第 1 候補）の枠
+    （その種が動画の種になければ記録しない）。k が None なら記録を消す（自動に戻す）。返り値 = 記録（種 → 枠）"""
+    from .judge import human_codes
+    r = project.db.q1("SELECT rel_path, status, crop_anchor FROM items WHERE id=?", (item_id,))
+    if r is None:
+        raise ValueError("対象がありません")
+    cur = crop_anchor_dict(r["crop_anchor"])
+    if k is None:
+        project.db.x("UPDATE items SET crop_anchor=NULL, updated_at=? WHERE id=?", (now_iso(), item_id))
+        return {}
+    js = [dict(species=j["species"], origin=j["origin"]) for j in project.db.q("SELECT species, origin FROM judgements WHERE item_id=?", (item_id,))]
+    animals = human_codes(r["status"], js) - SKIP_CODES - {"empty"}
+    fp = features_path(project, r["rel_path"])
+    if not animals or not os.path.isfile(fp):
+        return cur
+    z = load_features(fp)
+    if not (0 <= int(k) < len(z["conf"])):
+        return cur
+    if len(animals) == 1:
+        cur = {next(iter(animals)): int(k)}
+    else:
+        sp = species or (z["codes"][int(np.argmax(z["pc"][int(k)]))] if len(z["codes"]) else None)
+        if sp not in animals:
+            return cur
+        cur = {a: v for a, v in cur.items() if a in animals}
+        cur[sp] = int(k)
+    project.db.x("UPDATE items SET crop_anchor=?, updated_at=? WHERE id=?", (json.dumps(cur, ensure_ascii=False), now_iso(), item_id))
+    return cur
+
+
+def remap_crop_marks(project, item_id: int, old_t, old_bbox, new_t, new_bbox) -> None:
+    """枠を選び直したあと、枠ごとの印（学習から外す crop_excl・学習フレーム crop_anchor）を、同じ枠（同じ秒・同じ位置）の新しい番号に付け替える。
+    対応する枠がなくなった印は消す（枠はいまあるものを使う = 検出はそのままの付け直しでは、ほぼ全部そのまま残る）"""
+    r = project.db.q1("SELECT crop_excl, crop_anchor FROM items WHERE id=?", (item_id,))
+    if r is None or (not r["crop_excl"] and not r["crop_anchor"]):
+        return
+    mp: dict[int, int] = {}
+    for i in range(len(old_t)):
+        for j in range(len(new_t)):
+            if j in mp.values():
+                continue
+            if abs(float(old_t[i]) - float(new_t[j])) < 0.011 and float(np.abs(np.asarray(old_bbox[i], dtype=np.float32) - np.asarray(new_bbox[j], dtype=np.float32)).sum()) < 0.002:
+                mp[i] = j
+                break
+    ex = sorted({mp[k] for k in crop_excl_list(r["crop_excl"]) if k in mp})
+    an = {sp: mp[k] for sp, k in crop_anchor_dict(r["crop_anchor"]).items() if k in mp}
+    project.db.x("UPDATE items SET crop_excl=?, crop_anchor=? WHERE id=?", (json.dumps(ex) if ex else None, json.dumps(an, ensure_ascii=False) if an else None, item_id))
+
+
 def item_crops(project, item_id: int) -> dict:
     """対象の学習に使う枠（特徴量 npz の枠。自動判定で分類器に入れた最大 12 枚）: [{k, t, conf, bbox, code, p, excluded, has_image}]。
     npz がなければ crops = []（検出のときに「特徴量を保存」が切れていた、またはまだ検出していない）"""
-    r = project.db.q1("SELECT id, rel_path, det_state, cls_state, crop_excl, status FROM items WHERE id=?", (item_id,))
+    from .judge import human_codes
+    r = project.db.q1("SELECT id, rel_path, det_state, cls_state, crop_excl, crop_anchor, status FROM items WHERE id=?", (item_id,))
     if r is None:
         raise ValueError("対象がありません")
     fp = features_path(project, r["rel_path"])
-    out = dict(id=item_id, crops=[], excluded=crop_excl_list(r["crop_excl"]), has_features=os.path.isfile(fp))
+    out = dict(id=item_id, crops=[], excluded=crop_excl_list(r["crop_excl"]), has_features=os.path.isfile(fp), anchors={}, anchor_auto=True)
     if not out["has_features"]:
         return out
     try:
@@ -504,11 +634,24 @@ def item_crops(project, item_id: int) -> dict:
     static = item_static_crops(project.db, item_id, bbox)
     auto_off = any(static) and not all(static)          # 動く枠があるのに動画の間ずっと同じ位置にある枠 → 学習では「動物なし」扱い（設定 train_drop_static）
     out["static_applies"] = auto_off
+    st = [bool(x) and auto_off for x in static]
+    js = [dict(species=j["species"], origin=j["origin"]) for j in project.db.q("SELECT species, origin FROM judgements WHERE item_id=?", (item_id,))]
+    animals = human_codes(r["status"], js) - SKIP_CODES - {"empty"}
+    # 学習フレーム: 人の種がまだなければ、モデルの第 1 種（auto_json ではなく枠の判定の多数）で仮に 1 枚（開いたときに止めるフレーム・確定で記録する枠の既定）
+    if not animals and len(codes) and len(conf):
+        tops = [codes[int(np.argmax(pc[k]))] for k in range(len(conf))]
+        guess = max(set(tops) - {"empty", "human", "vehicle", "unknown"} or {tops[0]}, key=tops.count)
+        animals_for_default = {guess}
+    else:
+        animals_for_default = animals
+    anchors, auto = resolve_anchors(crop_anchor_dict(r["crop_anchor"]), animals_for_default, codes, pc, conf, st, ex)
+    out["anchors"], out["anchor_auto"], out["species"] = anchors, auto, sorted(animals)
+    by_k = {k: sp for sp, k in anchors.items()}
     for k in range(len(conf)):
         j = int(np.argmax(pc[k])) if len(codes) and pc.shape[1] else -1
         out["crops"].append(dict(k=k, t=round(float(t[k]), 3), conf=round(float(conf[k]), 3), bbox=[round(float(v), 4) for v in bbox[k]],
                                  code=codes[j] if j >= 0 else None, p=round(float(pc[k][j]), 3) if j >= 0 else None, excluded=k in ex,
-                                 static=bool(static[k]) and auto_off, has_image=_crop_ok(crop_path(project, r["rel_path"], k))))
+                                 static=st[k], anchor=by_k.get(k), has_image=_crop_ok(crop_path(project, r["rel_path"], k))))
     return out
 
 
@@ -796,6 +939,7 @@ def _run_train_a(project, opts, name, progress, stop, s, t0, col) -> dict:
     result = dict(kind="A", name=name, base_classifier=str(next(iter(items.values()))["codes"] and s.get("speciesnet_model")), trained_at=now_iso(),
                   classes=ds["classes"], counts=ds["counts"], dropped=ds["dropped"], n_items=ds["n_items"], n_crops=len(ds["samples"]),
                   n_verified=col["n_verified"], n_nofeat=col["n_nofeat"], n_static=col.get("n_static", 0), n_disagree=col.get("n_disagree", 0),
+                  n_anchor_manual=col.get("n_anchor_manual", 0), n_anchor_auto=col.get("n_anchor_auto", 0), train_frames=col.get("train_frames"),
                   holdout_stations=sorted(holdout), holdout_batches=hb, n_holdout=len(ev_ids), base_mix=base_mix,
                   settings={k: opts.get(k, TRAIN_DEFAULTS[k]) for k in TRAIN_DEFAULTS}, species_rule=dict(p1=s["species_p1"], p2=s["species_p2"], k=s["species_k"]),
                   project=source_label(project), sources=[dict(name=x["name"], dir=x["dir"], n_items=x["n_items"]) for x in col["sources"][1:]])
@@ -1286,7 +1430,8 @@ def _run_train_b(project, hub, opts, name, progress, stop, init_from, s, t0, ini
         return classes, state, rec
 
     result = dict(kind="B", name=name, base_classifier=s.get("speciesnet_model"), trained_at=now_iso(), holdout_stations=sorted(holdout), holdout_batches=hb, n_holdout=len(ev_ids),
-                  n_verified=col["n_verified"], settings={k: opts.get(k, TRAIN_DEFAULTS[k]) for k in TRAIN_DEFAULTS}, species_rule=dict(p1=s["species_p1"], p2=s["species_p2"], k=s["species_k"]))
+                  n_verified=col["n_verified"], n_nofeat=col.get("n_nofeat", 0), n_static=col.get("n_static", 0), n_disagree=col.get("n_disagree", 0),
+                  n_anchor_manual=col.get("n_anchor_manual", 0), n_anchor_auto=col.get("n_anchor_auto", 0), train_frames=col.get("train_frames"), settings={k: opts.get(k, TRAIN_DEFAULTS[k]) for k in TRAIN_DEFAULTS}, species_rule=dict(p1=s["species_p1"], p2=s["species_p2"], k=s["species_k"]))
     if init_from:
         result.update(init_from=init_from, init_chain=list(init_info.get("init_chain") or []) + [init_from], init_project=init_info.get("project"))
     result.update(project=source_label(project), sources=[dict(name=x["name"], dir=x["dir"], n_items=x["n_items"]) for x in col["sources"][1:]])

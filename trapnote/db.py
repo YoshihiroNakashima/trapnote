@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS items (
   recheck INTEGER NOT NULL DEFAULT 0,    -- 人の判定と AI の判定が食い違っていたものを、人が見直して確定した（第 3 段階の追加学習で重みを付ける）
   train_exclude INTEGER NOT NULL DEFAULT 0,  -- 学習から外す（人の目にしか分からない動画、地点ごと不適など。評価には使う）
   crop_excl TEXT,                        -- 学習から外す枠（特徴量 npz の枠の番号の JSON 配列。検出し直して枠が変われば消す）
+  crop_anchor TEXT,                      -- 学習フレーム（人が確定したときに選んでいた枠。JSON {種コード: 枠の番号}。1 動画 1 枚（種が複数なら種ごとに 1 枚）。NULL = 自動（信頼度が最も高い枠））
   n_boxes INTEGER NOT NULL DEFAULT 0,        -- 枠の数（1 フレームに入る動物の枠の最大数。閾値以上のもの。絞り込みと並べ替えに）
   src_dir TEXT,                          -- 横断プロジェクト: 参照先プロジェクトのフォルダ
   src_id INTEGER,                        -- 横断プロジェクト: 参照先での対象の id
@@ -280,6 +281,9 @@ class Database:
         if from_ver < 12:
             if "crop_excl" not in cols:                     # 学習から外す枠（枠ごと）
                 c.execute("ALTER TABLE items ADD COLUMN crop_excl TEXT")
+        if from_ver < 13:
+            if "crop_anchor" not in cols:                   # 学習フレーム（人が選んだ枠）
+                c.execute("ALTER TABLE items ADD COLUMN crop_anchor TEXT")
 
     # ---------- 小道具 ----------
     def get_meta(self, k: str):

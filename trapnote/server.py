@@ -656,10 +656,26 @@ def make_app(session: Session) -> web.Application:
     async def item_save(request):
         p = S.need()
         b = await _body(request)
-        res = await io(judge.save, p.db, int(request.match_info["id"]), b, user())
+        iid = int(request.match_info["id"])
+        res = await io(judge.save, p.db, iid, b, user())
         S.undo_stack.append(res["history_id"])
         S.state.save()
+        if "anchor_k" in b and (b.get("status") or "verified") == "verified":       # 確定したときに右の欄で選んでいた枠 = この動画の学習フレーム
+            try:
+                res["anchors"] = await io(train.set_anchor, p, iid, int(b["anchor_k"]) if b["anchor_k"] is not None else None, b.get("anchor_species") or None)
+            except Exception as e:
+                log.warning("学習フレームの記録に失敗 %s: %s", iid, e)
         return jr(res)
+
+    async def item_crops_anchor(request):
+        """学習フレーム（人が選んだ枠）を記録する / 消す（k = null で自動に戻す）"""
+        p = S.need()
+        b = await _body(request)
+        try:
+            an = await io(train.set_anchor, p, int(request.match_info["id"]), int(b["k"]) if b.get("k") is not None else None, b.get("species") or None)
+        except ValueError as e:
+            raise ApiError(str(e), 404)
+        return jr(dict(anchors=an))
 
     async def time_apply(request):
         p = S.need()
@@ -1086,6 +1102,8 @@ def make_app(session: Session) -> web.Application:
         for k in ("train_use_empty", "train_drop_static", "train_check_agree"):
             if k in b:
                 ps[k] = bool(b[k])
+        if b.get("train_frames") in ("one", "one_plus", "all"):
+            ps["train_frames"] = str(b["train_frames"])
         if "train_final_without_holdout" in b:
             ps["train_final_without_holdout"] = bool(b["train_final_without_holdout"])
         if ps:
@@ -1747,6 +1765,7 @@ def make_app(session: Session) -> web.Application:
     r.add_get("/api/items/{id}/crops", item_crops)
     r.add_get("/api/items/{id}/crop/{k}", item_crop_image)
     r.add_post("/api/items/{id}/crops/exclude", item_crops_exclude)
+    r.add_post("/api/items/{id}/crops/anchor", item_crops_anchor)
     r.add_post("/api/import/csv/preview", import_preview)
     r.add_post("/api/import/csv/values", import_values)
     r.add_post("/api/import/csv", import_csv)

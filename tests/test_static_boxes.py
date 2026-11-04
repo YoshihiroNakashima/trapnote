@@ -1,6 +1,7 @@
 """学習データの枠の選別: 目視は動画単位なので、倒木や石の誤検出の枠にも動画の種が付いてしまう →
 動画の間ずっと同じ位置にある枠（静止枠）は「動物なし」として学習する（動く枠が 1 つでもあるとき）。
-枠の判定の上位 3 位に動画の種が入らない枠を外す選別（check_agree）は既定オフ"""
+枠の判定の上位 3 位に動画の種が入らない枠を外す選別（check_agree）は既定オフ。
+ここでは枠の選別そのものを見るので train_frames="all"（全部の枠）で集める（1 動画 1 枚の学習フレームは tests/test_train_frames.py）"""
 from __future__ import annotations
 
 import json
@@ -59,14 +60,14 @@ def test_static_boxes(tmp_path):
         st = train.item_static_crops(p.db, ids[0], np.array([b for _, b in crops], dtype=np.float32))
         assert st == [True, False, True, False, False]
         # 学習データ: 倒木の枠は「動物なし」、シカの枠は deer
-        col = train.collect(p, train.train_settings(p))
+        col = train.collect(p, train.train_settings(p, dict(train_frames="all")))
         it = col["items"][ids[0]]
         assert it["labels"] == ["empty", "deer", "empty", "deer", "deer"] and col["n_static"] == 2 and it["static"] == st
         # 設定で切れば、全部 deer（従来どおり）
-        col2 = train.collect(p, train.train_settings(p, dict(train_drop_static=False)))
+        col2 = train.collect(p, train.train_settings(p, dict(train_drop_static=False, train_frames="all")))
         assert col2["items"][ids[0]]["labels"] == ["deer"] * 5 and col2["n_static"] == 0
         # 「動物なし」として学習しない設定なら、静止枠は学習から外す（None）
-        col3 = train.collect(p, train.train_settings(p, dict(train_use_empty=False)))
+        col3 = train.collect(p, train.train_settings(p, dict(train_use_empty=False, train_frames="all")))
         assert col3["items"][ids[0]]["labels"] == [None, "deer", None, "deer", "deer"]
         # 枠の欄（item_crops）にも印
         ic = train.item_crops(p, ids[0])
@@ -77,7 +78,7 @@ def test_static_boxes(tmp_path):
         crops2 = [(0.0, still), (3.0, still), (6.0, still)]
         _fake_detect(p, ids[1], frames2, crops2)
         save_judgement(p.db, ids[1], dict(species=["boar"]), "me")
-        col4 = train.collect(p, train.train_settings(p))
+        col4 = train.collect(p, train.train_settings(p, dict(train_frames="all")))
         assert col4["items"][ids[1]]["labels"] == ["boar"] * 3 and not any(col4["items"][ids[1]]["static"])
         assert not train.item_crops(p, ids[1])["static_applies"]
         # 短い動画（3 秒未満）やフレームが少ないものも判定しない
@@ -100,9 +101,9 @@ def test_check_agree(tmp_path):
         pc = [[0.7, 0.2, 0.05, 0.05], [0.0, 0.5, 0.3, 0.2], [0.4, 0.3, 0.2, 0.1]]       # 2 枚目は deer が上位 3 位に入らない
         _fake_detect(p, iid, frames, crops, codes=codes, pc=pc)
         save_judgement(p.db, iid, dict(species=["deer"]), "me")
-        col = train.collect(p, train.train_settings(p))
+        col = train.collect(p, train.train_settings(p, dict(train_frames="all")))
         assert col["items"][iid]["labels"] == ["deer"] * 3 and col["n_disagree"] == 0
-        col2 = train.collect(p, train.train_settings(p, dict(train_check_agree=True)))
+        col2 = train.collect(p, train.train_settings(p, dict(train_check_agree=True, train_frames="all")))
         assert col2["items"][iid]["labels"] == ["deer", None, "deer"] and col2["n_disagree"] == 1
         assert json.loads(json.dumps(train.train_settings(p)))["train_check_agree"] is False
     finally:

@@ -229,7 +229,7 @@ function applyBoxMode() {
   const mode = (S.settings && S.settings.box_mode) || 'all';
   const minConf = (S.project && S.project.settings && S.project.settings.train_min_conf) || 0.5;
   let out = all;
-  for (const b of all) { delete b.train; delete b.trainOff; delete b.trainSel; }
+  for (const b of all) { delete b.train; delete b.trainOff; delete b.trainSel; delete b.trainAnchor; }
   if (mode === 'conf') out = all.filter(b => b.c !== 'animal' || b.p >= minConf);
   else if (mode === 'train') {
     const crops = (typeof CROPS !== 'undefined' && CROPS.data && CROPS.id === P.boxItem && !CROPS.loading) ? CROPS.data.crops : [];
@@ -242,7 +242,7 @@ function applyBoxMode() {
         const d = Math.abs(b.x - bb[0]) + Math.abs(b.y - bb[1]) + Math.abs(b.w - bb[2]) + Math.abs(b.h - bb[3]);
         if (d < bd) { bd = d; best = b; }
       }
-      if (best && bd < 0.02) { best.train = c.k; best.trainOff = !!c.excluded; best.trainSel = (CROPS.sel === c.k); if (!out.includes(best)) out.push(best); }
+      if (best && bd < 0.02) { best.train = c.k; best.trainOff = !!c.excluded; best.trainSel = (CROPS.sel === c.k); best.trainAnchor = !!c.anchor; if (!out.includes(best)) out.push(best); }
     }
   }
   P.boxes = out;
@@ -275,7 +275,7 @@ function drawBoxes() {
     const col = b.train != null ? (b.trainOff ? '#9aa0a6' : (b.trainSel ? '#ff9f1a' : '#ffd54f')) : (BOX_COLORS[b.c] || '#fff');
     ctx.lineWidth = b.train != null && !b.trainOff ? (b.trainSel ? 4 : 3) : 2;
     ctx.strokeStyle = col; ctx.globalAlpha = b.trainOff ? 0.45 : Math.max(0.35, Math.min(1, b.p + 0.3)); ctx.strokeRect(x, y, w, h);
-    const label = (b.train != null ? `${t('box_train_tag')} #${b.train + 1}${b.trainOff ? ' ✕' : ''} · ` : '') + `${t('det_' + b.c) || b.c} ${(100 * b.p).toFixed(0)}%` + (b.sp ? ` · ${spLabel(b.sp)} ${(100 * (b.sp_p || 0)).toFixed(0)}%` : '');
+    const label = (b.train != null ? `${b.trainAnchor ? t('crops_anchor') : t('box_train_tag')} #${b.train + 1}${b.trainOff ? ' ✕' : ''} · ` : '') + `${t('det_' + b.c) || b.c} ${(100 * b.p).toFixed(0)}%` + (b.sp ? ` · ${spLabel(b.sp)} ${(100 * (b.sp_p || 0)).toFixed(0)}%` : '');
     const tw = ctx.measureText(label).width + 8;
     ctx.globalAlpha = 0.85; ctx.fillStyle = col; ctx.fillRect(x, Math.max(0, y - 16), tw, 16);
     ctx.fillStyle = '#111'; ctx.fillText(label, x + 4, Math.max(0, y - 16) + 2);

@@ -858,6 +858,16 @@ def process_item(project, hub: ModelHub, item: dict, classify: bool = True, fram
     # 種判別（動物の枠だけ）
     cls = None
     sp_by_idx: dict[int, tuple[str, float]] = {}
+    old_marks = None                                      # 枠ごとの印（学習から外す・学習フレーム）を付け替えるための、前の枠の秒と位置
+    if use_existing:
+        try:
+            from .train import features_path, load_features
+            fp_old = features_path(project, item["rel_path"])
+            if os.path.isfile(fp_old):
+                zo = load_features(fp_old)
+                old_marks = (zo["t"], zo["bbox"])
+        except Exception:
+            old_marks = None
     if classify and summary["animal"]:
         cands = pick_crops(rows, a_th, max_crops, float(s.get("crop_min_gap_sec", 0.6)), int(s.get("crop_per_frame", 2)))
         by_t = {t: im for t, im in frames}
@@ -910,7 +920,13 @@ def process_item(project, hub: ModelHub, item: dict, classify: bool = True, fram
                       (item["id"], r[0], r[1], round(r[2], 4), round(r[3], 4), round(r[4], 4), round(r[5], 4), round(r[6], 4),
                        sp[0], round(sp[1], 4) if sp[1] is not None else None))
     db.x(N_BOXES_SQL_ONE, (a_th, item["id"]))
-    db.x("UPDATE items SET crop_excl=NULL WHERE id=? AND crop_excl IS NOT NULL", (item["id"],))      # 枠を取り直したので、枠ごとの「学習から外す」は消す
+    if use_existing:
+        # 枠はいまあるものを使う（検出はそのまま）: 枠はほぼ同じなので、枠ごとの印（学習から外す・学習フレーム）を同じ枠の新しい番号に付け替える（種判別しなかったなら記録も印もそのまま）
+        if old_marks is not None and cls is not None:
+            from .train import remap_crop_marks
+            remap_crop_marks(project, item["id"], old_marks[0], old_marks[1], [r[0] for _, r in cands], [r[3:7] for _, r in cands])
+    else:
+        db.x("UPDATE items SET crop_excl=NULL, crop_anchor=NULL WHERE id=? AND (crop_excl IS NOT NULL OR crop_anchor IS NOT NULL)", (item["id"],))      # 枠を取り直したので、枠ごとの印は消す
     summary = finish_item(project, hub, item, summary, cls, classify)
     summary["elapsed"] = round(time.time() - t0, 2)
     return summary
@@ -1025,7 +1041,7 @@ def save_boxes(project, item_id: int, boxes: list[dict]) -> dict:
     with db.tx() as c:
         c.execute("DELETE FROM detections WHERE item_id=?", (item_id,))
         c.executemany("INSERT INTO detections(item_id, t_sec, category, conf, x, y, w, h, species, sp_conf) VALUES(?,?,?,?,?,?,?,?,?,?)", rows)
-        c.execute("UPDATE items SET det_state=1, det_json=?, cls_state=0, cls_json=NULL, crop_excl=NULL, updated_at=? WHERE id=?", (json.dumps(summary, ensure_ascii=False), now_iso(), item_id))
+        c.execute("UPDATE items SET det_state=1, det_json=?, cls_state=0, cls_json=NULL, crop_excl=NULL, crop_anchor=NULL, updated_at=? WHERE id=?", (json.dumps(summary, ensure_ascii=False), now_iso(), item_id))
         c.execute(N_BOXES_SQL_ONE, (a_th, item_id))
     # 古い特徴量と枠の画像は捨てる（枠が変わったので）
     try:

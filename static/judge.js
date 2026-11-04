@@ -234,7 +234,10 @@ async function confirmAndNext() {
   S.busy = true;
   try {
     const spf = {}; S.sel.forEach(c => { spf[c] = cleanFields(S.spFields[c]); });
-    const res = await api(`/api/items/${S.cur.id}/save`, { species: S.sel, fields: cleanFields(S.itemFields), species_fields: spf, note: $('#noteInput').value });
+    const body = { species: S.sel, fields: cleanFields(S.itemFields), species_fields: spf, note: $('#noteInput').value };
+    if (CROPS.data && CROPS.id === S.cur.id && CROPS.sel != null) body.anchor_k = CROPS.sel;      // 確定したときに選んでいた枠 = この動画の学習フレーム
+    const res = await api(`/api/items/${S.cur.id}/save`, body);
+    if (res.anchors && CROPS.id === S.cur.id) setAnchors(res.anchors);
     S.cur.status = 'verified'; S.cur.verified_by = res.state.verified_by; S.cur.verified_at = res.state.verified_at; S.cur.judgements = res.state.judgements;
     patchRow({ id: S.cur.id, status: 'verified', judgements: res.state.judgements, note: res.state.note, agree: res.agree == null ? null : res.agree });
     if (S.cur) { S.cur.agree = res.agree; S.cur.status = 'verified'; S.cur.judgements = res.state.judgements; S.cur.verified_by = S.settings.user_name || ''; renderJudgeBoxes(S.cur); }
@@ -341,9 +344,9 @@ function wireJudge() {
 
 
 // ---- 学習に使う枠（右の欄）: 自動判定で分類器に入れた枠を並べる。クリックで選んでそのフレームへ、✕ で学習から外す ----
-const CROPS = { id: null, data: null, sel: null, loading: false };
+const CROPS = { id: null, data: null, sel: null, loading: false, anchors: {}, anchorAuto: true };
 async function loadCrops(d) {
-  CROPS.id = d ? d.id : null; CROPS.data = null; CROPS.sel = null; CROPS.loading = true;
+  CROPS.id = d ? d.id : null; CROPS.data = null; CROPS.sel = null; CROPS.anchors = {}; CROPS.anchorAuto = true; CROPS.loading = true;
   try { await loadCropsInner(d); }
   finally {
     if (!d || CROPS.id === d.id) {
@@ -368,7 +371,7 @@ async function loadCropsInner(d) {
     return;
   }
   none.classList.add('hidden');
-  CROPS.data = r;
+  CROPS.data = r; CROPS.anchors = r.anchors || {}; CROPS.anchorAuto = r.anchor_auto !== false;
   const c0 = cropDefault();
   CROPS.sel = c0 ? c0.k : null;
   box.classList.remove('hidden');
@@ -376,11 +379,21 @@ async function loadCropsInner(d) {
   det.ontoggle = () => { try { localStorage.setItem('tn_crops_open', det.open ? '1' : '0'); } catch (e) { /* */ } if (det.open) renderCrops(); };
   renderCrops();
 }
-/* 開いた直後に選ぶ枠: 学習に使う枠（外していない・静止枠でない）のうち時刻のいちばん早いもの。なければ外していないもの、それもなければ最初の枠 */
+/* 開いた直後に選ぶ枠 = この動画の学習フレーム（人が確定したときに選んだ枠。なければ信頼度が最も高い・静止でない・外していない枠 = サーバーの既定）。
+   種が複数なら最初の種の枠。記録がなければ信頼度順の先頭 */
 function cropDefault() {
   const r = CROPS.data; if (!r || !r.crops.length) return null;
-  const byT = r.crops.slice().sort((a, b) => a.t - b.t || a.k - b.k);
-  return byT.find(c => !c.excluded && !c.static) || byT.find(c => !c.excluded) || byT[0];
+  const sps = Object.keys(CROPS.anchors || {}).sort();
+  for (const sp of sps) { const c = r.crops.find(x => x.k === CROPS.anchors[sp]); if (c) return c; }
+  const byC = r.crops.slice().sort((a, b) => b.conf - a.conf || a.k - b.k);
+  return byC.find(c => !c.excluded && !c.static) || byC.find(c => !c.excluded) || byC[0];
+}
+/* 確定したあと: サーバーが記録した学習フレーム（種 → 枠）を欄に反映 */
+function setAnchors(anchors) {
+  CROPS.anchors = anchors || {}; CROPS.anchorAuto = !Object.keys(CROPS.anchors).length;
+  if (CROPS.data) { const byK = {}; Object.entries(CROPS.anchors).forEach(([sp, k]) => { byK[k] = sp; }); CROPS.data.crops.forEach(c => { c.anchor = byK[c.k] || null; }); }
+  renderCrops();
+  if (typeof applyBoxMode === 'function') applyBoxMode();
 }
 function cropSelected() { const r = CROPS.data; return r ? (r.crops.find(c => c.k === CROPS.sel) || null) : null; }
 /* 枠を選ぶ（右の欄で枠が光る。seek なら動画をそのフレームで止める）。枠の表示が「学習に使う枠」なら動画の上でも太く */
@@ -408,8 +421,9 @@ function renderCrops() {
   const nOff = r.crops.filter(c => c.excluded).length, nStatic = r.crops.filter(c => c.static && !c.excluded).length;
   $('#cropsCount').textContent = `${r.crops.length}${nOff ? ` · ${t('crops_excluded')} ${nOff}` : ''}${nStatic ? ` · ${t('crops_static')} ${nStatic}` : ''}`;
   if (!det.open) { grid.innerHTML = ''; return; }
-  grid.innerHTML = r.crops.map(c => `<figure class="crop ${c.excluded ? 'off' : ''} ${c.static && !c.excluded ? 'static' : ''} ${c.k === CROPS.sel ? 'sel' : ''}" data-k="${c.k}" title="${esc(`${c.t.toFixed(1)} s · conf ${c.conf.toFixed(2)}${c.code ? ` · ${spLabel(c.code)} ${(c.p * 100).toFixed(0)}%` : ''}${c.static ? ` · ${t('crops_static_tip')}` : ''} · ${t('crop_click_tip')}`)}">
-      <img src="/api/items/${r.id}/crop/${c.k}" loading="lazy" alt=""><button type="button" class="crop-x" title="${esc(t(c.excluded ? 'crop_restore_tip' : 'crop_x_tip'))}">${c.excluded ? '↺' : '✕'}</button><figcaption>${c.t.toFixed(1)}s · ${c.conf.toFixed(2)}${c.code ? ` · ${esc(spLabel(c.code))}` : ''}${c.static && !c.excluded ? ` · <span class="static-tag">${esc(t('crops_static'))}</span>` : ''}</figcaption></figure>`).join('');
+  const multi = Object.keys(CROPS.anchors || {}).length > 1;
+  grid.innerHTML = r.crops.map(c => `<figure class="crop ${c.excluded ? 'off' : ''} ${c.static && !c.excluded ? 'static' : ''} ${c.k === CROPS.sel ? 'sel' : ''} ${c.anchor ? 'anchor' : ''}" data-k="${c.k}" title="${esc(`${c.t.toFixed(1)} s · conf ${c.conf.toFixed(2)}${c.code ? ` · ${spLabel(c.code)} ${(c.p * 100).toFixed(0)}%` : ''}${c.static ? ` · ${t('crops_static_tip')}` : ''}${c.anchor ? ` · ${t('crops_anchor')}${CROPS.anchorAuto ? t('crops_anchor_auto') : ''}${multi ? ` (${spLabel(c.anchor)})` : ''}` : ''} · ${t('crop_click_tip')}`)}">
+      <img src="/api/items/${r.id}/crop/${c.k}" loading="lazy" alt="">${c.anchor ? `<span class="anchor-tag">${esc(t('crops_anchor'))}${CROPS.anchorAuto ? esc(t('crops_anchor_auto')) : ''}${multi ? ` ${esc(spLabel(c.anchor))}` : ''}</span>` : ''}<button type="button" class="crop-x" title="${esc(t(c.excluded ? 'crop_restore_tip' : 'crop_x_tip'))}">${c.excluded ? '↺' : '✕'}</button><figcaption>${c.t.toFixed(1)}s · ${c.conf.toFixed(2)}${c.code ? ` · ${esc(spLabel(c.code))}` : ''}${c.static && !c.excluded ? ` · <span class="static-tag">${esc(t('crops_static'))}</span>` : ''}</figcaption></figure>`).join('');
   grid.querySelectorAll('.crop').forEach(f => {
     f.onclick = () => selectCrop(parseInt(f.dataset.k, 10), true);
     f.querySelector('.crop-x').onclick = e => { e.preventDefault(); e.stopPropagation(); toggleCrop(parseInt(f.dataset.k, 10)); };
