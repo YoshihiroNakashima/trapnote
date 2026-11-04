@@ -219,7 +219,7 @@ def collect_all(project, sources: list[str] | None, opts: dict, progress=None, s
         projs.append(src)
         seen.add(key(src.dir))
     items: dict = {}
-    n_verified = n_nofeat = 0
+    n_verified = n_nofeat = n_static = n_disagree = 0
     srcs = []
     dims: set[int] = set()
     try:
@@ -238,6 +238,8 @@ def collect_all(project, sources: list[str] | None, opts: dict, progress=None, s
                 items[(si, iid)] = it
             n_verified += col["n_verified"]
             n_nofeat += col["n_nofeat"]
+            n_static += col.get("n_static", 0)
+            n_disagree += col.get("n_disagree", 0)
             srcs.append(dict(name=label, dir=pr.dir, n_items=len(col["items"]), n_verified=col["n_verified"], n_nofeat=col["n_nofeat"]))
             if stop and stop():
                 break
@@ -246,7 +248,7 @@ def collect_all(project, sources: list[str] | None, opts: dict, progress=None, s
     except Exception:
         close_sources(projs[1:])
         raise
-    return dict(items=items, n_verified=n_verified, n_nofeat=n_nofeat, sources=srcs, projects=projs)
+    return dict(items=items, n_verified=n_verified, n_nofeat=n_nofeat, n_static=n_static, n_disagree=n_disagree, sources=srcs, projects=projs)
 
 
 def close_sources(projs: list) -> None:
@@ -255,6 +257,43 @@ def close_sources(projs: list) -> None:
             pr.close()
         except Exception:
             pass
+
+
+# ---------- 静止した枠（倒木・石などの誤検出）を見分ける ----------
+def _iou(a, b) -> float:
+    """[x, y, w, h]（正規化）同士の IoU"""
+    ax2, ay2, bx2, by2 = a[0] + a[2], a[1] + a[3], b[0] + b[2], b[1] + b[3]
+    iw, ih = max(0.0, min(ax2, bx2) - max(a[0], b[0])), max(0.0, min(ay2, by2) - max(a[1], b[1]))
+    inter = iw * ih
+    union = a[2] * a[3] + b[2] * b[3] - inter
+    return inter / union if union > 0 else 0.0
+
+
+def static_crops(det_rows: list, bbox, iou_thr: float = 0.6, frac: float = 0.8, min_span: float = 3.0, min_frames: int = 5) -> list[bool]:
+    """学習に使う枠（bbox: n × [x, y, w, h]）のうち「静止している」もの = 動画の全フレームの検出（det_rows: (t_sec, x, y, w, h) の列）で、
+    同じ位置（IoU ≥ iou_thr）の枠がフレームの frac 以上に現れるもの。倒木や石の誤検出は動画の間ずっと同じ位置にあり、動物は動く。
+    フレームが min_frames 未満、または動画の長さ（検出のある最初と最後の差）が min_span 秒未満なら判定しない（全部 False）"""
+    n = len(bbox)
+    if n == 0 or not det_rows:
+        return [False] * n
+    frames: dict[float, list] = {}
+    for r in det_rows:
+        frames.setdefault(round(float(r[0]), 3), []).append((float(r[1]), float(r[2]), float(r[3]), float(r[4])))
+    ts = sorted(frames)
+    if len(ts) < min_frames or ts[-1] - ts[0] < min_span:
+        return [False] * n
+    out = []
+    for k in range(n):
+        b = [float(v) for v in bbox[k]]
+        hit = sum(1 for t in ts if any(_iou(b, d) >= iou_thr for d in frames[t]))
+        out.append(hit / len(ts) >= frac)
+    return out
+
+
+def item_static_crops(db, item_id: int, bbox) -> list[bool]:
+    """対象の検出（detections 表の animal）から静止枠を判定する"""
+    rows = [tuple(r) for r in db.q("SELECT t_sec, x, y, w, h FROM detections WHERE item_id=? AND category='animal' AND x IS NOT NULL", (item_id,))]
+    return static_crops(rows, bbox)
 
 
 # ---------- 学習データを集める ----------
@@ -267,6 +306,9 @@ def collect(project, opts: dict, progress=None, stop=None) -> dict:
     s = opts
     min_conf = float(s.get("train_min_conf", 0.5))
     use_empty = bool(s.get("train_use_empty", True))
+    drop_static = bool(s.get("train_drop_static", True))        # 静止した枠（倒木・石）は動画の種ではなく「動物なし」に（use_empty が切れていれば学習から外す）
+    check_agree = bool(s.get("train_check_agree", False))       # 動画の種が枠の判定の上位 3 位に入らない枠は学習に使わない（元のモデルで枠を選別。モデルが当てにならないうちは切る）
+    n_static = n_disagree = 0
     rows = db.q("SELECT id, rel_path, station, status, agree, recheck, train_exclude, batch, crop_excl FROM items WHERE status='verified' AND missing=0 AND det_state=1 AND cls_state=1 ORDER BY station, id")
     ids = [r["id"] for r in rows]
     js: dict[int, list[dict]] = {i: [] for i in ids}
@@ -306,16 +348,35 @@ def collect(project, opts: dict, progress=None, stop=None) -> dict:
             continue
         animals = human - SKIP_CODES - {"empty"}
         labels: list[str | None] = [None] * n
+        static = [False] * n
         if "unknown" in human or not (animals or (human == {"empty"} and use_empty)):
             pass                                         # 不明・人・車だけ: 学習には使わない（評価には使う）
         elif not animals:                                # 動物なしなのに枠がある → 誤検出として「動物なし」
             labels = ["empty"] * n
-        elif len(animals) == 1:
-            labels = [next(iter(animals))] * n
         else:
-            for i in range(n):
-                top = codes[int(np.argmax(pc[i]))] if len(codes) else None
-                labels[i] = top if top in animals else None
+            if len(animals) == 1:
+                labels = [next(iter(animals))] * n
+            else:
+                for i in range(n):
+                    top = codes[int(np.argmax(pc[i]))] if len(codes) else None
+                    labels[i] = top if top in animals else None
+            # 目視は動画単位なので、倒木や石の誤検出の枠にも動画の種が付いてしまう → 動画の間ずっと同じ位置にある枠は種ではなく「動物なし」に（動く枠が 1 つでもあるとき）
+            if drop_static:
+                static = item_static_crops(db, r["id"], bbox)
+                if any(static) and not all(static):
+                    for i in range(n):
+                        if static[i] and labels[i] is not None:
+                            labels[i] = "empty" if use_empty else None
+                            n_static += 1
+                else:
+                    static = [False] * n
+            if check_agree and len(codes) and pc.shape[1]:     # 枠の判定（上位 3 位）に動画の種が入らない枠は使わない
+                for i in range(n):
+                    if labels[i] in animals:
+                        top3 = {codes[j] for j in np.argsort(-pc[i])[:3]}
+                        if labels[i] not in top3:
+                            labels[i] = None
+                            n_disagree += 1
         for i in range(n):
             if labels[i] is not None and conf[i] < min_conf:
                 labels[i] = None
@@ -323,8 +384,8 @@ def collect(project, opts: dict, progress=None, stop=None) -> dict:
             if 0 <= i < n:
                 labels[i] = None
         items[r["id"]] = dict(id=r["id"], rel_path=r["rel_path"], station=r["station"] or "", batch=r["batch"] or "", human=human, excluded=bool(r["train_exclude"]),
-                              hard=bool(r["agree"] == 3 or r["recheck"]), codes=codes, pc=pc, feats=feats, t=t, bbox=bbox, conf=conf, labels=labels, holdout=False)
-    return dict(items=items, n_verified=len(rows), n_nofeat=n_nofeat)
+                              hard=bool(r["agree"] == 3 or r["recheck"]), codes=codes, pc=pc, feats=feats, t=t, bbox=bbox, conf=conf, labels=labels, holdout=False, static=static)
+    return dict(items=items, n_verified=len(rows), n_nofeat=n_nofeat, n_static=n_static, n_disagree=n_disagree)
 
 
 def split_stations(stations: list[str], frac: float, seed: int, explicit: list[str] | None = None) -> set[str]:
@@ -433,11 +494,14 @@ def item_crops(project, item_id: int) -> dict:
         out["error"] = f"特徴量を読めません: {e}"
         return out
     ex = set(out["excluded"])
+    static = item_static_crops(project.db, item_id, bbox)
+    auto_off = any(static) and not all(static)          # 動く枠があるのに動画の間ずっと同じ位置にある枠 → 学習では「動物なし」扱い（設定 train_drop_static）
+    out["static_applies"] = auto_off
     for k in range(len(conf)):
         j = int(np.argmax(pc[k])) if len(codes) and pc.shape[1] else -1
         out["crops"].append(dict(k=k, t=round(float(t[k]), 2), conf=round(float(conf[k]), 3), bbox=[round(float(v), 4) for v in bbox[k]],
                                  code=codes[j] if j >= 0 else None, p=round(float(pc[k][j]), 3) if j >= 0 else None, excluded=k in ex,
-                                 has_image=_crop_ok(crop_path(project, r["rel_path"], k))))
+                                 static=bool(static[k]) and auto_off, has_image=_crop_ok(crop_path(project, r["rel_path"], k))))
     return out
 
 
@@ -724,7 +788,8 @@ def _run_train_a(project, opts, name, progress, stop, s, t0, col) -> dict:
 
     result = dict(kind="A", name=name, base_classifier=str(next(iter(items.values()))["codes"] and s.get("speciesnet_model")), trained_at=now_iso(),
                   classes=ds["classes"], counts=ds["counts"], dropped=ds["dropped"], n_items=ds["n_items"], n_crops=len(ds["samples"]),
-                  n_verified=col["n_verified"], n_nofeat=col["n_nofeat"], holdout_stations=sorted(holdout), holdout_batches=hb, n_holdout=len(ev_ids), base_mix=base_mix,
+                  n_verified=col["n_verified"], n_nofeat=col["n_nofeat"], n_static=col.get("n_static", 0), n_disagree=col.get("n_disagree", 0),
+                  holdout_stations=sorted(holdout), holdout_batches=hb, n_holdout=len(ev_ids), base_mix=base_mix,
                   settings={k: opts.get(k, TRAIN_DEFAULTS[k]) for k in TRAIN_DEFAULTS}, species_rule=dict(p1=s["species_p1"], p2=s["species_p2"], k=s["species_k"]),
                   project=source_label(project), sources=[dict(name=x["name"], dir=x["dir"], n_items=x["n_items"]) for x in col["sources"][1:]])
     # 1) 検証用（地点・組）を除いて学習 → 検証用で学習前・後を比べる

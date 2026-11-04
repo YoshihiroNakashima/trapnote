@@ -1083,8 +1083,9 @@ def make_app(session: Session) -> web.Application:
         for k in ("train_min_per_class", "train_max_per_class", "train_epochs_b", "train_batch_b", "train_seed"):
             if b.get(k) not in (None, ""):
                 ps[k] = int(b[k])
-        if "train_use_empty" in b:
-            ps["train_use_empty"] = bool(b["train_use_empty"])
+        for k in ("train_use_empty", "train_drop_static", "train_check_agree"):
+            if k in b:
+                ps[k] = bool(b[k])
         if "train_final_without_holdout" in b:
             ps["train_final_without_holdout"] = bool(b["train_final_without_holdout"])
         if ps:

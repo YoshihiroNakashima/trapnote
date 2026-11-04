@@ -361,11 +361,11 @@ async function loadCrops(d) {
 function renderCrops() {
   const r = CROPS.data, grid = $('#cropsGrid'), det = $('#cropsDet');
   if (!r) return;
-  const nOff = r.crops.filter(c => c.excluded).length;
-  $('#cropsCount').textContent = `${r.crops.length}${nOff ? ` · ${t('crops_excluded')} ${nOff}` : ''}`;
+  const nOff = r.crops.filter(c => c.excluded).length, nStatic = r.crops.filter(c => c.static && !c.excluded).length;
+  $('#cropsCount').textContent = `${r.crops.length}${nOff ? ` · ${t('crops_excluded')} ${nOff}` : ''}${nStatic ? ` · ${t('crops_static')} ${nStatic}` : ''}`;
   if (!det.open) { grid.innerHTML = ''; return; }
-  grid.innerHTML = r.crops.map(c => `<figure class="crop ${c.excluded ? 'off' : ''}" data-k="${c.k}" title="${esc(`${c.t.toFixed(1)} s · conf ${c.conf.toFixed(2)}${c.code ? ` · ${spLabel(c.code)} ${(c.p * 100).toFixed(0)}%` : ''}`)}">
-      <img src="/api/items/${r.id}/crop/${c.k}" loading="lazy" alt=""><figcaption>${c.t.toFixed(1)}s · ${c.conf.toFixed(2)}${c.code ? ` · ${esc(spLabel(c.code))}` : ''}</figcaption></figure>`).join('');
+  grid.innerHTML = r.crops.map(c => `<figure class="crop ${c.excluded ? 'off' : ''} ${c.static && !c.excluded ? 'static' : ''}" data-k="${c.k}" title="${esc(`${c.t.toFixed(1)} s · conf ${c.conf.toFixed(2)}${c.code ? ` · ${spLabel(c.code)} ${(c.p * 100).toFixed(0)}%` : ''}${c.static ? ` · ${t('crops_static_tip')}` : ''}`)}">
+      <img src="/api/items/${r.id}/crop/${c.k}" loading="lazy" alt=""><figcaption>${c.t.toFixed(1)}s · ${c.conf.toFixed(2)}${c.code ? ` · ${esc(spLabel(c.code))}` : ''}${c.static && !c.excluded ? ` · <span class="static-tag">${esc(t('crops_static'))}</span>` : ''}</figcaption></figure>`).join('');
   grid.querySelectorAll('.crop').forEach(f => { f.onclick = () => toggleCrop(parseInt(f.dataset.k, 10)); });
 }
 async function setCrops(ks, excluded) {
