@@ -18,7 +18,7 @@ function qs(obj) { return Object.entries(obj).filter(([k, v]) => v !== undefined
 
 const S = {
   snap: null, settings: {}, project: null, facets: null, species: { species: [], fixed: [] }, fields: { fields: [] },
-  filter: { station: '', season: '', status: '', species: '', assignee: '', text: '', folder_prefix: '', favorite: '', det: '', flag: '', agree: '', exclude: '', boxes: '' }, sort: 'station', desc: false,
+  filter: { station: '', season: '', status: '', species: '', species_src: '', assignee: '', text: '', folder_prefix: '', favorite: '', det: '', flag: '', agree: '', exclude: '', boxes: '' }, sort: 'station', desc: false,
   picked: new Set(), selAnchor: -1,   // 一覧の複数選択（id の集合）と Shift の起点（並びの位置）
   treeOpen: {},
   total: 0, pages: new Map(), pageLoading: new Map(), listToken: 0,
@@ -246,21 +246,24 @@ function spFilterParse(v) {
   if (v.includes('+')) return { kind: 'codes', codes: v.split('+').filter(Boolean), mode: 'all' };
   return { kind: 'codes', codes: v.split(',').filter(Boolean), mode: 'any' };
 }
-function spFilterLabel(v) {
+function spFilterLabel(v, src) {
   const f = spFilterParse(v);
+  const pre = src === 'ai' && f.kind ? `${t('sp_src_ai_short')}: ` : '';
   if (!f.kind) return t('all_species');
-  if (f.kind === 'none') return t('sp_none');
-  if (f.kind === 'any') return t('sp_any');
-  if (f.kind === 'multi') return t('sp_multi');
+  if (f.kind === 'none') return pre + t('sp_none');
+  if (f.kind === 'any') return pre + t('sp_any');
+  if (f.kind === 'multi') return pre + t('sp_multi');
   const names = f.codes.map(spLabel);
-  return f.codes.length === 1 ? names[0] : `${names.join(f.mode === 'all' ? ' + ' : ' / ')}`;
+  return pre + (f.codes.length === 1 ? names[0] : `${names.join(f.mode === 'all' ? ' + ' : ' / ')}`);
 }
 function renderSpeciesFilter(sc) {
   const btn = $('#fSpecies'), pop = $('#fSpeciesPop');
   const cur = spFilterParse(S.filter.species);
-  btn.textContent = spFilterLabel(S.filter.species) + ' ▾';
+  const src = S.filter.species_src === 'ai' ? 'ai' : '';
+  btn.textContent = spFilterLabel(S.filter.species, src) + ' ▾';
   const all = (S.species.species || []).concat(S.species.fixed || []).filter(s => s.enabled || sc[s.code] || s.fixed || cur.codes.includes(s.code));
-  pop.innerHTML = `<div class="msel-head"><label class="chk"><input type="radio" name="fspKind" value="" ${!cur.kind ? 'checked' : ''}> ${esc(t('all_species'))}</label><label class="chk"><input type="radio" name="fspKind" value="none" ${cur.kind === 'none' ? 'checked' : ''}> ${esc(t('sp_none'))}</label><label class="chk"><input type="radio" name="fspKind" value="any" ${cur.kind === 'any' ? 'checked' : ''}> ${esc(t('sp_any'))}</label><label class="chk" title="${esc(t('sp_multi_tip'))}"><input type="radio" name="fspKind" value="multi" ${cur.kind === 'multi' ? 'checked' : ''}> ${esc(t('sp_multi'))}</label></div>
+  pop.innerHTML = `<div class="msel-mode"><span class="info">${esc(t('sp_src'))}</span><label class="chk" title="${esc(t('sp_src_human_tip'))}"><input type="radio" name="fspSrc" value="" ${src ? '' : 'checked'}> ${esc(t('sp_src_human'))}</label><label class="chk" title="${esc(t('sp_src_ai_tip'))}"><input type="radio" name="fspSrc" value="ai" ${src ? 'checked' : ''}> ${esc(t('sp_src_ai'))}</label></div>
+    <div class="msel-head"><label class="chk"><input type="radio" name="fspKind" value="" ${!cur.kind ? 'checked' : ''}> ${esc(t('all_species'))}</label><label class="chk"><input type="radio" name="fspKind" value="none" ${cur.kind === 'none' ? 'checked' : ''}> ${esc(t('sp_none'))}</label><label class="chk"><input type="radio" name="fspKind" value="any" ${cur.kind === 'any' ? 'checked' : ''}> ${esc(t('sp_any'))}</label><label class="chk" title="${esc(t('sp_multi_tip'))}"><input type="radio" name="fspKind" value="multi" ${cur.kind === 'multi' ? 'checked' : ''}> ${esc(t('sp_multi'))}</label></div>
     <div class="msel-mode"><span class="info">${esc(t('sp_pick_help'))}</span><label class="chk" title="${esc(t('sp_mode_all_tip'))}"><input type="radio" name="fspMode" value="all" ${cur.mode === 'all' ? 'checked' : ''}> ${esc(t('sp_mode_all'))}</label><label class="chk" title="${esc(t('sp_mode_any_tip'))}"><input type="radio" name="fspMode" value="any" ${cur.mode === 'any' ? 'checked' : ''}> ${esc(t('sp_mode_any'))}</label></div>
     <div class="msel-grid">${all.map(s => `<label class="chk"><input type="checkbox" data-sp="${esc(s.code)}" ${cur.codes.includes(s.code) ? 'checked' : ''}> ${esc(spName(s))}${sc[s.code] ? ` <span class="info">(${sc[s.code]})</span>` : ''}</label>`).join('')}</div>`;
   const apply = () => {
@@ -268,10 +271,12 @@ function renderSpeciesFilter(sc) {
     const codes = [...pop.querySelectorAll('input[data-sp]:checked')].map(c => c.dataset.sp);
     const mode = pop.querySelector('input[name="fspMode"]:checked').value;
     S.filter.species = codes.length ? codes.join(mode === 'all' ? '+' : ',') : kind;
-    btn.textContent = spFilterLabel(S.filter.species) + ' ▾';
+    S.filter.species_src = pop.querySelector('input[name="fspSrc"]:checked').value;
+    btn.textContent = spFilterLabel(S.filter.species, S.filter.species_src) + ' ▾';
     btn.classList.toggle('active', !!S.filter.species);
     saveUi(); reloadList();
   };
+  pop.querySelectorAll('input[name="fspSrc"]').forEach(r => { r.onchange = apply; });
   pop.querySelectorAll('input[name="fspKind"]').forEach(r => { r.onchange = () => { pop.querySelectorAll('input[data-sp]').forEach(c => { c.checked = false; }); apply(); }; });
   pop.querySelectorAll('input[name="fspMode"]').forEach(r => { r.onchange = apply; });
   pop.querySelectorAll('input[data-sp]').forEach(c => { c.onchange = () => { pop.querySelector('input[name="fspKind"][value=""]').checked = true; apply(); }; });
@@ -282,7 +287,7 @@ function activeFilterNames() {
   if (f.season) out.push(`${t('filter_season')}: ${f.season}`);
   if (f.batch) out.push(`${t('filter_batch')}: ${f.batch}`);
   if (f.status) out.push(`${t('filter_status')}: ${t('st_' + f.status)}`);
-  if (f.species) out.push(`${t('filter_species')}: ${spFilterLabel(f.species)}`);
+  if (f.species) out.push(`${t('filter_species')}: ${spFilterLabel(f.species, f.species_src)}`);
   if (f.assignee) out.push(`${t('filter_assignee')}: ${f.assignee}`);
   if (f.text) out.push(`${t('filter_text')}: ${f.text}`);
   if (f.favorite) out.push('★');
@@ -311,7 +316,7 @@ async function showBatch(batch) {
   toast(batch ? `${t('filter_batch')} ${batch}: ${S.total} ${t('items')}` : `${S.total} ${t('items')}`);
 }
 function clearFilters() {   // フォルダの選択（木）はそのまま
-  Object.assign(S.filter, { station: '', season: '', batch: '', status: '', species: '', assignee: '', text: '', favorite: '', det: '', flag: '', agree: '', exclude: '', boxes: '' });
+  Object.assign(S.filter, { station: '', season: '', batch: '', status: '', species: '', species_src: '', assignee: '', text: '', favorite: '', det: '', flag: '', agree: '', exclude: '', boxes: '' });
   $('#fText').value = '';
   renderFilters(); saveUi(); reloadList();
 }

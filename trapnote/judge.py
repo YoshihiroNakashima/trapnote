@@ -53,23 +53,33 @@ def build_where(f: dict) -> tuple[str, list]:
     if kind in ("video", "image"):
         w.append("items.kind = ?"); p.append(kind)
     sp = f.get("species")
+    # 種の条件をどの判定に当てるか: 人（確認済みなら全部、未確認なら CSV / 手動の判定）か AI（items.auto_json = モデルの判定。人が直しても残る）。既定は人
+    ai = str(f.get("species_src") or "") == "ai"
+    if ai:
+        exists = "EXISTS (SELECT 1 FROM json_each(items.auto_json, '$.species') e WHERE json_extract(e.value, '$.species') {cond})"
+        count = "(SELECT COUNT(DISTINCT json_extract(e.value, '$.species')) FROM json_each(items.auto_json, '$.species') e WHERE json_extract(e.value, '$.species') NOT IN ('empty','area','human','vehicle'))"
+        has = "items.auto_json IS NOT NULL AND "
+    else:
+        exists = "EXISTS (SELECT 1 FROM judgements j WHERE j.item_id = items.id AND (items.status = 'verified' OR j.origin IN ('csv','manual')) AND j.species {cond})"
+        count = "(SELECT COUNT(DISTINCT j.species) FROM judgements j WHERE j.item_id = items.id AND (items.status = 'verified' OR j.origin IN ('csv','manual')) AND j.species NOT IN ('empty','area','human','vehicle'))"
+        has = ""
     if sp == "none":
-        w.append("NOT EXISTS (SELECT 1 FROM judgements j WHERE j.item_id = items.id)")
+        w.append("NOT " + exists.format(cond="IS NOT NULL"))
     elif sp == "any":
-        w.append("EXISTS (SELECT 1 FROM judgements j WHERE j.item_id = items.id AND j.species NOT IN ('empty','area'))")
+        w.append(has + exists.format(cond="NOT IN ('empty','area')"))
     elif sp == "multi":                                  # 2 種以上が付いている動画（人・車・有効範囲・動物なしは数えない）
-        w.append("(SELECT COUNT(DISTINCT j.species) FROM judgements j WHERE j.item_id = items.id AND j.species NOT IN ('empty','area','human','vehicle')) >= 2")
+        w.append(has + count + " >= 2")
     elif sp:
         # 複数の種: "deer+boar" = 全部が付いている動画（2 種が同時に映ったもの）、"deer,boar" = どれかが付いている動画
         if isinstance(sp, str) and "+" in sp:
             for c in [x.strip() for x in sp.split("+") if x.strip()]:
-                w.append("EXISTS (SELECT 1 FROM judgements j WHERE j.item_id = items.id AND j.species = ?)"); p.append(c)
+                w.append(has + exists.format(cond="= ?")); p.append(c)
         else:
             codes = [x.strip() for x in str(sp).split(",") if x.strip()] if isinstance(sp, str) else [str(x) for x in sp if str(x)]
             if len(codes) == 1:
-                w.append("EXISTS (SELECT 1 FROM judgements j WHERE j.item_id = items.id AND j.species = ?)"); p.append(codes[0])
+                w.append(has + exists.format(cond="= ?")); p.append(codes[0])
             elif codes:
-                w.append(f"EXISTS (SELECT 1 FROM judgements j WHERE j.item_id = items.id AND j.species IN ({','.join('?' * len(codes))}))"); p += codes
+                w.append(has + exists.format(cond=f"IN ({','.join('?' * len(codes))})")); p += codes
     if f.get("date_from"):
         w.append(f"{EFF_DT} >= ?"); p.append(str(f["date_from"]).replace("-", "/")[:19])
     if f.get("date_to"):

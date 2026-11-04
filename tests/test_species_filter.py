@@ -37,6 +37,19 @@ def test_species_filter_multi(tmp_path):
         assert q({"species": "multi"}) == [ids[1]]                            # 2 種以上
         save_judgement(p.db, ids[2], dict(species=["boar", "human"]), "me")
         assert q({"species": "multi"}) == [ids[1]]                            # 人は数えない
+        # 人の判定と AI の判定を分ける: ids[3] は AI が deer + boar と見て（auto_json）、人はまだ（judgements は origin=auto の行だけ）
+        import json
+        auto = json.dumps(dict(model="m", species=[dict(species="deer", confidence=0.8), dict(species="boar", confidence=0.6)]))
+        p.db.x("UPDATE items SET auto_json=?, status='auto' WHERE id=?", (auto, ids[3]))
+        with p.db.tx() as c:
+            for sp in ("deer", "boar"):
+                c.execute("INSERT INTO judgements(item_id, species, origin, created_at) VALUES(?,?,?,?)", (ids[3], sp, "auto", "2026-11-04T00:00:00"))
+        assert q({"species": "multi"}) == [ids[1]]                            # 人の判定では ids[3] は 2 種ではない（AI の行は数えない）
+        assert q({"species": "multi", "species_src": "ai"}) == [ids[3]]       # AI の判定では ids[3] だけ
+        assert q({"species": "deer", "species_src": "ai"}) == [ids[3]]
+        assert q({"species": "deer+boar", "species_src": "ai"}) == [ids[3]]
+        assert q({"species": "none", "species_src": "ai"}) == [ids[0], ids[1], ids[2]]   # AI の判定がない
+        assert q({"species": "none"}) == [ids[3]]                              # 人の判定がない
         assert q({"species": "any"}) == sorted([ids[0], ids[1], ids[2]])
         assert q({"species": ""}) == ids
     finally:
