@@ -107,7 +107,8 @@ def copy_many(tasks, do_one, on_done, workers: int = 3, stop=None) -> bool:
     workers = max(1, int(workers or 1))
     stopped = False
     it = iter(tasks)
-    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="copy") as ex:
+    from .paths import background_thread
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="copy", initializer=background_thread) as ex:     # 写す読み書きは低い優先度で（画面の再生を先に通す）
         pending: dict = {}
         exhausted = False
         while True:

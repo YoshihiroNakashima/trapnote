@@ -15,6 +15,8 @@ import traceback
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 
+from .paths import background_thread
+
 from . import media
 from .db import now_iso
 
@@ -427,7 +429,7 @@ class DetectJob(Job):
         self.message = f"{hub.device_name}（{detect.frame_interval(s, hub.device)} 秒ごと）"
         t_start = time.time()
         # 次の対象のフレームは、いまの対象をモデルに通している間に別スレッドで読んでおく（CPU の読み出しと GPU の推論を重ねる）
-        reader = ThreadPoolExecutor(1, thread_name_prefix="frames")
+        reader = ThreadPoolExecutor(1, thread_name_prefix="frames", initializer=background_thread)      # 動画の読み出しは低い優先度で（再生の読み出しを先に通す）
         nxt = None
 
         def prefetch(row):

@@ -75,3 +75,20 @@ def cache_name(rel: str) -> str:
     if len(stem) > 120:
         stem = stem[:100] + "_" + hashlib.sha1(rel.encode("utf-8")).hexdigest()[:12]
     return stem
+
+
+def background_thread(on: bool = True) -> bool:
+    """この（呼び出した）スレッドを Windows の「バックグラウンド処理モード」にする（THREAD_MODE_BACKGROUND_BEGIN）:
+    ディスクの読み書きの優先度が「とても低い」になり、画面の再生・サムネイル・枠の画像など通常の優先度の読み出しが先に通る
+    （裏の処理が動画を読み続けていると HDD が詰まり、再生する動画の読み出しが何秒も待たされるため）。CPU の優先度も下がるが、空いている核があれば今までどおり動く。
+    ThreadPoolExecutor の initializer に渡す。Windows 以外では何もしない。返り値 = 設定できたか"""
+    import sys
+    if not sys.platform.startswith("win"):
+        return False
+    try:
+        import ctypes
+        k = ctypes.windll.kernel32
+        flag = 0x00010000 if on else 0x00020000          # THREAD_MODE_BACKGROUND_BEGIN / END
+        return bool(k.SetThreadPriority(k.GetCurrentThread(), flag))
+    except Exception:
+        return False
