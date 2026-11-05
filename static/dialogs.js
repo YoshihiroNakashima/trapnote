@@ -1178,7 +1178,8 @@ async function subsetDialog(ids, opts) {
     ${pathRow('subDir', t('sub_dir'), 'folder', '', t('sub_dir_help'))}
     <div class="form-row"><label>${esc(t('sub_name'))}</label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><input type="text" id="subName" spellcheck="false" style="width:220px" value="${esc(name0)}" placeholder="gold_station"> <span class="info">${esc(t('sub_name_help'))}</span></span></div>
     <div class="form-row"><label></label><div id="subPlan" class="callout">${esc(t('sub_plan_wait'))}</div></div>
-    <div class="form-row"><label></label><label class="chk"><input type="checkbox" id="subVideos" checked> ${esc(t('sub_videos'))}</label></div>
+    <div class="form-row"><label></label><span style="display:flex;flex-direction:column;gap:4px"><label class="chk"><input type="checkbox" id="subVideos" checked> ${esc(t('sub_videos'))}</label>
+      <label class="chk" title="${esc(t('sub_convert_help'))}"><input type="checkbox" id="subConvert" ${S.settings.copy_convert !== false ? 'checked' : ''}> ${esc(t('sub_convert'))}</label><span class="info">${esc(t('sub_convert_help'))}</span></span></div>
     <div id="subStatus"></div>
     <div class="modal-actions"><button id="mCancel">${esc(t('close'))}</button><button id="subStop" class="danger-outline hidden" title="${esc(t('sub_stop_tip'))}">${esc(t('jb_stop'))}</button><button id="mOk" class="primary">${esc(t('sub_run'))}</button></div>`);
   subsetModalEl = m;
@@ -1218,7 +1219,8 @@ async function subsetDialog(ids, opts) {
     const out = q('#subDir').value.trim();
     if (!out) { toast(t('cross_need_dir'), 'error'); return; }
     try {
-      const j = await api('/api/export/subset', { ids: ids && ids.length ? ids : undefined, filters: filters || undefined, out_dir: out, name: q('#subName').value.trim(), copy_videos: q('#subVideos').checked });
+      const j = await api('/api/export/subset', { ids: ids && ids.length ? ids : undefined, filters: filters || undefined, out_dir: out, name: q('#subName').value.trim(), copy_videos: q('#subVideos').checked, convert: q('#subConvert').checked });
+      S.settings.copy_convert = q('#subConvert').checked;
       histRemember('subset_dir', out);
       S._bgWasRunning = true; m._running = true; m.querySelector('#mOk').disabled = true;
       subsetOnJobs(j);

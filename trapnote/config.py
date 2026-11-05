@@ -30,6 +30,7 @@ DEFAULTS = {
     "avi_direct": True,             # MJPEG の AVI は変換せず、画面側でコマ（JPEG）を直接読んで再生する（音は出ない）
     "prefetch_n": 3,                # 開いた動画の次の何本を先に変換しておくか
     "copy_workers": 3,              # 動画を別のフォルダへ写すときの並列数（NAS からは 2〜4 本同時の方が速い）
+    "copy_convert": True,           # 別のフォルダへ写すとき、ブラウザがそのまま再生できない動画（MJPEG の AVI など）は H.264 の MP4 に変換して写す
     "auto_advance": True,           # 確定したら次の対象へ進む
     "play_speed": 1.0,              # 再生の速さ（0.5 / 1 / 2 / 4）
     "loop": False,                  # ループ再生
@@ -94,6 +95,7 @@ class Settings:
             d["transcode_codec"] = "h264"
         d["prefetch_n"] = int(d["prefetch_n"])
         d["copy_workers"] = int(d["copy_workers"])
+        d["copy_convert"] = bool(d.get("copy_convert", True))
         try:
             d["batch_size"] = min(64, max(1, int(d.get("batch_size") or 8)))
         except Exception:

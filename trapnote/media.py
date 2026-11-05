@@ -415,7 +415,7 @@ def has_nvenc(ffmpeg: str | None) -> bool:
     return ok
 
 
-def archive_encode(ffmpeg: str, src: str, dst: str, use_nvenc: bool, crf: int = 19, creation_time: str | None = None) -> str:
+def archive_encode(ffmpeg: str, src: str, dst: str, use_nvenc: bool, crf: int = 19, creation_time: str | None = None, background: bool = False) -> str:
     """保存用の H.264 MP4 を作る（解像度と fps は元のまま、音はそのまま AAC）。creation_time は YYYY/MM/DD HH:MM:SS（カメラの時刻）。
     返り値は使った符号化器（nvenc / libx264）。途中のファイルは .tmp で、終わってから名前を変える"""
     os.makedirs(os.path.dirname(dst), exist_ok=True)
@@ -439,7 +439,7 @@ def archive_encode(ffmpeg: str, src: str, dst: str, use_nvenc: bool, crf: int = 
             c = [x for x in cmd if x not in ("-c:a", "aac", "-b:a", "128k")] if an else cmd
             if an:
                 c.insert(-1, "-an")
-            r = _run(c, timeout=7200)
+            r = _run(c, timeout=7200, background=background)
             if r.returncode == 0 and os.path.isfile(tmp) and os.path.getsize(tmp) > 0:
                 os.replace(tmp, dst)
                 return "nvenc" if (use_nvenc and i == 0) else "libx264"

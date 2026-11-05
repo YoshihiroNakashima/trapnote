@@ -2211,23 +2211,28 @@ def match_project_items(project, other_dir: str) -> dict:
     other = open_source(other_dir, allow_cross=True)
     try:
         other_cross = other.is_cross                                   # 横断（gold_season など）なら相対パスの先頭はその参照先の名前（こちらと違う名前のこともある）
-        items = [dict(r) for r in other.db.q("SELECT id, rel_path, name, station, season FROM items ORDER BY id")]
+        ocols = {r["name"] for r in other.db.q("PRAGMA table_info(items)")}
+        items = [dict(r) for r in other.db.q(f"SELECT id, rel_path, {'orig_rel_path' if 'orig_rel_path' in ocols else 'NULL AS orig_rel_path'}, name, station, season FROM items ORDER BY id")]
     finally:
         other.close()
     rows, already, unmatched = [], defaultdict(int), []
     seen = set()
     for it in items:
         rel_path = (it["rel_path"] or "").replace("\\", "/")
-        first, _, rest = rel_path.partition("/")
         cands = []
-        if first in src_names and rest:
-            cands.append((first, rest))
-        for sn in src_names:
-            cands.append((sn, rel_path))
-            if it.get("season"):
-                cands.append((sn, f"{it['season']}/{rel_path}"))
-            if other_cross and rest:
-                cands.append((sn, rest))
+        # MP4 に変換して写したもの（保存用の変換も）は元の相対パス（orig_rel_path）で探す。名前も元のもので
+        rels = [x.replace("\\", "/") for x in (it.get("orig_rel_path"), rel_path) if x]
+        names = [os.path.basename(x) for x in rels] or [it["name"]]
+        for rp in rels:
+            first, _, rest = rp.partition("/")
+            if first in src_names and rest:
+                cands.append((first, rest))
+            for sn in src_names:
+                cands.append((sn, rp))
+                if it.get("season"):
+                    cands.append((sn, f"{it['season']}/{rp}"))
+                if other_cross and rest:
+                    cands.append((sn, rest))
         hit = None
         seen.clear()
         for sn, rel in cands:
@@ -2238,14 +2243,17 @@ def match_project_items(project, other_dir: str) -> dict:
             if hit:
                 break
         if not hit and it.get("station"):                           # 最後は 地点 + ファイル名（調査回も分かればそれも）で 1 行だけ見つかれば
-            if it.get("season"):
-                found = db.q("SELECT id, source, rel, season, station, name, item_id FROM catalog WHERE station=? AND name=? AND season=? LIMIT 2", (it["station"], it["name"], it["season"]))
-                if len(found) == 1:
-                    hit = found[0]
-            if not hit:
-                found = db.q("SELECT id, source, rel, season, station, name, item_id FROM catalog WHERE station=? AND name=? LIMIT 2", (it["station"], it["name"]))
-                if len(found) == 1:
-                    hit = found[0]
+            for nm in dict.fromkeys(names):
+                if it.get("season"):
+                    found = db.q("SELECT id, source, rel, season, station, name, item_id FROM catalog WHERE station=? AND name=? AND season=? LIMIT 2", (it["station"], nm, it["season"]))
+                    if len(found) == 1:
+                        hit = found[0]
+                if not hit:
+                    found = db.q("SELECT id, source, rel, season, station, name, item_id FROM catalog WHERE station=? AND name=? LIMIT 2", (it["station"], nm))
+                    if len(found) == 1:
+                        hit = found[0]
+                if hit:
+                    break
         if not hit:
             unmatched.append(rel_path or it["name"])
             continue
@@ -2700,6 +2708,12 @@ def export_list(project, path: str, f: dict | None = None) -> dict:
     return dict(path=path, n=len(rows))
 
 
+def _mp4_rel(rel: str) -> str:
+    """変換して写すときの相対パス: 拡張子を .mp4 に（元が大文字なら .MP4）"""
+    stem, ext = os.path.splitext(rel)
+    return stem + (".MP4" if ext.isupper() and ext else ".mp4")
+
+
 def export_target(project, out_dir: str, name: str = "") -> dict:
     """「別のフォルダへ写す」の写す先を決める（写す前の確認にも使う）。できるものは必ず 調査回型のプロジェクトで、自己完結のフォルダ:
     <out_dir>/<name>/ に動画（<相対パス>）と TrapNote（判定など）。name が空なら <out_dir> 自体がそのフォルダ。
@@ -2755,15 +2769,25 @@ def export_target(project, out_dir: str, name: str = "") -> dict:
     return dict(dataset_dir=dataset_dir, pdir=norm(pdir), root=norm(root), exists=is_project_dir(pdir), legacy=legacy, rename_cross=rename_cross, name=name or os.path.basename(dataset_dir))
 
 
-def export_subset(project, ids: list[int], out_dir: str, copy_videos_too: bool = True, progress=None, stop=None, name: str = "", workers: int = 3) -> dict:
+def export_subset(project, ids: list[int], out_dir: str, copy_videos_too: bool = True, progress=None, stop=None, name: str = "", workers: int = 3,
+                  convert: bool = True, ffmpeg: str | None = None, ffprobe: str | None = None, crf: int = 19) -> dict:
     """選んだ対象を、動画と判定ごと別のフォルダへ写して、そこに新しい 調査回型 のプロジェクトを作る（横断からでも必ず調査回型。export_target の決まり）:
     <out_dir>/<name>/<相対パス> に動画、<out_dir>/<name>/TrapNote に種リスト・追加項目・設定・対象（メタデータ・判定・追加項目の値・AI の判定・枠・特徴量・枠の画像）。
     配布や手元の複製、別の PC での作業、横断プロジェクトからの評価用データセット（gold_station など）の切り出しに。
-    既にそこにプロジェクトがあれば足す（同じ相対パスの対象は飛ばす）。どのプロジェクト（調査回・横断）からでも使える"""
+    既にそこにプロジェクトがあれば足す（同じ相対パスの対象は飛ばす）。どのプロジェクト（調査回・横断）からでも使える。
+    convert（既定）: ブラウザがそのまま再生できない動画（MJPEG の AVI など）は H.264 の MP4 に変換して写す（保存用の変換と同じ。NVENC があればそれで）。
+    写した先では相対パスが .mp4 になり、元の相対パスは orig_rel_path に残る（組として取り込むときの照合、特徴量・枠の画像のキャッシュ名は拡張子を見ないのでそのまま使える）"""
+    from . import media
     from .fcopy import CopyCancelled, Throughput, copy_many, copy_to
     from .judge import item_state
     from .project import Project, is_project_dir
     from .train import crop_path, features_path
+    if convert and copy_videos_too:
+        if not ffmpeg:
+            ffmpeg, ffprobe = media.find_ffmpeg("")
+        if not ffmpeg:
+            raise RuntimeError("ffmpeg がありません（設定で場所を指定するか、「MP4 に変換して写す」を外してください）")
+    use_nvenc = bool(convert and copy_videos_too and media.has_nvenc(ffmpeg))
     tg = export_target(project, out_dir, name)
     if tg["rename_cross"]:
         os.rename(tg["dataset_dir"], tg["rename_cross"])
@@ -2790,7 +2814,7 @@ def export_subset(project, ids: list[int], out_dir: str, copy_videos_too: bool =
         dcols = {r["name"] for r in ddb.q("PRAGMA table_info(items)")}
         copy_cols = [c for c in cols if c in dcols and c not in ITEM_COPY_SKIP - {"batch"}]
         now = now_iso()
-        counts = dict(n=0, miss=0, skip=0)
+        counts = dict(n=0, miss=0, skip=0, conv=0, conv_fail=0)
         tp = Throughput()
         ids = [int(x) for x in ids]
         total = len(ids)
@@ -2808,23 +2832,58 @@ def export_subset(project, ids: list[int], out_dir: str, copy_videos_too: bool =
                     continue
                 srow = dict(srow)
                 rel = srow["rel_path"]
-                if ddb.scalar("SELECT 1 FROM items WHERE rel_key=? LIMIT 1", (rel_key(rel),)):       # 写してあるものは飛ばす（動画も触らない）
+                if ddb.scalar("SELECT 1 FROM items WHERE rel_key IN (?, ?) OR orig_rel_path=? LIMIT 1", (rel_key(rel), rel_key(_mp4_rel(rel)), rel)):   # 写してあるものは飛ばす（動画も触らない。変換して写したものも）
                     counts["skip"] += 1
                     report(rel)
                     continue
                 yield (sid, srow, rel)
 
+        def want_convert(srow) -> bool:
+            """変換して写すか: 動画で、ブラウザがそのまま再生できないもの（H.264 の MP4 はそのまま写す）"""
+            if not convert or srow.get("kind") != "video":
+                return False
+            return not media.direct_playable(srow.get("vcodec"), srow.get("acodec"), srow.get("container"))
+
         def do_copy(task):
-            """動画を <out_dir>/<相対パス> に写す（横断なら <参照先>/<参照先での相対パス>）。並列のスレッドで。返り値: "ok" / "missing" / "same"（同じ大きさのものが既にある）"""
+            """動画を <out_dir>/<相対パス> に写す（横断なら <参照先>/<参照先での相対パス>）。並列のスレッドで。
+            返り値: "ok" / "missing" / "same"（同じ大きさのものが既にある）/ ("conv", 新しい相対パス, probe の結果, 元の大きさ, 変換後の stat)（MP4 に変換して写した）"""
             sid, srow, rel = task
             if not copy_videos_too:
                 return "ok"
             src_f = project.abs_path(rel)
-            dst_f = os.path.join(out_dir, *rel.split("/"))
             try:
                 size = os.path.getsize(src_f)
             except OSError:
                 return "missing"
+            if want_convert(srow):
+                new_rel = _mp4_rel(rel)
+                dst_f = os.path.join(out_dir, *new_rel.split("/"))
+                try:
+                    if not (os.path.isfile(dst_f) and os.path.getsize(dst_f) > 0):
+                        if stop and stop():
+                            raise CopyCancelled()
+                        media.archive_encode(ffmpeg, src_f, dst_f, use_nvenc, crf, srow.get("datetime"), background=True)
+                        try:
+                            st = os.stat(src_f)
+                            os.utime(dst_f, (st.st_atime, st.st_mtime))      # 更新時刻（AVI の撮影日時の代わり）を引き継ぐ
+                        except OSError:
+                            pass
+                        tp.add(size)                                     # 読んだ量（元の大きさ）で速さを出す
+                    m = media.probe(dst_f, ffmpeg, ffprobe, bool(project.setting("z_is_utc")), background=True)
+                    od, nd = srow.get("duration"), m.get("duration")
+                    if not m.get("width") or (od and nd and abs(od - nd) > max(0.5, 0.02 * od)):
+                        try:
+                            os.remove(dst_f)
+                        except OSError:
+                            pass
+                        raise RuntimeError(f"検算に通りません（長さ {od} → {nd}）")
+                    return ("conv", new_rel, m, size, os.stat(dst_f))
+                except CopyCancelled:
+                    raise
+                except Exception as e:                               # 変換できないもの（壊れた動画など）はそのまま写す
+                    log.warning("MP4 に変換できないのでそのまま写します %s: %s", rel, e)
+                    counts["conv_fail"] += 1
+            dst_f = os.path.join(out_dir, *rel.split("/"))
             if os.path.isfile(dst_f) and os.path.getsize(dst_f) == size:
                 return "same"
             tp.add(copy_to(src_f, dst_f, stop))
@@ -2845,6 +2904,13 @@ def export_subset(project, ids: list[int], out_dir: str, copy_videos_too: bool =
                 vals = {k: srow.get(k) for k in copy_cols}
                 vals.update(rel_path=rel, rel_key=rel_key(rel), folder=os.path.dirname(rel), src_dir=None, src_id=None, src_rel=None, updated_at=now,
                             orig_rel_path=srow.get("orig_rel_path"), orig_size=srow.get("orig_size"), archived_at=srow.get("archived_at"))
+                if isinstance(res, tuple) and res[0] == "conv":                   # MP4 に変換して写した: 相対パス・大きさ・codec は新しいものに、元の相対パスは orig_rel_path に
+                    _, new_rel, m, size, nst = res
+                    vals.update(rel_path=new_rel, rel_key=rel_key(new_rel), name=os.path.basename(new_rel), folder=os.path.dirname(new_rel), size=nst.st_size, mtime=nst.st_mtime,
+                                container=m["container"], vcodec=m["vcodec"], acodec=m["acodec"], width=m["width"] or srow.get("width"), height=m["height"] or srow.get("height"),
+                                fps=m["fps"] or srow.get("fps"), n_frames=m["n_frames"] or srow.get("n_frames"), duration=m.get("duration") or srow.get("duration"), meta_state=1,
+                                orig_rel_path=srow.get("orig_rel_path") or rel, orig_size=srow.get("orig_size") or size, archived_at=now)
+                    counts["conv"] += 1
                 vals = {k: v for k, v in vals.items() if k in dcols}
                 names = list(vals.keys())
                 cur = c.execute(f"INSERT OR IGNORE INTO items({', '.join(names)}) VALUES({', '.join('?' * len(names))})", [vals[k] for k in names])
@@ -2880,7 +2946,8 @@ def export_subset(project, ids: list[int], out_dir: str, copy_videos_too: bool =
         # 動画は workers 本ずつ並列に写す（NAS からは 1 本ずつより速い）。「止める」は写している途中でも効く（.part を消す）。写し終えた分は残り、やり直せば続きから
         stopped = copy_many(tasks(), do_copy, record, workers=workers if copy_videos_too else 1, stop=stop)
         n, n_miss, n_skip = counts["n"], counts["miss"], counts["skip"]
-        return dict(n=n, n_missing=n_miss, n_skipped=n_skip, out_dir=out_dir, dataset_dir=tg["dataset_dir"], project_dir=dst.dir, fresh=fresh, stopped=stopped, n_left=len(ids) - n - n_miss - n_skip,
+        return dict(n=n, n_missing=n_miss, n_skipped=n_skip, n_converted=counts["conv"], n_convert_failed=counts["conv_fail"], encoder=("nvenc" if use_nvenc else "libx264") if convert else "", out_dir=out_dir, dataset_dir=tg["dataset_dir"],
+                    project_dir=dst.dir, fresh=fresh, stopped=stopped, n_left=len(ids) - n - n_miss - n_skip,
                     renamed_cross=tg["rename_cross"], bytes=tp.bytes, seconds=round(tp.seconds, 1), mb_s=round(tp.mb_s, 1), speed=tp.text() if tp.bytes else "")
     finally:
         dst.close()

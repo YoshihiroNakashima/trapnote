@@ -464,7 +464,12 @@ def make_app(session: Session) -> web.Application:
         if key(tg["pdir"]) == key(str(APP_DIR)) or key(tg["dataset_dir"]) == key(str(APP_DIR)):
             raise ApiError("そこには写せません（プロジェクトのフォルダがアプリのフォルダになってしまう）。別のフォルダか名前を指定してください")
         yielded = S.bg.yield_current(("meta", "scan"))
-        S.bg.submit(SubsetExportJob(ids, out, b.get("copy_videos", True) is not False, name), front=True)
+        conv = b.get("convert")
+        if conv is None:
+            conv = S.settings.get("copy_convert", True)
+        else:
+            S.settings.update(dict(copy_convert=bool(conv)))                  # 次回の既定に
+        S.bg.submit(SubsetExportJob(ids, out, b.get("copy_videos", True) is not False, name, bool(conv)), front=True)
         if yielded == "meta":
             S.bg.submit(MetaJob())
         return jr(S.jobs_status())

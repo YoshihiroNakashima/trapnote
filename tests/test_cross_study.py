@@ -267,7 +267,7 @@ def test_train_holdout_batches(tmp_path):
 
 
 def test_export_subset(tmp_path):
-    """選んだ動画を別のフォルダへプロジェクトごと写す: 動画・種リスト・追加項目・判定・AI の判定が写り、写した先は普通のプロジェクトとして開ける。2 回目は足す"""
+    """選んだ動画を別のフォルダへプロジェクトごと写す（convert=False = そのまま写す。既定の MP4 変換は test_export_subset_convert_mp4）: 動画・種リスト・追加項目・判定・AI の判定が写り、写した先は普通のプロジェクトとして開ける。2 回目は足す"""
     make_nas(tmp_path)
     p = make_cross(tmp_path)
     try:
@@ -279,7 +279,7 @@ def test_export_subset(tmp_path):
         p.species.add(dict(name_ja="キジ", name_en="Kiji", name_sci="Phasianus versicolor"))
         out = str(tmp_path / "out" / "subset1")
         ids = [items["IMG_0000.AVI"], items["IMG_0001.AVI"], items["IMG_0002.AVI"]]
-        r = cross.export_subset(p, ids, out)
+        r = cross.export_subset(p, ids, out, convert=False)
         assert r["n"] == 3 and r["n_missing"] == 0 and r["n_skipped"] == 0 and r["fresh"]
         assert os.path.isfile(os.path.join(out, "PRM_N", "N240128", "BSN0812", "IMG_0000.AVI"))
         d = Project(r["project_dir"])
@@ -296,21 +296,21 @@ def test_export_subset(tmp_path):
         finally:
             d.close()
         # 2 回目: 同じものは飛ばし、新しいものだけ足す
-        r2 = cross.export_subset(p, ids + [items["IMG_0003.AVI"]], out)
+        r2 = cross.export_subset(p, ids + [items["IMG_0003.AVI"]], out, convert=False)
         assert r2["n"] == 1 and r2["n_skipped"] == 3 and not r2["fresh"]
         with pytest.raises(ValueError):
-            cross.export_subset(p, ids, p.root)
+            cross.export_subset(p, ids, p.root, convert=False)
         with pytest.raises(ValueError):                                             # 動画のフォルダの中も不可
-            cross.export_subset(p, ids, os.path.join(p.root, "sub"))
+            cross.export_subset(p, ids, os.path.join(p.root, "sub"), convert=False)
         with pytest.raises(ValueError):                                             # ドライブの直下も不可
-            cross.export_subset(p, ids, "/")
+            cross.export_subset(p, ids, "/", convert=False)
         # 途中で止める: 2 本目まで写したところで止まり、残りの数が返る。やり直せば続きから（写してあるものは飛ばす）
         out2 = str(tmp_path / "out" / "subset2")
         calls = []
-        r3 = cross.export_subset(p, ids + [items["IMG_0003.AVI"]], out2, True, None, lambda: len(calls) >= 2 or calls.append(1))
+        r3 = cross.export_subset(p, ids + [items["IMG_0003.AVI"]], out2, True, None, lambda: len(calls) >= 2 or calls.append(1), convert=False)
         assert r3["stopped"] and r3["n"] == 2 and r3["n_left"] == 2
         assert not any(f.endswith(".part") for _, _, fs in os.walk(out2) for f in fs)
-        r4 = cross.export_subset(p, ids + [items["IMG_0003.AVI"]], out2)
+        r4 = cross.export_subset(p, ids + [items["IMG_0003.AVI"]], out2, convert=False)
         assert not r4["stopped"] and r4["n"] == 2 and r4["n_skipped"] == 2 and r4["n_left"] == 0
     finally:
         p.close()
@@ -436,5 +436,59 @@ def test_tidy_named_project(tmp_path):
             d.close()
         with pytest.raises(ValueError):
             tidy_named_project(os.path.join(ds, PROJECT_DIRNAME))                     # もう旧形式ではない
+    finally:
+        p.close()
+
+
+def test_export_subset_convert_mp4(tmp_path):
+    """「別のフォルダへ写す」の既定: MJPEG の AVI は H.264 の MP4 に変換して写す。写した先では相対パスが .mp4、元の相対パスは orig_rel_path。
+    特徴量のキャッシュ名は拡張子を見ないのでそのまま。組として取り込むときの照合は orig_rel_path で通る。変換できないもの（空のファイル）はそのまま写す"""
+    cv2 = pytest.importorskip("cv2")
+    from trapnote import media
+    ffmpeg, ffprobe = media.find_ffmpeg("")
+    if not ffmpeg:
+        pytest.skip("ffmpeg がない")
+    make_nas(tmp_path)
+    p = make_cross(tmp_path)
+    try:
+        _import(p, {"station": "BSN0812", "season": "N240128"}, dict(unit="station", n=1, seed=1), "gold")
+        items = {r["name"]: r["id"] for r in p.db.q("SELECT id, name, rel_path FROM items WHERE batch='gold' ORDER BY name")}
+        rels = {r["name"]: r["rel_path"] for r in p.db.q("SELECT name, rel_path FROM items WHERE batch='gold'")}
+        # 1 本目だけ本物の MJPEG AVI にする（ほかは空のファイル = 変換できない）
+        src = p.abs_path(rels["IMG_0000.AVI"])
+        w = cv2.VideoWriter(src, cv2.VideoWriter_fourcc(*"MJPG"), 10, (160, 120))
+        for i in range(30):
+            fr = np.full((120, 160, 3), 40, np.uint8); cv2.rectangle(fr, (10 + i * 3, 30), (50 + i * 3, 80), (200, 200, 200), -1); w.write(fr)
+        w.release()
+        m = media.probe(src, ffmpeg, ffprobe)
+        p.db.x("UPDATE items SET vcodec=?, container=?, duration=?, meta_state=1 WHERE id=?", (m["vcodec"], m["container"], m["duration"], items["IMG_0000.AVI"]))
+        judge_save(p.db, items["IMG_0000.AVI"], dict(species=["deer"]), "tester")
+        out = str(tmp_path / "out" / "conv")
+        ids = [items["IMG_0000.AVI"], items["IMG_0001.AVI"]]
+        r = cross.export_subset(p, ids, out, convert=True, ffmpeg=ffmpeg, ffprobe=ffprobe)
+        assert r["n"] == 2 and r["n_converted"] == 1 and r["n_convert_failed"] == 1 and r["encoder"] in ("nvenc", "libx264")
+        mp4 = os.path.join(out, "PRM_N", "N240128", "BSN0812", "IMG_0000.MP4")
+        assert os.path.isfile(mp4) and not os.path.isfile(os.path.join(out, "PRM_N", "N240128", "BSN0812", "IMG_0000.AVI"))
+        assert os.path.isfile(os.path.join(out, "PRM_N", "N240128", "BSN0812", "IMG_0001.AVI"))        # 変換できないものはそのまま
+        d = Project(r["project_dir"])
+        try:
+            row = dict(d.db.q1("SELECT rel_path, orig_rel_path, name, vcodec, container, status, meta_state FROM items WHERE name LIKE 'IMG_0000%'"))
+            assert row["rel_path"] == "PRM_N/N240128/BSN0812/IMG_0000.MP4" and row["orig_rel_path"] == "PRM_N/N240128/BSN0812/IMG_0000.AVI"
+            assert row["vcodec"] == "h264" and row["container"] == "mp4" and row["status"] == "verified" and row["meta_state"] == 1
+            assert media.direct_playable(row["vcodec"], None, row["container"])
+            from trapnote.paths import cache_name
+            assert cache_name(row["rel_path"]) == cache_name(row["orig_rel_path"])
+        finally:
+            d.close()
+        # 2 回目は写してあるものを飛ばす（変換したものも）
+        r2 = cross.export_subset(p, ids, out, convert=True, ffmpeg=ffmpeg, ffprobe=ffprobe)
+        assert r2["n"] == 0 and r2["n_skipped"] == 2
+        # 組として取り込むときの照合: 変換した .mp4 でも元の相対パスでカタログの行が見つかる
+        mt = cross.match_project_items(p, r["project_dir"])
+        assert mt["n_items"] == 2 and not mt["unmatched"] and sum(mt["already"].values()) == 2
+        # convert を切れば従来どおり AVI のまま
+        out2 = str(tmp_path / "out" / "plain")
+        r3 = cross.export_subset(p, ids, out2, convert=False)
+        assert r3["n"] == 2 and r3["n_converted"] == 0 and os.path.isfile(os.path.join(out2, "PRM_N", "N240128", "BSN0812", "IMG_0000.AVI"))
     finally:
         p.close()
