@@ -153,9 +153,10 @@ function renderFilters() {
   fillSelect($('#fDet'), [['', t('all_det')], ['low', `${t('det_low')}${cnt(low)}`],
       ['cmp:disagree', `${t('cmp_disagree')}${cnt(ag.mismatch)}`], ['cmp:partial', `${t('cmp_partial')}${cnt(ag.partial)}`], ['cmp:agree', `${t('cmp_agree')}${cnt(ag.match)}`], ['cmp:nohuman', t('cmp_nohuman')], ['cmp:any', `${t('cmp_any')}${cnt(ag.auto)}`], ['cmp:rechecked', `${t('cmp_rechecked')}${cnt(ag.rechecked)}`], ['excl', `${t('det_excluded')}${cnt(f.excluded)}`],
       ['box:0', t('det_box0')], ['box:1', t('det_box1')], ['box:2', t('det_box2')], ['box:3+', t('det_box3')],
+      ['crops', t('det_crops')], ['train', t('det_train')],
       ['todo', t('det_todo')], ['done', t('det_done')], ['animal', t('det_animal')], ['person', t('det_person')], ['vehicle', t('det_vehicle')], ['none', t('det_none')], ['failed', t('det_failed')]],
     S.filter.flag === 'low' ? 'low' : S.filter.exclude ? 'excl' : S.filter.boxes ? 'box:' + S.filter.boxes : (S.filter.agree ? 'cmp:' + S.filter.agree : (S.filter.det || '')));
-  fillSelect($('#sortSel'), [['station', t('sort_station')], ['datetime', t('sort_datetime')], ['name', t('sort_name')], ['path', t('sort_path')], ['status', t('sort_status')], ['updated', t('sort_updated')], ['confidence', t('sort_confidence')], ['boxes', t('sort_boxes')], ['id', t('sort_id')]], S.sort);
+  fillSelect($('#sortSel'), [['station', t('sort_station')], ['datetime', t('sort_datetime')], ['name', t('sort_name')], ['path', t('sort_path')], ['status', t('sort_status')], ['updated', t('sort_updated')], ['confidence', t('sort_confidence')], ['boxes', t('sort_boxes')], ['crops', t('sort_crops')], ['id', t('sort_id')]], S.sort);
   $('#sortDir').textContent = S.desc ? '↑' : '↓';
 }
 // ---------- フォルダの木（Picasa 風。クリックでその中に絞り込む） ----------
@@ -266,6 +267,7 @@ function renderSpeciesFilter(sc) {
   pop.innerHTML = `<div class="msel-mode"><span class="info">${esc(t('sp_src'))}</span><label class="chk" title="${esc(t('sp_src_human_tip'))}"><input type="radio" name="fspSrc" value="" ${src ? '' : 'checked'}> ${esc(t('sp_src_human'))}</label><label class="chk" title="${esc(t('sp_src_ai_tip'))}"><input type="radio" name="fspSrc" value="ai" ${src ? 'checked' : ''}> ${esc(t('sp_src_ai'))}</label></div>
     <div class="msel-head"><label class="chk"><input type="radio" name="fspKind" value="" ${!cur.kind ? 'checked' : ''}> ${esc(t('all_species'))}</label><label class="chk"><input type="radio" name="fspKind" value="none" ${cur.kind === 'none' ? 'checked' : ''}> ${esc(t('sp_none'))}</label><label class="chk"><input type="radio" name="fspKind" value="any" ${cur.kind === 'any' ? 'checked' : ''}> ${esc(t('sp_any'))}</label><label class="chk" title="${esc(t('sp_multi_tip'))}"><input type="radio" name="fspKind" value="multi" ${cur.kind === 'multi' ? 'checked' : ''}> ${esc(t('sp_multi'))}</label></div>
     <div class="msel-mode"><span class="info">${esc(t('sp_pick_help'))}</span><label class="chk" title="${esc(t('sp_mode_all_tip'))}"><input type="radio" name="fspMode" value="all" ${cur.mode === 'all' ? 'checked' : ''}> ${esc(t('sp_mode_all'))}</label><label class="chk" title="${esc(t('sp_mode_any_tip'))}"><input type="radio" name="fspMode" value="any" ${cur.mode === 'any' ? 'checked' : ''}> ${esc(t('sp_mode_any'))}</label></div>
+    <div class="msel-mode"><button type="button" class="small" id="fspAllAnimals" title="${esc(t('sp_all_animals_tip'))}">${esc(t('sp_all_animals'))}</button><button type="button" class="small" id="fspClear">${esc(t('sp_clear_picks'))}</button></div>
     <div class="msel-grid">${all.map(s => `<label class="chk"><input type="checkbox" data-sp="${esc(s.code)}" ${cur.codes.includes(s.code) ? 'checked' : ''}> ${esc(spName(s))}${sc[s.code] ? ` <span class="info">(${sc[s.code]})</span>` : ''}</label>`).join('')}</div>`;
   const apply = () => {
     const kind = pop.querySelector('input[name="fspKind"]:checked').value;
@@ -281,6 +283,16 @@ function renderSpeciesFilter(sc) {
   pop.querySelectorAll('input[name="fspKind"]').forEach(r => { r.onchange = () => { pop.querySelectorAll('input[data-sp]').forEach(c => { c.checked = false; }); apply(); }; });
   pop.querySelectorAll('input[name="fspMode"]').forEach(r => { r.onchange = apply; });
   pop.querySelectorAll('input[data-sp]').forEach(c => { c.onchange = () => { pop.querySelector('input[name="fspKind"][value=""]').checked = true; apply(); }; });
+  // 動物の種に一括で印（固定項目 = 動物なし・人・車・有効範囲・不明は付けない）。全部に印なら「いずれか」でないと何も残らないので「いずれか」に
+  pop.querySelector('#fspAllAnimals').onclick = e => {
+    e.preventDefault(); e.stopPropagation();
+    const fixed = new Set((S.species.fixed || []).map(s => s.code));
+    pop.querySelectorAll('input[data-sp]').forEach(c => { c.checked = !fixed.has(c.dataset.sp); });
+    pop.querySelector('input[name="fspKind"][value=""]').checked = true;
+    pop.querySelector('input[name="fspMode"][value="any"]').checked = true;
+    apply();
+  };
+  pop.querySelector('#fspClear').onclick = e => { e.preventDefault(); e.stopPropagation(); pop.querySelectorAll('input[data-sp]').forEach(c => { c.checked = false; }); pop.querySelector('input[name="fspKind"][value=""]').checked = true; apply(); };
 }
 function activeFilterNames() {
   const f = S.filter, out = [];

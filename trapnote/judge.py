@@ -21,6 +21,7 @@ SORTS = {
     "status": "items.status",
     "updated": "COALESCE(items.updated_at, '')",
     "boxes": "items.n_boxes",
+    "crops": "COALESCE(json_extract(items.cls_json, '$.n_crops'), 0)",     # 学習に使う枠（分類器に入れた枠）の数
     "station": f"COALESCE(items.station, '') || '/' || COALESCE({EFF_DT}, '')",
     "confidence": "COALESCE((SELECT MIN(confidence) FROM judgements j WHERE j.item_id=items.id AND j.origin='auto'), 2)",
     "id": "items.id",
@@ -131,6 +132,12 @@ def build_where(f: dict) -> tuple[str, list]:
         w.append(f"items.det_state = 1 AND items.det_json LIKE '%\"{det}\": true%'")
     elif det == "none":
         w.append("items.det_state = 1 AND items.det_json LIKE '%\"animal\": false%' AND items.det_json LIKE '%\"person\": false%' AND items.det_json LIKE '%\"vehicle\": false%'")
+    elif det == "crops":                     # 学習枠あり: 種判別で分類器に入れた枠がある（右の欄の「学習に使う枠」が出る = 学習フレーム（橙）がある）
+        w.append("items.det_state = 1 AND items.cls_state = 1 AND COALESCE(json_extract(items.cls_json, '$.n_crops'), 0) > 0")
+    elif det == "train":                     # 学習に入る: 確認済みで学習枠があり、学習から外しておらず、「不明」「人」「車」「有効範囲」だけではない（動物なしの枠は「動物なし」の見本として入る）
+        w.append("items.status = 'verified' AND items.det_state = 1 AND items.cls_state = 1 AND COALESCE(json_extract(items.cls_json, '$.n_crops'), 0) > 0 AND items.train_exclude = 0 "
+                 "AND NOT EXISTS (SELECT 1 FROM judgements j WHERE j.item_id = items.id AND j.species = 'unknown') "
+                 "AND EXISTS (SELECT 1 FROM judgements j WHERE j.item_id = items.id AND j.species NOT IN ('human', 'vehicle', 'area', 'unknown'))")
     if f.get("missing") in (True, "1", 1, "true"):
         w.append("items.missing = 1")
     elif not f.get("include_missing"):
