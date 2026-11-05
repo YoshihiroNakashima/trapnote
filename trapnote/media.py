@@ -76,8 +76,21 @@ def reset_ffmpeg_cache() -> None:
         _found.clear()
 
 
-def _run(cmd: list[str], timeout: float = 600) -> subprocess.CompletedProcess:
-    return subprocess.run(cmd, capture_output=True, timeout=timeout, creationflags=NO_WINDOW)
+def _run(cmd: list[str], timeout: float = 600, background: bool = False) -> subprocess.CompletedProcess:
+    """ffprobe / ffmpeg を走らせる。background なら裏の処理向けに CPU とディスクの優先度を下げる（画面の再生の読み出しを先に通す）"""
+    if not background:
+        return subprocess.run(cmd, capture_output=True, timeout=timeout, creationflags=NO_WINDOW)
+    from .paths import lower_process_io
+    flags = NO_WINDOW | getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0)
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=flags)
+    lower_process_io(p)
+    try:
+        out, err = p.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        p.kill()
+        out, err = p.communicate()
+        raise
+    return subprocess.CompletedProcess(cmd, p.returncode, out, err)
 
 
 # ---------- 日時 ----------
@@ -159,13 +172,13 @@ def _parse_fps(s: str) -> float | None:
         return None
 
 
-def probe_video(path: str, ffmpeg: str | None, ffprobe: str | None, z_is_utc: bool = False) -> dict:
+def probe_video(path: str, ffmpeg: str | None, ffprobe: str | None, z_is_utc: bool = False, background: bool = False) -> dict:
     """duration, width, height, fps, n_frames, vcodec, acodec, container, datetime, datetime_source"""
     out: dict = dict(duration=None, width=None, height=None, fps=None, n_frames=None, vcodec=None, acodec=None,
                      container=os.path.splitext(path)[1].lower().lstrip("."), datetime=None, datetime_source=None)
     ct = None
     if ffprobe:
-        r = _run([ffprobe, "-v", "error", "-print_format", "json", "-show_format", "-show_streams", path], timeout=120)
+        r = _run([ffprobe, "-v", "error", "-print_format", "json", "-show_format", "-show_streams", path], timeout=120, background=background)
         if r.returncode == 0:
             try:
                 d = json.loads(r.stdout.decode("utf-8", "replace"))
@@ -199,7 +212,7 @@ def probe_video(path: str, ffmpeg: str | None, ffprobe: str | None, z_is_utc: bo
         else:
             log.debug("ffprobe の失敗 %s: %s", path, r.stderr.decode("utf-8", "replace")[-300:])
     elif ffmpeg:
-        r = _run([ffmpeg, "-hide_banner", "-i", path], timeout=120)
+        r = _run([ffmpeg, "-hide_banner", "-i", path], timeout=120, background=background)
         text = r.stderr.decode("utf-8", "replace")
         m = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", text)
         if m:
@@ -265,8 +278,9 @@ def probe_image(path: str, z_is_utc: bool = False) -> dict:
     return out
 
 
-def probe(path: str, ffmpeg: str | None, ffprobe: str | None, z_is_utc: bool = False) -> dict:
-    return probe_image(path, z_is_utc) if kind_of(path) == "image" else probe_video(path, ffmpeg, ffprobe, z_is_utc)
+def probe(path: str, ffmpeg: str | None, ffprobe: str | None, z_is_utc: bool = False, background: bool = False) -> dict:
+    """background = 裏の処理（メタデータの取得のジョブなど）から: ffprobe をディスクの優先度を下げて走らせる"""
+    return probe_image(path, z_is_utc) if kind_of(path) == "image" else probe_video(path, ffmpeg, ffprobe, z_is_utc, background)
 
 
 # ---------- 再生 ----------

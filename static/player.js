@@ -132,7 +132,8 @@ function applyOpenMode() {
   if (typeof CROPS === 'undefined' || CROPS.id !== S.cur.id || CROPS.loading) { seekTo(0); return; }      // 枠がまだ: 先頭で待つ
   P.openDone = S.cur.id;
   const c = (typeof cropSelected === 'function') ? cropSelected() : null;
-  seekTo(c ? c.t : 0);
+  if (c) seekTo(c.t);
+  else v.play().catch(() => {});          // 学習フレームがない（自動判定がまだ・動物の枠がない）: 止める所がないので先頭から再生
 }
 /* 秒 t のフレームへ（止めたまま）。AVI をそのまま読んでいる途中でそのコマがまだ届いていなければ、届いてから */
 function seekTo(t) {

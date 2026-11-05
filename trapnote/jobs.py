@@ -178,7 +178,7 @@ def ensure_meta(project, item_id: int, ffmpeg_path: str = "") -> dict | None:
         return dict(r)
     ffmpeg, ffprobe = media.find_ffmpeg(ffmpeg_path)
     try:
-        m, err = media.probe(src, ffmpeg, ffprobe, bool(project.setting("z_is_utc"))), None
+        m, err = media.probe(src, ffmpeg, ffprobe, bool(project.setting("z_is_utc")), background=True), None
     except Exception as e:
         m, err = None, f"{type(e).__name__}: {e}"
     with db.tx() as c:
@@ -213,7 +213,7 @@ class MetaJob(Job):
         def one(r):
             p = project.abs_path(r["rel_path"])
             try:
-                m = media.probe(p, ffmpeg, ffprobe, z)
+                m = media.probe(p, ffmpeg, ffprobe, z, background=True)
                 return (r["id"], m, None)
             except Exception as e:
                 return (r["id"], None, f"{type(e).__name__}: {e}")

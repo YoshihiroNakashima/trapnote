@@ -92,3 +92,21 @@ def background_thread(on: bool = True) -> bool:
         return bool(k.SetThreadPriority(k.GetCurrentThread(), flag))
     except Exception:
         return False
+
+
+def lower_process_io(popen) -> bool:
+    """起動した子プロセス（ffprobe など）のディスクの優先度を「とても低い」にする（NtSetInformationProcess の ProcessIoPriority = 33、0 = VeryLow。psutil の ionice と同じ）。
+    裏の処理（メタデータの取得など）が大量にファイルを読むとき、画面の再生の読み出しを先に通すため。Windows 以外では何もしない"""
+    import sys
+    if not sys.platform.startswith("win"):
+        return False
+    try:
+        import ctypes
+        h = getattr(popen, "_handle", None)
+        if h is None:
+            return False
+        prio = ctypes.c_int(0)
+        st = ctypes.windll.ntdll.NtSetInformationProcess(ctypes.c_void_p(int(h)), 33, ctypes.byref(prio), ctypes.sizeof(prio))
+        return st == 0
+    except Exception:
+        return False

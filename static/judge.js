@@ -366,7 +366,8 @@ async function loadCropsInner(d) {
   if (!r.has_features || !r.crops.length) {                          // 枠の記録がない（判定していない・特徴量を保存しない設定・方式 B の古い版で判定した）
     box.classList.remove('hidden'); grid.innerHTML = '';
     $('#cropsCount').textContent = '0';
-    none.classList.remove('hidden'); none.textContent = t(r.has_features ? 'crops_zero' : 'crops_none');
+    const noAnimal = !!(d.det && d.det_state === 1 && !d.det.animal);           // 検出済みで動物の枠がない（動物なし・人だけ・検出器が見落とした）
+    none.classList.remove('hidden'); none.textContent = t(r.has_features || noAnimal ? 'crops_zero' : 'crops_none');
     det.ontoggle = null;
     return;
   }
