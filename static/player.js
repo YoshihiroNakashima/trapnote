@@ -330,5 +330,9 @@ function wirePlayer() {
   sl.addEventListener('change', () => { P.seeking = false; });
   document.querySelectorAll('button.spd').forEach(b => { b.onclick = () => setSpeed(parseFloat(b.dataset.v)); });
   $('#vbLoop').addEventListener('change', () => { S.settings.loop = $('#vbLoop').checked; v.loop = S.settings.loop; if (P.avi) P.avi.loop = S.settings.loop; api('/api/settings', { loop: S.settings.loop }).catch(() => {}); });
+  // 再生バーの選択・チェック・スライダーは、変えたらフォーカスを外す（残っていると → ↓ などのキーが選択肢を動かし、画面の操作に届かない。
+  // 「開いたら再生」を選んだあと → を押すと選択が「先頭で止める」「学習枠で止める」に変わってしまっていた）
+  document.querySelectorAll('#videoBar select, #videoBar input').forEach(el => { el.addEventListener('change', () => el.blur()); });
+  document.querySelectorAll('#videoBar button').forEach(el => { el.addEventListener('click', () => el.blur()); });
   if (typeof wireBoxEdit === 'function') wireBoxEdit();
 }
