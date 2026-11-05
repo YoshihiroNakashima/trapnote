@@ -83,6 +83,7 @@ function setSnapshot(snap) {
   rebuildSpMap();
   LANG = S.settings.language || 'ja';
   applyLang();
+  if (typeof syncPlayerControls === 'function') syncPlayerControls();      // 再生バーの選択（開いたとき・枠の表示など）を読み直した設定に合わせる
   $('#verInfo').textContent = 'v' + snap.version + (snap.build_time ? ' (' + String(snap.build_time).slice(5, 16).replace('T', ' ') + ')' : ''); $('#verInfo').title = snap.build_time ? 'build ' + snap.build_time : '';
   renderTarget(); renderFilters(); renderJobs(snap.jobs);
   if (typeof renderSpeciesPanel === 'function') renderSpeciesPanel();

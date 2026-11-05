@@ -114,6 +114,18 @@ function playSrc(id, token) {
   v.load();
 }
 
+/* 再生バーの選択・チェックを設定（S.settings）に合わせる。起動時と、サーバーから設定を読み直したとき（setSnapshot）に呼ぶ。
+   別の窓（同じサーバーをもう 1 つの窓で開いている）や API で設定が変わると、この窓の S.settings だけが差し替わって選択の表示と食い違っていた
+   （「開いたら再生」と表示しているのに S.settings は crop → 学習フレームで止まる） */
+function syncPlayerControls() {
+  const s = S.settings || {};
+  const bm = $('#vbBoxMode'), om = $('#vbOpenMode'), bx = $('#vbBoxes'), lp = $('#vbLoop');
+  if (!bm || !om) return;
+  bm.value = s.box_mode || 'all';
+  om.value = s.open_mode || 'play';
+  if (bx) bx.checked = s.show_boxes !== false;
+  if (lp) lp.checked = !!s.loop;
+}
 /* 開いたとき（設定 open_mode）: play = 先頭から自動再生 / pause = 先頭のフレームで止める / crop = 学習に使う枠（右下の欄で選んだ枠。開いた直後は時刻のいちばん早い枠）のフレームで止める。
    学習に使う枠はまだ読んでいる途中かもしれないので、そのときは先頭で止めて待ち、読み終わったら loadCrops がもう一度 applyOpenMode() を呼ぶ */
 function mediaReady(id, token) {
@@ -125,7 +137,8 @@ function applyOpenMode() {
   if (!S.cur || P.ready !== S.cur.id || P.openDone === S.cur.id) return;
   const v = player();
   if (v.classList.contains('hidden') || !v.src) return;
-  const mode = (S.settings && S.settings.open_mode) || 'play';
+  const om = $('#vbOpenMode');
+  const mode = (om && om.value) || (S.settings && S.settings.open_mode) || 'play';      // 画面に出ている選択が正（S.settings と食い違っていても見えている方に従う）
   if (mode === 'play') { P.openDone = S.cur.id; v.play().catch(() => {}); return; }
   v.pause();
   if (mode === 'pause') { P.openDone = S.cur.id; seekTo(0); return; }
@@ -235,7 +248,8 @@ function mediaRect() {   // 表示されているメディアの位置（object-
    train で枠の記録がない（まだ読んでいる途中・記録なし）ときは何も描かない（以前は 0.5 以上に落としていたので、多くのフレームに枠が出た） */
 function applyBoxMode() {
   const all = P.boxesAll || [];
-  const mode = (S.settings && S.settings.box_mode) || 'all';
+  const bm = $('#vbBoxMode');
+  const mode = (bm && bm.value) || (S.settings && S.settings.box_mode) || 'all';       // 画面に出ている選択が正
   const minConf = (S.project && S.project.settings && S.project.settings.train_min_conf) || 0.5;
   let out = all;
   for (const b of all) { delete b.train; delete b.trainOff; delete b.trainSel; delete b.trainAnchor; }
@@ -319,10 +333,8 @@ function wirePlayer() {
   $('#mjpeg').addEventListener('click', togglePlay);
   $('#photo').addEventListener('load', drawBoxes);
   window.addEventListener('resize', drawBoxes);
-  $('#vbBoxes').checked = S.settings.show_boxes !== false;
-  $('#vbBoxMode').value = S.settings.box_mode || 'all';
+  syncPlayerControls();
   $('#vbBoxMode').addEventListener('change', () => { S.settings.box_mode = $('#vbBoxMode').value; applyBoxMode(); api('/api/settings', { box_mode: S.settings.box_mode }).catch(() => {}); });
-  $('#vbOpenMode').value = S.settings.open_mode || 'play';
   $('#vbOpenMode').addEventListener('change', () => { S.settings.open_mode = $('#vbOpenMode').value; api('/api/settings', { open_mode: S.settings.open_mode }).catch(() => {}); });
   $('#vbBoxes').addEventListener('change', () => { S.settings.show_boxes = $('#vbBoxes').checked; drawBoxes(); boxLoop(); api('/api/settings', { show_boxes: S.settings.show_boxes }).catch(() => {}); });
   v.addEventListener('click', togglePlay);
