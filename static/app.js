@@ -772,6 +772,7 @@ function onKey(e) {
   if ((k === 'ArrowUp' || k === 'ArrowDown') && S.cur && typeof cropStep === 'function' && CROPS.data) { e.preventDefault(); cropStep(k === 'ArrowDown' ? 1 : -1); return; }   // 学習に使う枠の前・次のフレームへ
   if (k.toLowerCase() === 'f' && !speciesKeyMap()['F']) { e.preventDefault(); toggleFavorite(); return; }
   if (k === ',' || k === '.') { e.preventDefault(); stepFrame(k === '.' ? 1 : -1); return; }
+  if (k === 'Home' || k === 'End') { e.preventDefault(); seekEdge(k === 'End'); return; }      // 動画の先頭・最後へ
   if (k === '<' || k === '>') { e.preventDefault(); stepFrame(k === '>' ? 10 : -10); return; }
   if (k === 'PageDown') { e.preventDefault(); goStep(1); return; }
   if (k === 'PageUp') { e.preventDefault(); goStep(-1); return; }

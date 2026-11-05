@@ -157,7 +157,7 @@ function renderVideoBar() {
   const has = !v.classList.contains('hidden') && v.src;
   $('#vbPlay').textContent = (has && !v.paused) ? '❚❚' : '▶';
   $('#vbPlay').disabled = !has; $('#vbSlider').disabled = !has;
-  ['vbBack', 'vbFwd', 'vbBack10', 'vbFwd10'].forEach(id => { $('#' + id).disabled = !has; });
+  ['vbHome', 'vbBack', 'vbFwd', 'vbBack10', 'vbFwd10'].forEach(id => { $('#' + id).disabled = !has; });
   if (has) {
     const cur = v.currentTime || 0, dur = v.duration || P.duration || 0;
     if (!P.seeking) $('#vbSlider').value = dur ? Math.round(1000 * cur / dur) : 0;
@@ -183,6 +183,14 @@ function stepFrame(n) {
   const dur = v.duration || P.duration || 0;
   v.currentTime = Math.max(0, Math.min(dur ? dur - dt / 2 : 1e9, v.currentTime + n * dt));
   renderVideoBar();
+}
+/* 先頭（Home）・最後（End）へ。再生中なら止める（コマを確かめる操作なので） */
+function seekEdge(end) {
+  const v = player();
+  if (v.classList.contains('hidden') || !v.src) return;
+  v.pause();
+  const dur = v.duration || P.duration || 0, dt = 1 / (P.fps || 25);
+  seekTo(end ? Math.max(0, dur - dt / 2) : 0);
 }
 function setSpeed(x) {
   S.settings.play_speed = x; player().playbackRate = x; renderVideoBar();
@@ -300,6 +308,7 @@ function wirePlayer() {
   $('#vbNext').onclick = () => confirmOrStep(1);
   $('#vbBack').onclick = () => stepFrame(-1); $('#vbFwd').onclick = () => stepFrame(1);
   $('#vbBack10').onclick = () => stepFrame(-10); $('#vbFwd10').onclick = () => stepFrame(10);
+  $('#vbHome').onclick = () => seekEdge(false);
   for (const el of [v, P.avi].filter(Boolean)) {
     el.addEventListener('timeupdate', renderVideoBar);
     el.addEventListener('play', renderVideoBar); el.addEventListener('pause', renderVideoBar); el.addEventListener('ended', renderVideoBar);
