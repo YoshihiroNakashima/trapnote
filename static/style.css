@@ -372,3 +372,9 @@ li.empty .info { margin: 4px 0; }
 .jobs-btn #jobText { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 @keyframes jobs-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 [data-preset].on { background: #e8edff; border-color: #3b5bdb; color: #1f3a9a; }
+
+/* 暗い動画の補正（ガンマで暗部を持ち上げる。フラッシュが届かない所を見るため。枠の重ね描きには掛けない） */
+#viewWrap.fx1 #player, #viewWrap.fx1 #mjpeg, #viewWrap.fx1 #photo { filter: url(#fxGamma1); }
+#viewWrap.fx2 #player, #viewWrap.fx2 #mjpeg, #viewWrap.fx2 #photo { filter: url(#fxGamma2) contrast(1.05); }
+#viewWrap.fx3 #player, #viewWrap.fx3 #mjpeg, #viewWrap.fx3 #photo { filter: url(#fxGamma3) contrast(1.1); }
+#viewWrap.fx4 #player, #viewWrap.fx4 #mjpeg, #viewWrap.fx4 #photo { filter: url(#fxGamma4) contrast(1.15); }

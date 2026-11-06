@@ -66,6 +66,12 @@
   </aside>
   <section id="viewPane">
     <div id="viewWrap">
+      <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+        <filter id="fxGamma1" color-interpolation-filters="sRGB"><feComponentTransfer><feFuncR type="gamma" exponent="0.75"/><feFuncG type="gamma" exponent="0.75"/><feFuncB type="gamma" exponent="0.75"/></feComponentTransfer></filter>
+        <filter id="fxGamma2" color-interpolation-filters="sRGB"><feComponentTransfer><feFuncR type="gamma" exponent="0.55"/><feFuncG type="gamma" exponent="0.55"/><feFuncB type="gamma" exponent="0.55"/></feComponentTransfer></filter>
+        <filter id="fxGamma3" color-interpolation-filters="sRGB"><feComponentTransfer><feFuncR type="gamma" exponent="0.4"/><feFuncG type="gamma" exponent="0.4"/><feFuncB type="gamma" exponent="0.4"/></feComponentTransfer></filter>
+        <filter id="fxGamma4" color-interpolation-filters="sRGB"><feComponentTransfer><feFuncR type="gamma" exponent="0.3" amplitude="1.1"/><feFuncG type="gamma" exponent="0.3" amplitude="1.1"/><feFuncB type="gamma" exponent="0.3" amplitude="1.1"/></feComponentTransfer></filter>
+      </svg>
       <video id="player" preload="auto" playsinline></video>
       <canvas id="mjpeg" class="hidden"></canvas>
       <img id="photo" class="hidden" alt="">
@@ -88,6 +94,7 @@
       </span>
       <label class="vb-opt"><input type="checkbox" id="vbLoop"> <span data-t="loop">ループ</span></label>
       <label class="vb-opt" id="vbBoxesWrap" data-title="boxes_tip"><input type="checkbox" id="vbBoxes"> <span data-t="boxes">検出枠</span></label><select id="vbBoxMode" class="vb-opt" data-title="box_mode_tip"><option value="all" data-t="box_mode_all">全部</option><option value="conf" data-t="box_mode_conf">0.5 以上</option><option value="train" data-t="box_mode_train">学習に使う枠</option></select>
+      <select id="vbEnhance" class="vb-opt" data-title="enhance_tip"><option value="0" data-t="enhance_0">補正なし</option><option value="1" data-t="enhance_1">補正 弱</option><option value="2" data-t="enhance_2">補正 中</option><option value="3" data-t="enhance_3">補正 強</option><option value="4" data-t="enhance_4">補正 最強</option></select>
       <select id="vbOpenMode" class="vb-opt" data-title="open_mode_tip"><option value="play" data-t="open_mode_play">開いたら再生</option><option value="pause" data-t="open_mode_pause">先頭で止める</option><option value="crop" data-t="open_mode_crop">学習枠で止める</option></select>
       <button id="vbEdit" class="small" data-t="box_edit" data-title="box_edit_tip">枠を編集</button>
       <span id="boxTools" class="vb-opt hidden"><select id="beCat" class="small"><option value="animal" data-t="det_animal">動物</option><option value="person" data-t="det_person">人</option><option value="vehicle" data-t="det_vehicle">車</option></select>

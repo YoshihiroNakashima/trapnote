@@ -119,12 +119,28 @@ function playSrc(id, token) {
    （「開いたら再生」と表示しているのに S.settings は crop → 学習フレームで止まる） */
 function syncPlayerControls() {
   const s = S.settings || {};
-  const bm = $('#vbBoxMode'), om = $('#vbOpenMode'), bx = $('#vbBoxes'), lp = $('#vbLoop');
+  const bm = $('#vbBoxMode'), om = $('#vbOpenMode'), bx = $('#vbBoxes'), lp = $('#vbLoop'), en = $('#vbEnhance');
   if (!bm || !om) return;
   bm.value = s.box_mode || 'all';
   om.value = s.open_mode || 'play';
   if (bx) bx.checked = s.show_boxes !== false;
   if (lp) lp.checked = !!s.loop;
+  if (en) { en.value = String(s.enhance || 0); applyEnhance(); }
+}
+/* 暗い動画の補正（設定 enhance 0〜4）: 画面側のガンマ補正（SVG の feComponentTransfer）。動画・AVI の描画・静止画に掛け、枠の重ね描きには掛けない。B キーで順に */
+function applyEnhance() {
+  const en = $('#vbEnhance');
+  const lv = Math.max(0, Math.min(4, parseInt((en && en.value) || S.settings.enhance || 0, 10) || 0));
+  const w = $('#viewWrap');
+  if (!w) return;
+  w.classList.remove('fx1', 'fx2', 'fx3', 'fx4');
+  if (lv) w.classList.add('fx' + lv);
+}
+function cycleEnhance() {
+  const en = $('#vbEnhance'); if (!en) return;
+  en.value = String((parseInt(en.value, 10) + 1) % 5);
+  en.dispatchEvent(new Event('change'));
+  toast(`${t('enhance_' + en.value)}`, 'info');
 }
 /* 開いたとき（設定 open_mode）: play = 先頭から自動再生 / pause = 先頭のフレームで止める / crop = 学習に使う枠（右下の欄で選んだ枠。開いた直後は時刻のいちばん早い枠）のフレームで止める。
    学習に使う枠はまだ読んでいる途中かもしれないので、そのときは先頭で止めて待ち、読み終わったら loadCrops がもう一度 applyOpenMode() を呼ぶ */
@@ -336,6 +352,7 @@ function wirePlayer() {
   syncPlayerControls();
   $('#vbBoxMode').addEventListener('change', () => { S.settings.box_mode = $('#vbBoxMode').value; applyBoxMode(); api('/api/settings', { box_mode: S.settings.box_mode }).catch(() => {}); });
   $('#vbOpenMode').addEventListener('change', () => { S.settings.open_mode = $('#vbOpenMode').value; api('/api/settings', { open_mode: S.settings.open_mode }).catch(() => {}); });
+  $('#vbEnhance').addEventListener('change', () => { S.settings.enhance = parseInt($('#vbEnhance').value, 10) || 0; applyEnhance(); api('/api/settings', { enhance: S.settings.enhance }).catch(() => {}); });
   $('#vbBoxes').addEventListener('change', () => { S.settings.show_boxes = $('#vbBoxes').checked; drawBoxes(); boxLoop(); api('/api/settings', { show_boxes: S.settings.show_boxes }).catch(() => {}); });
   v.addEventListener('click', togglePlay);
   sl.addEventListener('input', () => { P.seeking = true; const pl = player(); const dur = pl.duration || P.duration || 0; if (dur) { pl.currentTime = dur * sl.value / 1000; $('#vbInfo').textContent = `${fmtSec(pl.currentTime)} / ${fmtSec(dur)}`; } });

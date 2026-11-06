@@ -791,6 +791,7 @@ function onKey(e) {
   if (k === 'PageUp') { e.preventDefault(); goStep(-1); return; }
   if (k === 'Enter') { e.preventDefault(); confirmAndNext(); return; }
   if (k === '[' || k === ']') { e.preventDefault(); cycleSpeed(k === ']' ? 1 : -1); return; }
+  if (k.toLowerCase() === 'b' && !speciesKeyMap()['B'] && typeof cycleEnhance === 'function') { e.preventDefault(); cycleEnhance(); return; }     // 暗い動画の補正を順に
   if (k.toLowerCase() === 'l' && !speciesKeyMap()['L']) { e.preventDefault(); $('#vbLoop').checked = !$('#vbLoop').checked; $('#vbLoop').dispatchEvent(new Event('change')); return; }
   if (k.length === 1) { const code = speciesKeyMap()[k.toUpperCase()]; if (code && S.cur) { e.preventDefault(); toggleSpecies(code); } }
 }
