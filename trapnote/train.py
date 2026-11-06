@@ -323,7 +323,7 @@ def collect(project, opts: dict, progress=None, stop=None) -> dict:
     s = opts
     min_conf = float(s.get("train_min_conf", 0.5))
     use_empty = bool(s.get("train_use_empty", True))
-    drop_static = bool(s.get("train_drop_static", True))        # 静止した枠（倒木・石）は動画の種ではなく「動物なし」に（use_empty が切れていれば学習から外す）
+    drop_static = bool(s.get("train_drop_static", False))       # 静止した枠（倒木・石）は動画の種ではなく「動物なし」に（use_empty が切れていれば学習から外す）。既定オフ（人が学習フレームを確認する前提）
     check_agree = bool(s.get("train_check_agree", False))       # 動画の種が枠の判定の上位 3 位に入らない枠は学習に使わない（元のモデルで枠を選別。モデルが当てにならないうちは切る）
     frames = str(s.get("train_frames") or "one")                # one = 学習フレーム 1 枚（種ごと）/ one_plus = + 同じ種とモデルも判定した静止でない枠 / all = 全部
     if frames not in ("one", "one_plus", "all"):
@@ -364,6 +364,7 @@ def collect(project, opts: dict, progress=None, stop=None) -> dict:
         animals = human - SKIP_CODES - {"empty"}
         labels: list[str | None] = [None] * n
         static = [False] * n
+        st_hint = [False] * n                            # 静止枠の印（設定に関わらず。学習フレームの既定で避けるため）
         if "unknown" in human or not (animals or (human == {"empty"} and use_empty)):
             pass                                         # 不明・人・車だけ: 学習には使わない（評価には使う）
         elif not animals:                                # 動物なしなのに枠がある → 誤検出として「動物なし」
@@ -375,16 +376,16 @@ def collect(project, opts: dict, progress=None, stop=None) -> dict:
                 for i in range(n):
                     top = codes[int(np.argmax(pc[i]))] if len(codes) else None
                     labels[i] = top if top in animals else None
-            # 目視は動画単位なので、倒木や石の誤検出の枠にも動画の種が付いてしまう → 動画の間ずっと同じ位置にある枠は種ではなく「動物なし」に（動く枠が 1 つでもあるとき）
-            if drop_static:
-                static = item_static_crops(db, r["id"], bbox)
-                if any(static) and not all(static):
-                    for i in range(n):
-                        if static[i] and labels[i] is not None:
-                            labels[i] = "empty" if use_empty else None
-                            n_static += 1
-                else:
-                    static = [False] * n
+            # 目視は動画単位なので、倒木や石の誤検出の枠にも動画の種が付いてしまう → 動画の間ずっと同じ位置にある枠は種ではなく「動物なし」に（動く枠が 1 つでもあるとき。設定、既定オフ）
+            st_raw = item_static_crops(db, r["id"], bbox)
+            if any(st_raw) and not all(st_raw):
+                st_hint = st_raw
+            if drop_static and any(st_hint):
+                static = list(st_hint)
+                for i in range(n):
+                    if static[i] and labels[i] is not None:
+                        labels[i] = "empty" if use_empty else None
+                        n_static += 1
             if check_agree and len(codes) and pc.shape[1]:     # 枠の判定（上位 3 位）に動画の種が入らない枠は使わない
                 for i in range(n):
                     if labels[i] in animals:
@@ -402,7 +403,7 @@ def collect(project, opts: dict, progress=None, stop=None) -> dict:
         if frames != "all" and any(l is not None for l in labels):
             # 1 動画 1 枚: 種ごとの学習フレーム（人が確定したときに選んでいた枠。なければ信頼度が最も高い静止でない枠）だけを残す。
             # one_plus はそれに加えて、同じ種で静止でなく、モデルの第 1 候補もその種の枠を残す。「動物なし」の枠（静止枠・動物なしの動画）は one なら信頼度が最も高い 1 枚、one_plus なら全部
-            st_now = static if (any(static) and not all(static)) else [False] * n
+            st_now = st_hint                              # 学習フレームの既定は静止枠（倒木・石）を避ける（設定に関わらず）
             anchors, auto = resolve_anchors(crop_anchor_dict(r["crop_anchor"]), animals, codes, pc, conf, st_now, excl)
             if animals:
                 n_anchor_auto += 1 if auto else 0
@@ -632,8 +633,8 @@ def item_crops(project, item_id: int) -> dict:
         return out
     ex = set(out["excluded"])
     static = item_static_crops(project.db, item_id, bbox)
-    auto_off = any(static) and not all(static)          # 動く枠があるのに動画の間ずっと同じ位置にある枠 → 学習では「動物なし」扱い（設定 train_drop_static）
-    out["static_applies"] = auto_off
+    auto_off = any(static) and not all(static)          # 動く枠があるのに動画の間ずっと同じ位置にある枠（倒木・石）。印として出し、学習フレームの既定からは避ける
+    out["static_applies"] = bool(auto_off and project.setting("train_drop_static"))     # 設定がオンなら学習では「動物なし」扱い（既定オフ）
     st = [bool(x) and auto_off for x in static]
     js = [dict(species=j["species"], origin=j["origin"]) for j in project.db.q("SELECT species, origin FROM judgements WHERE item_id=?", (item_id,))]
     animals = human_codes(r["status"], js) - SKIP_CODES - {"empty"}

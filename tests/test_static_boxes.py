@@ -1,6 +1,6 @@
 """学習データの枠の選別: 目視は動画単位なので、倒木や石の誤検出の枠にも動画の種が付いてしまう →
 動画の間ずっと同じ位置にある枠（静止枠）は「動物なし」として学習する（動く枠が 1 つでもあるとき）。
-枠の判定の上位 3 位に動画の種が入らない枠を外す選別（check_agree）は既定オフ。
+この選別（train_drop_static）は既定オフ（人が学習フレームを確認する前提）なので、ここでは明示的にオンにして見る。枠の判定の上位 3 位に動画の種が入らない枠を外す選別（check_agree）も既定オフ。
 ここでは枠の選別そのものを見るので train_frames="all"（全部の枠）で集める（1 動画 1 枚の学習フレームは tests/test_train_frames.py）"""
 from __future__ import annotations
 
@@ -60,25 +60,28 @@ def test_static_boxes(tmp_path):
         st = train.item_static_crops(p.db, ids[0], np.array([b for _, b in crops], dtype=np.float32))
         assert st == [True, False, True, False, False]
         # 学習データ: 倒木の枠は「動物なし」、シカの枠は deer
-        col = train.collect(p, train.train_settings(p, dict(train_frames="all")))
+        col = train.collect(p, train.train_settings(p, dict(train_frames="all", train_drop_static=True)))
         it = col["items"][ids[0]]
         assert it["labels"] == ["empty", "deer", "empty", "deer", "deer"] and col["n_static"] == 2 and it["static"] == st
-        # 設定で切れば、全部 deer（従来どおり）
-        col2 = train.collect(p, train.train_settings(p, dict(train_drop_static=False, train_frames="all")))
+        # 設定を切れば（既定）、全部 deer
+        col2 = train.collect(p, train.train_settings(p, dict(train_frames="all")))
         assert col2["items"][ids[0]]["labels"] == ["deer"] * 5 and col2["n_static"] == 0
         # 「動物なし」として学習しない設定なら、静止枠は学習から外す（None）
-        col3 = train.collect(p, train.train_settings(p, dict(train_use_empty=False, train_frames="all")))
+        col3 = train.collect(p, train.train_settings(p, dict(train_use_empty=False, train_frames="all", train_drop_static=True)))
         assert col3["items"][ids[0]]["labels"] == [None, "deer", None, "deer", "deer"]
-        # 枠の欄（item_crops）にも印
+        # 枠の欄（item_crops）にも印（静止の印は設定に関わらず出る。static_applies は設定がオンのときだけ）
         ic = train.item_crops(p, ids[0])
-        assert ic["static_applies"] and [c["static"] for c in ic["crops"]] == st
+        assert not ic["static_applies"] and [c["static"] for c in ic["crops"]] == st
+        p.update_settings(dict(train_drop_static=True))
+        assert train.item_crops(p, ids[0])["static_applies"]
+        p.update_settings(dict(train_drop_static=False))
         # 全部が静止（休んでいる動物）なら判定しない: 全部 deer のまま
         still = [0.4, 0.4, 0.2, 0.2]
         frames2 = [(t, [still]) for t in np.arange(0.0, 10.0, 0.5)]
         crops2 = [(0.0, still), (3.0, still), (6.0, still)]
         _fake_detect(p, ids[1], frames2, crops2)
         save_judgement(p.db, ids[1], dict(species=["boar"]), "me")
-        col4 = train.collect(p, train.train_settings(p, dict(train_frames="all")))
+        col4 = train.collect(p, train.train_settings(p, dict(train_frames="all", train_drop_static=True)))
         assert col4["items"][ids[1]]["labels"] == ["boar"] * 3 and not any(col4["items"][ids[1]]["static"])
         assert not train.item_crops(p, ids[1])["static_applies"]
         # 短い動画（3 秒未満）やフレームが少ないものも判定しない
@@ -105,6 +108,6 @@ def test_check_agree(tmp_path):
         assert col["items"][iid]["labels"] == ["deer"] * 3 and col["n_disagree"] == 0
         col2 = train.collect(p, train.train_settings(p, dict(train_check_agree=True, train_frames="all")))
         assert col2["items"][iid]["labels"] == ["deer", None, "deer"] and col2["n_disagree"] == 1
-        assert json.loads(json.dumps(train.train_settings(p)))["train_check_agree"] is False
+        assert json.loads(json.dumps(train.train_settings(p)))["train_check_agree"] is False and train.train_settings(p)["train_drop_static"] is False
     finally:
         p.close()

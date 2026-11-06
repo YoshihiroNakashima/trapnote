@@ -45,19 +45,23 @@ def test_one_frame_default_and_choice(tmp_path):
         ic = train.item_crops(p, iid)
         assert ic["anchor_auto"] and ic["anchors"] == {"deer": 3} and [c["anchor"] for c in ic["crops"]] == [None, None, None, "deer", None]
         save_judgement(p.db, iid, dict(species=["deer"]), "me")
-        # one（既定）: 学習フレーム 1 枚（自動 = 静止でない枠で信頼度最大 k=3）+ 静止枠の「動物なし」は信頼度最大の 1 枚（k=0）
+        # one（既定）: 学習フレーム 1 枚（自動 = 静止でない枠で信頼度最大 k=3。静止枠は設定に関わらず既定から避ける）。静止枠の選別は既定オフなので残りは使わない
         col = train.collect(p, train.train_settings(p))
-        assert col["items"][iid]["labels"] == ["empty", None, None, "deer", None] and col["n_anchor_auto"] == 1 and col["n_anchor_manual"] == 0 and col["train_frames"] == "one"
+        assert col["items"][iid]["labels"] == [None, None, None, "deer", None] and col["n_anchor_auto"] == 1 and col["n_anchor_manual"] == 0 and col["train_frames"] == "one"
         assert col["items"][iid]["anchors"] == {"deer": 3}
-        # one_plus: 同じ種で静止でなくモデルも deer の枠（k=4）を足す。k=1 はモデルが boar なので足さない。静止枠の動物なしは全部
-        assert _labels(p, iid, train_frames="one_plus") == ["empty", None, "empty", "deer", "deer"]
-        # all: 従来どおり
-        assert _labels(p, iid, train_frames="all") == ["empty", "deer", "empty", "deer", "deer"]
+        # 静止枠の選別をオンにすると、静止枠の「動物なし」は信頼度最大の 1 枚（k=0）が加わる
+        assert _labels(p, iid, train_drop_static=True) == ["empty", None, None, "deer", None]
+        # one_plus: 同じ種で静止でなくモデルも deer の枠（k=4）を足す。k=1 はモデルが boar なので足さない。選別オンなら静止枠の動物なしは全部
+        assert _labels(p, iid, train_frames="one_plus") == [None, None, None, "deer", "deer"]
+        assert _labels(p, iid, train_frames="one_plus", train_drop_static=True) == ["empty", None, "empty", "deer", "deer"]
+        # all: 全部（選別オンなら静止枠は動物なし）
+        assert _labels(p, iid, train_frames="all") == ["deer"] * 5
+        assert _labels(p, iid, train_frames="all", train_drop_static=True) == ["empty", "deer", "empty", "deer", "deer"]
         # 人が k=1 を選んで確定（モデルは boar と言っているが人の選択が勝つ。信頼度 0.80 で下限 0.5 以上）
         assert train.set_anchor(p, iid, 1) == {"deer": 1}
         assert json.loads(p.db.scalar("SELECT crop_anchor FROM items WHERE id=?", (iid,))) == {"deer": 1}
         col = train.collect(p, train.train_settings(p))
-        assert col["items"][iid]["labels"] == ["empty", "deer", None, None, None] and col["n_anchor_manual"] == 1 and col["n_anchor_auto"] == 0
+        assert col["items"][iid]["labels"] == [None, "deer", None, None, None] and col["n_anchor_manual"] == 1 and col["n_anchor_auto"] == 0
         ic = train.item_crops(p, iid)
         assert not ic["anchor_auto"] and ic["anchors"] == {"deer": 1} and ic["crops"][1]["anchor"] == "deer" and ic["species"] == ["deer"]
         # 選んだ枠を学習から外すと、学習フレームは自動に戻る（外していない枠で信頼度最大）

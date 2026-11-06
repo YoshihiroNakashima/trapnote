@@ -1017,7 +1017,7 @@ async function trainDialog(showName, preset) {
       if (firstTime) {
         const ps = r.settings;
         q('#trHold').value = ps.train_holdout_frac; q('#trMinConf').value = ps.train_min_conf; q('#trWHard').value = ps.train_weight_hard; q('#trMinPer').value = ps.train_min_per_class;
-        q('#trEmpty').checked = ps.train_use_empty !== false; q('#trDropStatic').checked = ps.train_drop_static !== false; q('#trCheckAgree').checked = !!ps.train_check_agree; q('#trFrames').value = ps.train_frames || 'one'; q('#trFinalHold').checked = !!ps.train_final_without_holdout; q('#trMix').value = ps.train_base_mix; q('#trEpochs').value = ps.train_epochs_b; q('#trBatch').value = ps.train_batch_b;
+        q('#trEmpty').checked = ps.train_use_empty !== false; q('#trDropStatic').checked = !!ps.train_drop_static; q('#trCheckAgree').checked = !!ps.train_check_agree; q('#trFrames').value = ps.train_frames || 'one'; q('#trFinalHold').checked = !!ps.train_final_without_holdout; q('#trMix').value = ps.train_base_mix; q('#trEpochs').value = ps.train_epochs_b; q('#trBatch').value = ps.train_batch_b;
         q('#trUnfreeze').value = ps.train_unfreeze; q('#trLr').value = ps.train_lr_b; q('#trDevice').value = r.device || 'auto';
         kindUi();
       }
