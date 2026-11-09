@@ -183,6 +183,7 @@ class Database:
         self.path = path
         self._local = threading.local()
         self.write_lock = threading.RLock()      # 書き込みは 1 本ずつ（SQLite の busy を避ける）
+        self.species_list = None                 # プロジェクトの種リスト（Project が入れる。一致率で上下関係を見るため）
         self._init()
 
     # ---------- 接続 ----------

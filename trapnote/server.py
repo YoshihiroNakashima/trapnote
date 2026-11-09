@@ -813,10 +813,14 @@ def make_app(session: Session) -> web.Application:
     async def species_post(request):
         p = S.need()
         b = await _body(request)
+        before = dict(p.species.taxonomy.parent)
         if "enabled" in b:
             p.species.set_enabled([str(c) for c in b["enabled"]])
         if "rows" in b:
             p.species.update(b["rows"])
+        if p.species.taxonomy.parent != before:            # 上下関係が変わった: 一致率（上位で合う = 部分一致）を計算し直す
+            from .judge import update_agree
+            await io(update_agree, p.db)
         return jr(p.species.to_dict())
 
     async def species_add(request):
@@ -832,11 +836,15 @@ def make_app(session: Session) -> web.Application:
         b = await _body(request)
         from .species import load_csv
         rows = await io(load_csv, b.get("path", ""))
+        before = dict(p.species.taxonomy.parent)
         if b.get("replace"):
             p.species.update(rows)
         else:
             have = {r["code"] for r in p.species.rows}
             p.species.update(p.species.rows + [r for r in rows if r["code"] not in have])
+        if p.species.taxonomy.parent != before:            # 上下関係が変わった: 一致率（上位で合う = 部分一致）を計算し直す
+            from .judge import update_agree
+            await io(update_agree, p.db)
         return jr(dict(n=len(rows), **p.species.to_dict()))
 
     async def species_export(request):
@@ -933,6 +941,8 @@ def make_app(session: Session) -> web.Application:
         ps = {}
         if b.get("species_pick") in ("confidence", "count"):
             ps["species_pick"] = str(b["species_pick"])
+        if b.get("species_rollup") in ("family", "all", "off"):
+            ps["species_rollup"] = str(b["species_rollup"])
         for k in ("md_model", "classifier", "speciesnet_model"):
             if b.get(k) not in (None, ""):
                 if k == "classifier" and b.get("keep_classifier"):      # 「検出のみ」: 今回だけ分類器なしで、設定は変えない

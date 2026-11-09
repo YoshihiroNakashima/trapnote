@@ -184,8 +184,8 @@ def test_batch_report(tmp_path):
         ex = r["existing"]
         assert ex["n"] == 5 and ex["exact"] == 3 and ex["partial"] == 3 and ex["first"] == 3 and ex["low"] == 0
         # 2 種の動画（deer + boar）はコード順の第 1 種 boar の行に入る（既存も boar;deer なので列は boar）
-        assert ex["by_species"]["boar"] == dict(n=3, exact=1, first=1, low=0) and ex["matrix"]["boar"] == {"boar": 1, "deer": 2}
-        assert ex["by_species"]["deer"] == dict(n=1, exact=1, first=1, low=0) and ex["matrix"]["empty"] == {"empty": 1}
+        assert ex["by_species"]["boar"] == dict(n=3, exact=1, first=1, low=0, group=0) and ex["matrix"]["boar"] == {"boar": 1, "deer": 2}
+        assert ex["by_species"]["deer"] == dict(n=1, exact=1, first=1, low=0, group=0) and ex["matrix"]["empty"] == {"empty": 1}
         ai = r["ai"]
         assert ai["n"] == 5 and ai["exact"] == 2 and ai["partial"] == 3 and ai["first"] == 3 and ai["low"] == 1
         assert ai["matrix"]["empty"] == {"(low)": 1} and ai["matrix"]["boar"] == {"boar": 1, "deer": 2} and "(low)" in ai["cols"] and ai["cols"][-1] == "(low)"

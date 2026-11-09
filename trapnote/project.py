@@ -33,6 +33,8 @@ PROJECT_DEFAULTS = {
     "species_p1": 0.5, "species_p2": 0.6, "species_k": 3,                       # 第 1 種は p1 以上の枠が最多の種、第 2 種以降は p2 以上が K 枚以上
     "species_pick": "confidence",                                                # 第 1 種の決め方: confidence（上位 3 枚の平均が最大）/ count（p1 以上の枚数が最多）
     "species_empty_p": 0.8,                                                      # どの種も p1 に届かず、枠の「動物なし」の確率の平均がこれ以上なら動画を「動物なし」に（0 で使わない = 要確認のまま）
+    "species_rollup": "family",                                                  # どの種も p1 に届かないとき、上位の行（イタチ科（種不明）など。種リストで使う行）で確率を足して p1 に届けばその行に
+                                                                                 # （要確認の印は付けたまま）: family = 属・科の行まで / all = 目・綱も / off = しない
     "classifier": "speciesnet",        # speciesnet / none（検出だけ）/ （第 3 段階で）追加学習したモデルの名前
     "speciesnet_model": "kaggle:google/speciesnet/pyTorch/v4.0.3a/1",            # SpeciesNet の版（kaggle: / hf: / ローカルのフォルダ）
     "country": "JPN",                  # 撮影した国（ISO 3166-1 alpha-3）。SpeciesNet の geofence（その国にいない種のラベルを除く）に使う。空なら制限なし
@@ -155,6 +157,17 @@ class Project:
         self.species = SpeciesList(os.path.join(self.dir, "species.csv"))
         self.fields = Fields(os.path.join(self.dir, "fields.json"))
         self.save()
+
+    @property
+    def species(self) -> SpeciesList:
+        return self._species
+
+    @species.setter
+    def species(self, v: SpeciesList) -> None:
+        """種リスト。DB にも持たせる（一致率の計算 update_agree が上下関係（イタチ科 ⊃ ニホンイタチ）を見る）"""
+        self._species = v
+        if getattr(self, "db", None) is not None:
+            self.db.species_list = v
 
     @staticmethod
     def _now() -> str:

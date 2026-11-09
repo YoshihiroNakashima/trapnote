@@ -683,10 +683,43 @@ def aggregate_codes(probs: np.ndarray, label_codes: list[str]) -> tuple[list[str
     return codes, probs @ M
 
 
-def aggregate_video(pc: np.ndarray, codes: list[str], p1: float, p2: float, k: int, pick: str = "confidence") -> dict:
+def rollup_groups(project, s: dict | None = None) -> dict[str, set[str]]:
+    """判定のロールアップの行き先（使う上位の行 → 下位の全部）。設定 species_rollup: family（属・科の行。既定）/ all（目・綱も）/ off"""
+    s = s or project_settings(project)
+    try:
+        return project.species.rollup_groups(str(s.get("species_rollup") or "family"))
+    except Exception as e:                     # 種リストが壊れていても判定は止めない
+        log.warning("上位の行を決められません: %s", e)
+        return {}
+
+
+def rollup_pick(pc: np.ndarray, codes: list[str], p1: float, groups: dict[str, set[str]]) -> tuple[str, float] | None:
+    """どの種も p1 に届かないとき（SpeciesNet のロールアップと同じ考え）: 上位の行ごとに、その行と下位の確率を枠ごとに足し、p1 に届く枠がある行を候補にする。
+    候補が入れ子なら下の行（属が届いていれば科ではなく属）、並びなら上位 3 枚の平均が大きい行。返り値 (行, 信頼度 = 届いた枠の値の中央値) か None"""
+    idx = {c: j for j, c in enumerate(codes)}
+    cand: dict[str, tuple] = {}
+    for g, mem in groups.items():
+        cols = [idx[c] for c in ({g} | set(mem)) if c in idx]
+        if not cols:
+            continue
+        gs = pc[:, cols].sum(axis=1)
+        hit = gs[gs >= p1]
+        if len(hit) == 0:
+            continue
+        top = np.sort(hit)[::-1][:3]
+        cand[g] = (float(top.mean()), int(len(hit)), hit)
+    if not cand:
+        return None
+    keep = [g for g in cand if not any(h != g and h in groups[g] for h in cand)]
+    g = max(keep, key=lambda x: (round(cand[x][0], 4), cand[x][1], x))
+    return g, round(float(statistics.median([float(v) for v in cand[g][2]])), 3)
+
+
+def aggregate_video(pc: np.ndarray, codes: list[str], p1: float, p2: float, k: int, pick: str = "confidence", groups: dict[str, set[str]] | None = None) -> dict:
     """枠ごとの種の確率 [n, codes] から動画の判定へ。species = [(code, confidence)]、probs = コードごとの平均（上位）。
     第 1 種の決め方 pick: "confidence"（既定）= p1 以上の枠のうち確率の高い上位 3 枚の平均が最大の種（一瞬だけ確実に写った動物を、ずっと写っている石の誤判定より優先する）、
-    "count" = p1 以上の枠の枚数が最多の種（同数なら平均）。第 2 種以降はどちらも p2 以上が K 枚以上"""
+    "count" = p1 以上の枠の枚数が最多の種（同数なら平均）。第 2 種以降はどちらも p2 以上が K 枚以上。
+    groups（rollup_groups）を渡すと、どの種も p1 に届かないとき上位の行で足して届けばその行を第 1 種にする（rollup = その行。要確認のまま）"""
     if len(pc) == 0:
         return dict(species=[], probs={})
     mean = {c: float(pc[:, j].mean()) for j, c in enumerate(codes)}
@@ -713,13 +746,30 @@ def aggregate_video(pc: np.ndarray, codes: list[str], p1: float, p2: float, k: i
             if n >= k:
                 vals = [float(pc[i, jj]) for i in range(len(pc)) if int(np.argmax(pc[i])) == jj] or [float(pc[:, jj].max())]
                 species.append((c, round(statistics.median(vals), 3)))
+    rollup = None
+    if not species and groups:
+        got = rollup_pick(pc, codes, p1, groups)
+        if got:
+            rollup = got[0]
+            species.append(got)
+            mem = set(groups[rollup]) | {rollup}
+            for jj, c in enumerate(codes):            # 第 2 種以降はまとめた行の下位以外から（p2 以上が K 枚以上）
+                if c in mem or c in skip:
+                    continue
+                n = int((pc[:, jj] >= p2).sum())
+                if n >= k:
+                    vals = [float(pc[i, jj]) for i in range(len(pc)) if int(np.argmax(pc[i])) == jj] or [float(pc[:, jj].max())]
+                    species.append((c, round(statistics.median(vals), 3)))
     if len(species) > 1 and species[0][0] == "unknown":   # 「不明」が第 1 種で他にもあれば、他を先に
         species = species[1:] + species[:1]
     top = sorted(mean.items(), key=lambda x: -x[1])[:8]
     je = codes.index("empty") if "empty" in codes else -1
     empty_mean = float(mean["empty"]) if je >= 0 else 0.0
     empty_frac = float((np.argmax(pc, axis=1) == je).mean()) if je >= 0 else 0.0     # 「動物なし」が最大の枠の割合
-    return dict(species=species, probs={c: round(v, 4) for c, v in top}, empty_mean=round(empty_mean, 4), empty_frac=round(empty_frac, 3))
+    out = dict(species=species, probs={c: round(v, 4) for c, v in top}, empty_mean=round(empty_mean, 4), empty_frac=round(empty_frac, 3))
+    if rollup:
+        out["rollup"] = rollup
+    return out
 
 
 # ---------- 1 本の処理 ----------
@@ -910,7 +960,7 @@ def process_item(project, hub: ModelHub, item: dict, classify: bool = True, fram
             j = int(np.argmax(pc[n]))
             per_crop.append(dict(t=r[0], code=codes[j], p=round(float(pc[n, j]), 3), conf=round(r[2], 3)))
             sp_by_idx[i] = (codes[j], float(pc[n, j]))
-        cls = aggregate_video(pc, codes, p1, p2, kk, str(s.get("species_pick") or "confidence"))
+        cls = aggregate_video(pc, codes, p1, p2, kk, str(s.get("species_pick") or "confidence"), rollup_groups(project, s))
         cls.update(per_crop=per_crop, model=hub.cls_label(), n_crops=len(cands), at=now_iso(), geofence=(s.get("country") or "") if mask is not None else "")
     with db.tx() as c:
         c.execute("DELETE FROM detections WHERE item_id=?", (item["id"],))
@@ -948,6 +998,8 @@ def finish_item(project, hub: ModelHub, item: dict, summary: dict, cls: dict | N
                 flag = "low"                       # 検出だけ: 動物がいるが種は人が付ける
         elif cls["species"]:
             results = [dict(species=c, confidence=p) for c, p in cls["species"]]
+            if cls.get("rollup"):
+                flag = "low"                       # 種まで決まらず上位の行（イタチ科など）にまとめた: 判定は付けるが要確認のまま
         elif p_empty > 0 and float(cls.get("empty_mean") or 0) >= p_empty:
             # 枠はあるが分類器が全部の枠を「動物なし」と見た（MegaDetector の誤検出。学習で「動物なし」の枠を覚えさせた後に効く）
             results = [dict(species="empty", confidence=round(float(cls["empty_mean"]), 3))]
@@ -1131,6 +1183,7 @@ def evaluate(project, f: dict | None = None) -> dict:
                     human.setdefault(j["item_id"], []).append(j["species"])
     from .species import FIXED_CODES
     enabled = {r["code"] for r in project.species.rows if r.get("enabled")} | set(FIXED_CODES)
+    tax = project.species.taxonomy
     model: dict[int, list[tuple[str, float]]] = {}      # いまの AI の判定（auto_json。第 1 種が先頭）
     n_folded = 0
     for iid, aj in auto_json.items():
@@ -1140,8 +1193,8 @@ def evaluate(project, f: dict | None = None) -> dict:
             lst = []
             for x in json.loads(aj).get("species", []):
                 code = x["species"]
-                if code not in enabled:                 # 種リストで「使わない」にした種の AI の判定は「不明」に数える（付け直せば消える）
-                    code = "unknown"
+                if code not in enabled:                 # 種リストで「使わない」にした種の AI の判定は、使う上位の行（なければ「不明」）に数える（付け直せば消える）
+                    code = project.species.fold_target(code)
                     n_folded += 1
                 if not any(c == code for c, _ in lst):
                     lst.append((code, x.get("confidence") or 0.0))
@@ -1149,13 +1202,13 @@ def evaluate(project, f: dict | None = None) -> dict:
         except Exception:
             pass
     by: dict[str, dict] = {}
-    n = correct = n_low = n_model = 0
+    n = correct = n_low = n_model = n_group = 0
     for iid, hs in human.items():
         if not hs:
             continue
         n += 1
         h1 = hs[0]
-        d = by.setdefault(h1, dict(n=0, correct=0, low=0, conf={}))
+        d = by.setdefault(h1, dict(n=0, correct=0, low=0, group=0, conf={}))
         d["n"] += 1
         ms = model.get(iid) or []
         if not ms:
@@ -1169,6 +1222,9 @@ def evaluate(project, f: dict | None = None) -> dict:
         if top in hs:
             correct += 1
             d["correct"] += 1
+        elif any(tax.related(top, h) for h in hs):
+            n_group += 1                                # 上位で合う（人がイタチ科で AI がニホンイタチ、人がニホンイタチで AI がイタチ科 など）。一致には数えない
+            d["group"] += 1
     # 行（人）と列（AI）は種リストの順にそろえる（対角線が斜めに並ぶように）。列には行にある種も入れる。要確認は最後
     order = species_order(project)
     key = lambda c: (c == "(low)", order.get(c, len(order)), c)
@@ -1176,7 +1232,7 @@ def evaluate(project, f: dict | None = None) -> dict:
     ai_cols = sorted({c for row in matrix.values() for c in row} | set(matrix.keys()), key=key)
     for d in by.values():
         d["conf"] = dict(sorted(d["conf"].items(), key=lambda x: -x[1])[:6])
-    return dict(n=n, correct=correct, n_low=n_low, n_model=n_model, by_species=dict(sorted(by.items(), key=lambda x: key(x[0]))),
+    return dict(n=n, correct=correct, n_low=n_low, n_model=n_model, n_group=n_group, by_species=dict(sorted(by.items(), key=lambda x: key(x[0]))),
                 matrix=matrix, ai_cols=ai_cols, n_folded=n_folded)
 
 
@@ -1200,13 +1256,13 @@ def export_evaluation(project, path: str, f: dict | None = None, lang: str = "ja
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     with open(path, "w", newline="", encoding="utf-8-sig") as fh:
         w = _csv.writer(fh)
-        w.writerow(["Human", "Human_ja", "n", "Agree", "AgreeRate", "Low", "AI_breakdown"])
+        w.writerow(["Human", "Human_ja", "n", "Agree", "AgreeRate", "Low", "AI_breakdown", "HigherTaxon"])
         for c, d in ev["by_species"].items():
             judged = d["n"] - d["low"]
             w.writerow([sp.csv_label(c) if hasattr(sp, "csv_label") else c, name(c), d["n"], d["correct"], f"{d['correct'] / judged:.3f}" if judged else "",
-                        d["low"], "; ".join(f"{name(k)}={v}" for k, v in d["conf"].items())])
+                        d["low"], "; ".join(f"{name(k)}={v}" for k, v in d["conf"].items()), d.get("group", 0)])
         w.writerow([])
-        w.writerow(["Total", "", ev["n"], ev["correct"], f"{ev['correct'] / ev['n_model']:.3f}" if ev["n_model"] else "", ev["n_low"], ""])
+        w.writerow(["Total", "", ev["n"], ev["correct"], f"{ev['correct'] / ev['n_model']:.3f}" if ev["n_model"] else "", ev["n_low"], "", ev.get("n_group", 0)])
     mpath = os.path.splitext(path)[0] + "_matrix.csv"
     cols = ev["ai_cols"]
     with open(mpath, "w", newline="", encoding="utf-8-sig") as fh:

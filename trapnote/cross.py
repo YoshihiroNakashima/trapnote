@@ -2404,11 +2404,11 @@ def batches_info(project) -> list[dict]:
     return out
 
 
-def _compare_sets(pairs: list[tuple[set[str], list[str]]], order: dict[str, int] | None = None) -> dict:
+def _compare_sets(pairs: list[tuple[set[str], list[str]]], order: dict[str, int] | None = None, tax=None) -> dict:
     """[(人の判定の集合, 比べる判定の列)] → 一致率。train.evaluate_items と同じ形: n, exact（集合が同じ）, partial（重なる）, first（比べる側の第 1 種が人の判定に入る）, low（比べる側なし）,
-    by_species（人の第 1 種ごと）, matrix（人の第 1 種 × 比べる側の第 1 種。なしは "(low)"）"""
+    group（比べる側の第 1 種が人の判定と上下関係にある = 上位で合う。tax = species.Taxonomy があるとき）, by_species（人の第 1 種ごと）, matrix（人の第 1 種 × 比べる側の第 1 種。なしは "(low)"）"""
     from .judge import compare_codes
-    n = exact = partial = first = low = 0
+    n = exact = partial = first = low = group = 0
     by: dict[str, dict] = {}
     matrix: dict[str, dict[str, int]] = {}
     for human, other in pairs:
@@ -2416,7 +2416,7 @@ def _compare_sets(pairs: list[tuple[set[str], list[str]]], order: dict[str, int]
             continue
         n += 1
         h1 = sorted(human)[0]                      # 複数種のときは第 1 種（コード順）で集計
-        d = by.setdefault(h1, dict(n=0, exact=0, first=0, low=0))
+        d = by.setdefault(h1, dict(n=0, exact=0, first=0, low=0, group=0))
         d["n"] += 1
         other = [c for c in other if c and c != "area"]
         if not other:
@@ -2424,7 +2424,7 @@ def _compare_sets(pairs: list[tuple[set[str], list[str]]], order: dict[str, int]
             d["low"] += 1
             matrix.setdefault(h1, {})["(low)"] = matrix.setdefault(h1, {}).get("(low)", 0) + 1
             continue
-        a = compare_codes(human, other)
+        a = compare_codes(human, other, tax)
         if a == 1:
             exact += 1
             d["exact"] += 1
@@ -2433,12 +2433,15 @@ def _compare_sets(pairs: list[tuple[set[str], list[str]]], order: dict[str, int]
         if other[0] in human:
             first += 1
             d["first"] += 1
+        elif tax is not None and any(tax.related(other[0], h) for h in human):
+            group += 1
+            d["group"] += 1
         matrix.setdefault(h1, {})[other[0]] = matrix.setdefault(h1, {}).get(other[0], 0) + 1
     key = (lambda c: (c == "(low)", order.get(c, len(order)), c)) if order else (lambda c: (c == "(low)", c))
     by = dict(sorted(by.items(), key=lambda x: key(x[0])))
     matrix = {h: dict(sorted(row.items(), key=lambda x: key(x[0]))) for h, row in sorted(matrix.items(), key=lambda x: key(x[0]))}
     cols = sorted({c for row in matrix.values() for c in row} | set(matrix.keys()), key=key)
-    return dict(n=n, exact=exact, partial=partial, first=first, low=low, by_species=by, matrix=matrix, cols=cols)
+    return dict(n=n, exact=exact, partial=partial, first=first, low=low, group=group, by_species=by, matrix=matrix, cols=cols)
 
 
 def batch_report(project, batch: str) -> dict:
@@ -2488,7 +2491,7 @@ def batch_report(project, batch: str) -> dict:
         pairs_ai.append((human, ai))
     order = species_order(project)
     return dict(batch=batch, n=n_all, n_verified=len(ver), n_existing=n_existing, n_ai=n_ai, models=dict(models.most_common(3)),
-                existing=_compare_sets(pairs_ex, order), ai=_compare_sets(pairs_ai, order), eval=batch in eval_batches(project))
+                existing=_compare_sets(pairs_ex, order, project.species.taxonomy), ai=_compare_sets(pairs_ai, order, project.species.taxonomy), eval=batch in eval_batches(project))
 
 
 # ---------- 取り込みを取り消す（対象から外す。動画本体には触らない） ----------

@@ -8,7 +8,9 @@ import re
 
 from .config import RESOURCES_DIR
 
-COLS = ["code", "name_ja", "name_en", "name_sci", "rank", "csv_label", "non_native", "speciesnet", "key", "enabled"]
+COLS = ["code", "name_ja", "name_en", "name_sci", "rank", "csv_label", "non_native", "speciesnet", "key", "enabled", "parent"]
+# parent = 上位の行のコード（空 = 学名から自動、"-" = 上位なし）。近縁の種をまとめた行（イタチ科（種不明）など）を、追加学習では部分ラベル
+# （その下のどれか）として学ばせ、判定ではどの種も届かないときの行き先（ロールアップ）にし、一致率では「上位で合う」に数える（taxonomy.py、Taxonomy）
 
 # 種とは別の固定項目（どのプロジェクトにもある。CSV 表記は既存の PRM_N の値に合わせる。Empty と Area は既存の値）
 FIXED = [
@@ -95,6 +97,7 @@ def _norm_row(row: dict) -> dict:
     d["non_native"] = 1 if str(d["non_native"]).strip().lower() in ("1", "true", "yes", "*", "外来") else 0
     d["enabled"] = 0 if str(d["enabled"]).strip().lower() in ("0", "false", "no", "") else 1
     d["key"] = d["key"][:1].upper() if d["key"] else ""
+    d["parent"] = "-" if d["parent"].strip() == "-" else d["parent"].strip().lower()
     if not d["csv_label"]:
         d["csv_label"] = re.sub(r"[^A-Za-z0-9]+", "", d["name_en"]) or d["code"]
     return d
@@ -149,14 +152,138 @@ def save_csv(path: str, rows: list[dict]) -> None:
     os.replace(tmp, path)
 
 
+class Taxonomy:
+    """種リストの上下関係。parent = 実際に使う上位（parent 列の指定、なければ学名から自動）、parent_auto = 学名から決めた上位、
+    anc = 上位（近い順）、desc = 下位の全部、level = 階級（species / genus / family / order / class / None）"""
+
+    def __init__(self, rows: list[dict]):
+        from .taxonomy import row_taxon
+        codes = [r["code"] for r in rows]
+        have = set(codes)
+        info = {r["code"]: row_taxon(r) for r in rows}
+        # 同じ分類群の行が複数あれば（哺乳類と小型哺乳類がどちらも Mammalia など）、SpeciesNet の対応がある・使う・先の行を代表に
+        rep: dict[str, str] = {}
+        for i, r in enumerate(rows):
+            own = info[r["code"]][0]
+            if not own:
+                continue
+            key = (0 if (r.get("speciesnet") or "").strip() else 1, 0 if r.get("enabled") else 1, i)
+            if own not in rep or key < rep[own][0]:
+                rep[own] = (key, r["code"])
+        rep_code = {t: v[1] for t, v in rep.items()}
+        self.parent_auto: dict[str, str | None] = {}
+        for c in codes:
+            own, _, chain = info[c]
+            p = None
+            if own and rep_code.get(own) not in (None, c):
+                p = rep_code[own]                       # 同じ分類群の代表の下に（小型哺乳類 → 哺乳類）
+            else:
+                for t in chain:
+                    if rep_code.get(t) not in (None, c):
+                        p = rep_code[t]
+                        break
+            self.parent_auto[c] = p
+        explicit: dict[str, str | None] = {}
+        for r in rows:
+            v = (r.get("parent") or "").strip()
+            if v == "-":
+                explicit[r["code"]] = None
+            elif v and v in have and v != r["code"]:
+                explicit[r["code"]] = v
+        self.parent = {c: (explicit[c] if c in explicit else self.parent_auto[c]) for c in codes}
+        # 指定が輪になっていたら（A の上位が B、B の上位が A）、輪の中の指定を 1 つ外す
+        for _ in range(len(codes)):
+            broken = False
+            for c in codes:
+                seen, path, x = set(), [], c
+                while x is not None and x not in seen:
+                    seen.add(x)
+                    path.append(x)
+                    x = self.parent.get(x)
+                if x is None:
+                    continue
+                cyc = path[path.index(x):]
+                y = next((y for y in cyc if y in explicit), cyc[-1])
+                self.parent[y] = None
+                broken = True
+                break
+            if not broken:
+                break
+        self.anc: dict[str, list[str]] = {}
+        for c in codes:
+            out, x = [], self.parent.get(c)
+            while x is not None and x not in out and x != c:
+                out.append(x)
+                x = self.parent.get(x)
+            self.anc[c] = out
+        self.desc: dict[str, set[str]] = {c: set() for c in codes}
+        for c, an in self.anc.items():
+            for a in an:
+                self.desc[a].add(c)
+        self.level: dict[str, str | None] = {c: info[c][1] for c in codes}
+        self.explicit = explicit
+
+    def related(self, a: str, b: str) -> bool:
+        """a と b の一方がもう一方の上位（同じなら False）"""
+        return a != b and (b in self.anc.get(a, ()) or a in self.anc.get(b, ()))
+
+    def match(self, code: str | None, targets) -> str | None:
+        """code（モデルの第 1 候補など）が入る targets の行: 同じ行、なければ code を下位に持つ行のうち一番近いもの"""
+        if code is None:
+            return None
+        if code in targets:
+            return code
+        for a in self.anc.get(code, ()):
+            if a in targets:
+                return a
+        return None
+
+
 class SpeciesList:
     def __init__(self, path: str):
         self.path = path
         self.rows: list[dict] = load_csv(path) if os.path.isfile(path) else default_list()
+        self._tax: tuple | None = None
         if not os.path.isfile(path):
             save_csv(path, self.rows)
         else:
             self._sync_defaults()
+
+    @property
+    def taxonomy(self) -> Taxonomy:
+        """上下関係（行が変わったら作り直す）"""
+        sig = tuple((r.get("code"), r.get("parent"), r.get("name_sci"), r.get("speciesnet"), r.get("rank"), r.get("enabled")) for r in self.rows)
+        if self._tax is None or self._tax[0] != sig:
+            self._tax = (sig, Taxonomy(self.rows))
+        return self._tax[1]
+
+    def fold_target(self, code: str) -> str:
+        """使わない種（enabled でない）の行き先: 使う上位の行（ニホンイタチを外してイタチ科を使うならイタチ科）、なければ「不明」。使う種と固定項目はそのまま"""
+        if code in FIXED_CODES:
+            return code
+        by = {r["code"]: r for r in self.rows}
+        r = by.get(code)
+        if r is not None and r.get("enabled"):
+            return code
+        for a in self.taxonomy.anc.get(code, ()):
+            if by.get(a, {}).get("enabled"):
+                return a
+        return "unknown"
+
+    def rollup_groups(self, mode: str = "family") -> dict[str, set[str]]:
+        """判定のロールアップの行き先: 使う行のうち下位を持つもの → 下位の全部。mode = family（属・科の行だけ。既定）/ all（目・綱も）/ off"""
+        if mode not in ("family", "all"):
+            return {}
+        tx = self.taxonomy
+        out = {}
+        for r in self.rows:
+            c = r["code"]
+            if not r.get("enabled") or not tx.desc.get(c):
+                continue
+            if mode == "family" and tx.level.get(c) not in ("genus", "family"):
+                continue
+            out[c] = set(tx.desc[c])
+        return out
 
     def _sync_defaults(self) -> None:
         """古い既定で作った種リストの手直し: 小型哺乳類の speciesnet 列（mammalia だと哺乳類全部がここに入る）を空に、
@@ -287,4 +414,7 @@ class SpeciesList:
         save_csv(self.path, self.rows)
 
     def to_dict(self) -> dict:
-        return dict(species=self.rows, fixed=[dict(f, fixed=True) for f in FIXED])
+        tx = self.taxonomy
+        rows = [dict(r, parent_auto=tx.parent_auto.get(r["code"]) or "", parent_eff=tx.parent.get(r["code"]) or "",
+                     n_desc=len(tx.desc.get(r["code"]) or ())) for r in self.rows]
+        return dict(species=rows, fixed=[dict(f, fixed=True) for f in FIXED])

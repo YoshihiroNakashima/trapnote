@@ -11,6 +11,9 @@
   - 種が複数の動画: 枠ごとに元のモデルの第 1 候補がその動画の種のどれかならそれ（違えば使わない）
   - 「動物なし」と確定した動画に枠があれば「動物なし」（誤検出を覚える）。「不明」「人」「車」だけの動画は使わない
   - 人の判定と AI が食い違っていた動画（agree = 3）と見直し済み（recheck）の枠は重み weight_hard 倍
+  - 上位の行（イタチ科（種不明）など。種リストの上下関係 species.Taxonomy）と確定した動画の枠は部分ラベル: 下位に学習する種（ニホンイタチ・ホンドテン・
+    ニホンアナグマ）があれば、上位の行は種として学ばず「下位の種のどれか」として学ぶ（損失 = -log(下位の種の確率の合計)。どの種かは決めさせない）。
+    下位に学習する種がなければ、今までどおりその行を 1 つの種として学ぶ
 評価: 地点（station）のうち holdout_frac の割合（または横断プロジェクトの組 holdout_batches = gold など）を検証用に取り分け（学習に使わない）、動画 1 本の判定（第 2 段階と同じ p1 / p2 / K の規則）
   を人の判定と突き合わせて、学習前（元の SpeciesNet）と学習後の一致率を出す。検証用の地点には「学習から外す」対象も入れる。
   評価のあと、全部の地点で学習し直したものを保存する（models/<名前>/）"""
@@ -237,10 +240,11 @@ def collect_all(project, sources: list[str] | None, opts: dict, progress=None, s
     n_verified = n_nofeat = n_static = n_disagree = n_anchor_manual = n_anchor_auto = 0
     srcs = []
     dims: set[int] = set()
+    tax = project.species.taxonomy                     # 上下関係（部分ラベル）はいまのプロジェクトの種リストで決める
     try:
         for si, pr in enumerate(projs):
             label = source_label(pr)
-            col = collect(pr, opts, lambda a, b: progress and progress(a, b, label if si else ""), stop)
+            col = collect(pr, opts, lambda a, b: progress and progress(a, b, label if si else ""), stop, tax=tax)
             for iid, it in col["items"].items():
                 it["proj"] = pr
                 it["src"] = si
@@ -314,13 +318,15 @@ def item_static_crops(db, item_id: int, bbox) -> list[bool]:
 
 
 # ---------- 学習データを集める ----------
-def collect(project, opts: dict, progress=None, stop=None) -> dict:
+def collect(project, opts: dict, progress=None, stop=None, tax=None) -> dict:
     """確認済みの対象から学習・評価用の枠を集める。返り値:
     items: {id: dict(id, rel_path, station, human(set), excluded, hard, codes(list), pc(ndarray), feats(ndarray|None), t, bbox, conf, labels(list[str|None]))}
-    labels[k] = 枠 k の学習用のコード（None なら学習に使わない）"""
+    labels[k] = 枠 k の学習用のコード（None なら学習に使わない。上位の行のコードなら部分ラベル = build_dataset で下位の種のどれかに）。
+    tax = 種リストの上下関係（省略ならこのプロジェクトの種リスト）: モデルの第 1 候補がニホンイタチで動画の種がイタチ科なら、その枠はイタチ科に当てる"""
     from .judge import human_codes
     db = project.db
     s = opts
+    tax = tax if tax is not None else project.species.taxonomy
     min_conf = float(s.get("train_min_conf", 0.5))
     use_empty = bool(s.get("train_use_empty", True))
     drop_static = bool(s.get("train_drop_static", False))       # 静止した枠（倒木・石）は動画の種ではなく「動物なし」に（use_empty が切れていれば学習から外す）。既定オフ（人が学習フレームを確認する前提）
@@ -375,7 +381,7 @@ def collect(project, opts: dict, progress=None, stop=None) -> dict:
             else:
                 for i in range(n):
                     top = codes[int(np.argmax(pc[i]))] if len(codes) else None
-                    labels[i] = top if top in animals else None
+                    labels[i] = tax.match(top, animals)        # 第 1 候補が動画の種（か、その下位）の枠だけ
             # 目視は動画単位なので、倒木や石の誤検出の枠にも動画の種が付いてしまう → 動画の間ずっと同じ位置にある枠は種ではなく「動物なし」に（動く枠が 1 つでもあるとき。設定、既定オフ）
             st_raw = item_static_crops(db, r["id"], bbox)
             if any(st_raw) and not all(st_raw):
@@ -386,11 +392,11 @@ def collect(project, opts: dict, progress=None, stop=None) -> dict:
                     if static[i] and labels[i] is not None:
                         labels[i] = "empty" if use_empty else None
                         n_static += 1
-            if check_agree and len(codes) and pc.shape[1]:     # 枠の判定（上位 3 位）に動画の種が入らない枠は使わない
+            if check_agree and len(codes) and pc.shape[1]:     # 枠の判定（上位 3 位）に動画の種（上位の行ならその下位も）が入らない枠は使わない
                 for i in range(n):
                     if labels[i] in animals:
                         top3 = {codes[j] for j in np.argsort(-pc[i])[:3]}
-                        if labels[i] not in top3:
+                        if not any(tax.match(x, {labels[i]}) for x in top3):
                             labels[i] = None
                             n_disagree += 1
         for i in range(n):
@@ -404,7 +410,7 @@ def collect(project, opts: dict, progress=None, stop=None) -> dict:
             # 1 動画 1 枚: 種ごとの学習フレーム（人が確定したときに選んでいた枠。なければ信頼度が最も高い静止でない枠）だけを残す。
             # one_plus はそれに加えて、同じ種で静止でなく、モデルの第 1 候補もその種の枠を残す。「動物なし」の枠（静止枠・動物なしの動画）は one なら信頼度が最も高い 1 枚、one_plus なら全部
             st_now = st_hint                              # 学習フレームの既定は静止枠（倒木・石）を避ける（設定に関わらず）
-            anchors, auto = resolve_anchors(crop_anchor_dict(r["crop_anchor"]), animals, codes, pc, conf, st_now, excl)
+            anchors, auto = resolve_anchors(crop_anchor_dict(r["crop_anchor"]), animals, codes, pc, conf, st_now, excl, tax)
             if animals:
                 n_anchor_auto += 1 if auto else 0
                 n_anchor_manual += 0 if auto else 1
@@ -422,7 +428,7 @@ def collect(project, opts: dict, progress=None, stop=None) -> dict:
                 if labels[i] == "empty":
                     if i not in keep_empty:
                         labels[i] = None
-                elif not (frames == "one_plus" and not st_now[i] and top[i] == labels[i]):
+                elif not (frames == "one_plus" and not st_now[i] and tax.match(top[i], {labels[i]}) == labels[i]):
                     labels[i] = None
         items[r["id"]] = dict(id=r["id"], rel_path=r["rel_path"], station=r["station"] or "", batch=r["batch"] or "", human=human, excluded=bool(r["train_exclude"]),
                               hard=bool(r["agree"] == 3 or r["recheck"]), codes=codes, pc=pc, feats=feats, t=t, bbox=bbox, conf=conf, labels=labels, holdout=False, static=static, anchors=anchors)
@@ -463,9 +469,11 @@ def pick_holdout(items: dict, opts: dict) -> tuple[set[str], list[str]]:
     return holdout, hb
 
 
-def build_dataset(items: dict, holdout: set[str], opts: dict, use_marks: bool = True) -> dict:
+def build_dataset(items: dict, holdout: set[str], opts: dict, use_marks: bool = True, tax=None) -> dict:
     """学習に使う枠（検証用の地点・組と「学習から外す」対象は除く）を並べる。種ごとの枠数が少ない種は外す。
-    holdout = 検証用の地点。use_marks なら検証用の印（it["holdout"] = 地点と組。mark_holdout）も外す（全部で学習し直すときは False）"""
+    holdout = 検証用の地点。use_marks なら検証用の印（it["holdout"] = 地点と組。mark_holdout）も外す（全部で学習し直すときは False）。
+    tax（種リストの上下関係）を渡すと部分ラベル: 下位に学習する種がある上位の行（イタチ科など）は種にせず、その枠の class_idx を
+    下位の種の番号のタプル（そのどれか）にする。下位に学習する種がない上位の行は今までどおり 1 つの種（枠数が min_per 以上なら）"""
     min_per = int(opts.get("train_min_per_class", 5))
     max_per = int(opts.get("train_max_per_class", 20000))
     w_hard = float(opts.get("train_weight_hard", 2.0))
@@ -477,10 +485,19 @@ def build_dataset(items: dict, holdout: set[str], opts: dict, use_marks: bool = 
         for lab in it["labels"]:
             if lab:
                 cnt[lab] += 1
-    classes = sorted([c for c, n in cnt.items() if n >= min_per], key=lambda c: -cnt[c])
-    dropped = {c: n for c, n in cnt.items() if n < min_per}
+    desc = tax.desc if tax is not None else {}
+    cls_set: set[str] = set()
+    partial_set: set[str] = set()
+    for c in sorted(cnt, key=lambda c: (len(desc.get(c, ())), c)):          # 下位の少ない行から（下位が先に決まる）
+        if any(d in cls_set for d in desc.get(c, ())):
+            partial_set.add(c)                       # 下位に学習する種がある → 部分ラベル（枠数が少なくても使う）
+        elif cnt[c] >= min_per:
+            cls_set.add(c)
+    classes = sorted([c for c in cnt if c in cls_set], key=lambda c: -cnt[c])
+    dropped = {c: n for c, n in cnt.items() if c not in cls_set and c not in partial_set}
     cidx = {c: i for i, c in enumerate(classes)}
-    samples = []      # (item_id, k, class_idx, weight)
+    pidx = {g: tuple(sorted(cidx[d] for d in desc[g] if d in cidx)) for g in partial_set}
+    samples = []      # (item_id, k, class_idx（部分ラベルなら番号のタプル）, weight)
     for it in items.values():
         if skip(it):
             continue
@@ -488,6 +505,8 @@ def build_dataset(items: dict, holdout: set[str], opts: dict, use_marks: bool = 
         for k, lab in enumerate(it["labels"]):
             if lab in cidx:
                 samples.append((it["id"], k, cidx[lab], w))
+            elif lab in pidx:
+                samples.append((it["id"], k, pidx[lab], w))
     # 多すぎる種は間引く（再現できるように乱数の種を固定）
     rng = random.Random(int(opts.get("train_seed", 1)))
     by_c: dict[int, list] = {}
@@ -499,9 +518,22 @@ def build_dataset(items: dict, holdout: set[str], opts: dict, use_marks: bool = 
             rng.shuffle(lst)
             lst = lst[:max_per]
         out.extend(lst)
-    out.sort()
+    out.sort(key=lambda smp: (smp[0], smp[1]))
     n_items = len({s[0] for s in out})
-    return dict(classes=classes, samples=out, counts={c: cnt[c] for c in classes}, dropped=dropped, n_items=n_items)
+    partial = {g: dict(n=cnt[g], to=[classes[i] for i in pidx[g]]) for g in sorted(partial_set, key=lambda g: -cnt[g])}
+    return dict(classes=classes, samples=out, counts={c: cnt[c] for c in classes}, dropped=dropped, n_items=n_items,
+                partial=partial, n_partial=sum(1 for smp in out if isinstance(smp[2], tuple)))
+
+
+def label_mask(cs: list, n_classes: int) -> np.ndarray:
+    """学習のラベル（種の番号か、部分ラベル = 番号のタプル）の列 → 当たりの印 [N, K]"""
+    M = np.zeros((len(cs), n_classes), dtype=bool)
+    for i, c in enumerate(cs):
+        if isinstance(c, (tuple, list)):
+            M[i, list(c)] = True
+        else:
+            M[i, int(c)] = True
+    return M
 
 
 def crop_excl_list(v) -> list[int]:
@@ -525,9 +557,9 @@ def crop_anchor_dict(v) -> dict[str, int]:
         return {}
 
 
-def default_anchors(animals: set[str], codes: list[str], pc, conf, static: list[bool], excluded: set[int], by_model: bool | None = None) -> dict[str, int]:
+def default_anchors(animals: set[str], codes: list[str], pc, conf, static: list[bool], excluded: set[int], by_model: bool | None = None, tax=None) -> dict[str, int]:
     """学習フレームの既定（人が選んでいないとき）: 外していない・静止でない枠のうち信頼度が最も高い枠（なければ静止枠も含めて、それもなければ全部から）。
-    種が複数の動画（by_model）は種ごとに、モデルの第 1 候補がその種の枠の中で信頼度が最も高いもの（その種と判定した枠がなければ付けない）"""
+    種が複数の動画（by_model）は種ごとに、モデルの第 1 候補がその種（上位の行ならその下位も。tax）の枠の中で信頼度が最も高いもの（その種と判定した枠がなければ付けない）"""
     n = len(conf)
     if n == 0 or not animals:
         return {}
@@ -542,6 +574,8 @@ def default_anchors(animals: set[str], codes: list[str], pc, conf, static: list[
         return {}
     out: dict[str, int] = {}
     top = [codes[int(np.argmax(pc[k]))] if len(codes) and len(pc[k]) else None for k in range(n)]
+    if tax is not None:
+        top = [tax.match(c, animals) for c in top]       # ニホンイタチと判定した枠は、動画の種がイタチ科ならイタチ科の枠
     for sp in sorted(animals):
         for pool in pools:
             cand = [k for k in pool if top[k] == sp]
@@ -551,14 +585,14 @@ def default_anchors(animals: set[str], codes: list[str], pc, conf, static: list[
     return out
 
 
-def resolve_anchors(stored: dict[str, int], animals: set[str], codes: list[str], pc, conf, static: list[bool], excluded: set[int]) -> tuple[dict[str, int], bool]:
+def resolve_anchors(stored: dict[str, int], animals: set[str], codes: list[str], pc, conf, static: list[bool], excluded: set[int], tax=None) -> tuple[dict[str, int], bool]:
     """学習フレーム: 人が選んだもの（crop_anchor）があればそれ（いまの種にあるもの・枠の範囲内・外していないものだけ）、足りない種は既定で補う。
     返り値 (種 → 枠の番号, 全部が自動か)"""
     n = len(conf)
     out = {sp: k for sp, k in (stored or {}).items() if sp in animals and 0 <= k < n and k not in excluded}
     manual = bool(out)
     if len(out) < len(animals):
-        for sp, k in default_anchors(animals - set(out), codes, pc, conf, static, excluded, by_model=len(animals) > 1).items():
+        for sp, k in default_anchors(animals - set(out), codes, pc, conf, static, excluded, by_model=len(animals) > 1, tax=tax).items():
             out[sp] = k
     return out, not manual
 
@@ -586,6 +620,7 @@ def set_anchor(project, item_id: int, k: int | None, species: str | None = None)
         cur = {next(iter(animals)): int(k)}
     else:
         sp = species or (z["codes"][int(np.argmax(z["pc"][int(k)]))] if len(z["codes"]) else None)
+        sp = project.species.taxonomy.match(sp, animals)     # 第 1 候補がニホンイタチで動画の種がイタチ科なら、イタチ科の学習フレーム
         if sp not in animals:
             return cur
         cur = {a: v for a, v in cur.items() if a in animals}
@@ -645,7 +680,7 @@ def item_crops(project, item_id: int) -> dict:
         animals_for_default = {guess}
     else:
         animals_for_default = animals
-    anchors, auto = resolve_anchors(crop_anchor_dict(r["crop_anchor"]), animals_for_default, codes, pc, conf, st, ex)
+    anchors, auto = resolve_anchors(crop_anchor_dict(r["crop_anchor"]), animals_for_default, codes, pc, conf, st, ex, project.species.taxonomy)
     out["anchors"], out["anchor_auto"], out["species"] = anchors, auto, sorted(animals)
     by_k = {k: sp for sp, k in anchors.items()}
     for k in range(len(conf)):
@@ -765,8 +800,29 @@ class Head:
         return h
 
 
+def _as_mask(y, K: int) -> np.ndarray:
+    """種の番号 [N] か当たりの印 [N, K] → 当たりの印 [N, K]（bool）"""
+    y = np.asarray(y)
+    if y.ndim == 2:
+        return y.astype(bool)
+    M = np.zeros((len(y), K), dtype=bool)
+    if len(y):
+        M[np.arange(len(y)), y.astype(np.int64)] = True
+    return M
+
+
+def _masked_lse(z: np.ndarray, M: np.ndarray) -> np.ndarray:
+    """行ごとに印の付いた列だけの logsumexp（数値的に安定に）"""
+    zm = np.where(M, z, -np.inf)
+    m = zm.max(axis=1)
+    m = np.where(np.isfinite(m), m, 0.0)
+    return m + np.log(np.maximum(np.exp(zm - m[:, None]).sum(axis=1), 1e-300))
+
+
 def train_head(X: np.ndarray, y: np.ndarray, w: np.ndarray, n_classes: int, opts: dict, Xv=None, yv=None, progress=None, stop=None) -> tuple[dict, dict]:
-    """softmax 回帰（Adam、L2、クラスの重みはおおまかに均す、検証の損失で早めに止める）。返り値 (W, b, mu, sd の dict, 記録)"""
+    """softmax 回帰（Adam、L2、クラスの重みはおおまかに均す、検証の損失で早めに止める）。返り値 (W, b, mu, sd の dict, 記録)。
+    y は種の番号 [N] か当たりの印 [N, K]。印が複数の行は部分ラベル（イタチ科と確定した枠 = ニホンイタチ・ホンドテン・ニホンアナグマのどれか）で、
+    損失は -log(印の付いた種の確率の合計)、勾配は p - q（q = 印の中だけで正規化した確率）。印が 1 つなら普通の交差エントロピーと同じ"""
     rng = np.random.default_rng(int(opts.get("train_seed", 1)))
     N, D = X.shape
     K = n_classes
@@ -774,10 +830,13 @@ def train_head(X: np.ndarray, y: np.ndarray, w: np.ndarray, n_classes: int, opts
     sd = X.std(axis=0) + 1e-6
     Xs = (X - mu) / sd
     Xvs = (Xv - mu) / sd if Xv is not None and len(Xv) else None
-    # クラスの重み: 多い種を抑える（√ で緩く）
-    cnt = np.bincount(y, minlength=K).astype(np.float64)
+    M = _as_mask(y, K)
+    Mv = _as_mask(yv, K) if Xvs is not None and yv is not None else None
+    # クラスの重み: 多い種を抑える（√ で緩く）。部分ラベルの枠は印の種に等分して数える
+    frac = M / np.maximum(M.sum(axis=1, keepdims=True), 1)
+    cnt = frac.sum(axis=0).astype(np.float64)
     cw = np.sqrt(cnt.sum() / (K * np.maximum(cnt, 1)))
-    sw = (w * cw[y]).astype(np.float32)
+    sw = (w * (frac @ cw)).astype(np.float32)
     sw *= len(sw) / sw.sum()
     W = np.zeros((D, K), dtype=np.float32)
     b = np.zeros(K, dtype=np.float32)
@@ -790,12 +849,12 @@ def train_head(X: np.ndarray, y: np.ndarray, w: np.ndarray, n_classes: int, opts
     patience, bad = 6, 0
     hist = []
 
-    def loss_of(Xq, yq):
+    def loss_of(Xq, Mq):
         z = Xq @ W + b
         z = z - z.max(axis=1, keepdims=True)
         lse = np.log(np.exp(z).sum(axis=1))
-        nll = lse - z[np.arange(len(yq)), yq]
-        acc = float((np.argmax(z, axis=1) == yq).mean()) if len(yq) else 0.0
+        nll = lse - _masked_lse(z, Mq)
+        acc = float(Mq[np.arange(len(Mq)), np.argmax(z, axis=1)].mean()) if len(Mq) else 0.0      # 第 1 候補が印の中
         return float(nll.mean()), acc
 
     for ep in range(epochs):
@@ -805,15 +864,16 @@ def train_head(X: np.ndarray, y: np.ndarray, w: np.ndarray, n_classes: int, opts
         tot = 0.0
         for i in range(0, N, bs):
             idx = order[i:i + bs]
-            xb, yb, wb = Xs[idx], y[idx], sw[idx]
+            xb, Mb, wb = Xs[idx], M[idx], sw[idx]
             z = xb @ W + b
             z -= z.max(axis=1, keepdims=True)
             e = np.exp(z)
             p = e / e.sum(axis=1, keepdims=True)
-            tot += float(-(np.log(p[np.arange(len(yb)), yb] + 1e-9) * wb).sum())
-            g = p
-            g[np.arange(len(yb)), yb] -= 1.0
-            g *= wb[:, None] / len(yb)
+            tot += float(-(np.log((p * Mb).sum(axis=1) + 1e-9) * wb).sum())
+            em = np.where(Mb, z, -np.inf)
+            em = np.exp(em - em.max(axis=1, keepdims=True))
+            q = em / em.sum(axis=1, keepdims=True)          # 印の中だけで正規化した確率（印が 1 つなら one-hot）
+            g = (p - q) * (wb[:, None] / len(idx))
             gW = xb.T @ g + l2 * W
             gb = g.sum(axis=0)
             step += 1
@@ -824,9 +884,9 @@ def train_head(X: np.ndarray, y: np.ndarray, w: np.ndarray, n_classes: int, opts
             b -= a * mb / (np.sqrt(vb) + eps)
         tr_loss = tot / N
         if Xvs is not None:
-            vl, va = loss_of(Xvs, yv)
+            vl, va = loss_of(Xvs, Mv)
         else:
-            vl, va = loss_of(Xs, y)
+            vl, va = loss_of(Xs, M)
         hist.append(dict(epoch=ep + 1, train_loss=round(tr_loss, 4), val_loss=round(vl, 4), val_acc=round(va, 4)))
         if progress:
             progress(ep + 1, epochs, hist[-1])
@@ -842,16 +902,17 @@ def train_head(X: np.ndarray, y: np.ndarray, w: np.ndarray, n_classes: int, opts
 
 
 # ---------- 評価（動画 1 本の判定を人の判定と突き合わせる） ----------
-def video_judgement(codes: list[str], pc: np.ndarray, s: dict) -> list[str]:
+def video_judgement(codes: list[str], pc: np.ndarray, s: dict, groups: dict | None = None) -> list[str]:
     from .detect import aggregate_video
-    cls = aggregate_video(pc, codes, float(s["species_p1"]), float(s["species_p2"]), int(s["species_k"]), str(s.get("species_pick") or "confidence"))
+    cls = aggregate_video(pc, codes, float(s["species_p1"]), float(s["species_p2"]), int(s["species_k"]), str(s.get("species_pick") or "confidence"), groups)
     return [c for c, _ in cls["species"]]
 
 
-def evaluate_items(items: dict, ids: list[int], pred_fn, s: dict) -> dict:
-    """ids の対象について、pred_fn(item) → (codes, pc) で動画の判定を作り、人の判定と比べる（agree 1/2/3 と、第 1 種の正答）"""
+def evaluate_items(items: dict, ids: list[int], pred_fn, s: dict, tax=None, groups: dict | None = None) -> dict:
+    """ids の対象について、pred_fn(item) → (codes, pc) で動画の判定を作り、人の判定と比べる（agree 1/2/3 と、第 1 種の正答）。
+    groups = 判定のロールアップの行き先（detect.rollup_groups）、tax = 上下関係（第 1 種が人の判定と上下関係にあれば group = 上位で合う。正答には数えない）"""
     from .judge import compare_codes
-    n = exact = partial = first_ok = low = 0
+    n = exact = partial = first_ok = low = group = 0
     by: dict[str, dict] = {}
     matrix: dict[str, dict[str, int]] = {}
     for iid in ids:
@@ -860,17 +921,17 @@ def evaluate_items(items: dict, ids: list[int], pred_fn, s: dict) -> dict:
         if not human:
             continue
         codes, pc = pred_fn(it)
-        auto = video_judgement(codes, pc, s) if len(pc) else []
+        auto = video_judgement(codes, pc, s, groups) if len(pc) else []
         n += 1
         h1 = sorted(human)[0] if len(human) == 1 else next(iter(human))
-        d = by.setdefault(h1, dict(n=0, exact=0, first=0, low=0))
+        d = by.setdefault(h1, dict(n=0, exact=0, first=0, low=0, group=0))
         d["n"] += 1
         if not auto:
             low += 1
             d["low"] += 1
             matrix.setdefault(h1, {})["(low)"] = matrix.setdefault(h1, {}).get("(low)", 0) + 1
             continue
-        a = compare_codes(human, auto)
+        a = compare_codes(human, auto, tax)
         if a == 1:
             exact += 1
             d["exact"] += 1
@@ -879,8 +940,11 @@ def evaluate_items(items: dict, ids: list[int], pred_fn, s: dict) -> dict:
         if auto[0] in human:
             first_ok += 1
             d["first"] += 1
+        elif tax is not None and any(tax.related(auto[0], h) for h in human):
+            group += 1
+            d["group"] += 1
         matrix.setdefault(h1, {})[auto[0]] = matrix.setdefault(h1, {}).get(auto[0], 0) + 1
-    return dict(n=n, exact=exact, partial=partial, first=first_ok, low=low, by_species=dict(sorted(by.items(), key=lambda x: -x[1]["n"])), matrix=matrix)
+    return dict(n=n, exact=exact, partial=partial, first=first_ok, low=low, group=group, by_species=dict(sorted(by.items(), key=lambda x: -x[1]["n"])), matrix=matrix)
 
 
 def base_pred(it: dict) -> tuple[list[str], np.ndarray]:
@@ -907,9 +971,11 @@ def _run_train_a(project, opts, name, progress, stop, s, t0, col) -> dict:
     items = col["items"]
     if not items:
         raise RuntimeError("学習に使える対象がありません（確認済みで、検出・種判別が済んでいて、特徴量が保存されているもの）")
+    from .detect import rollup_groups
     holdout, hb = pick_holdout(items, opts)
     ev_ids = mark_holdout(items, holdout, hb)                 # 検証用 = 検証用の地点の対象 + 検証用の組（gold など）の対象
-    ds = build_dataset(items, holdout, opts)
+    tax, groups = project.species.taxonomy, rollup_groups(project, s)     # 部分ラベルと、評価の判定のロールアップ
+    ds = build_dataset(items, holdout, opts, tax=tax)
     if len(ds["classes"]) < 2:
         raise RuntimeError(f"学習に入れられる種が {len(ds['classes'])} つしかありません（種ごとに {opts.get('train_min_per_class', 5)} 枚以上の枠が要ります）")
     base_mix = float(opts.get("train_base_mix", 0.3))
@@ -932,13 +998,14 @@ def _run_train_a(project, opts, name, progress, stop, s, t0, col) -> dict:
                 X.append(f[k]); y.append(c); w.append(wt)
         if not X:
             raise RuntimeError("特徴量のある枠がありません（検出のときに「特徴量を保存」が切れていたか、分類器の最終層が見つからなかった）")
-        X = np.stack(X); y = np.asarray(y, dtype=np.int64); w = np.asarray(w, dtype=np.float32)
-        Xv = np.stack(Xv) if Xv else None; yv = np.asarray(yv, dtype=np.int64) if yv else None
+        X = np.stack(X); y = label_mask(y, len(classes)); w = np.asarray(w, dtype=np.float32)      # 当たりの印（部分ラベルは複数の印）
+        Xv = np.stack(Xv) if Xv else None; yv = label_mask(yv, len(classes)) if yv else None
         prm, rec = train_head(X, y, w, len(classes), opts, Xv, yv, lambda e, n, h: progress and progress(tag, e, n, f"loss {h['train_loss']:.3f} / val {h['val_loss']:.3f} ({h['val_acc'] * 100:.0f}%)"), stop)
         return Head(classes, prm["W"], prm["b"], prm["mu"], prm["sd"], base_mix, name), rec
 
     result = dict(kind="A", name=name, base_classifier=str(next(iter(items.values()))["codes"] and s.get("speciesnet_model")), trained_at=now_iso(),
                   classes=ds["classes"], counts=ds["counts"], dropped=ds["dropped"], n_items=ds["n_items"], n_crops=len(ds["samples"]),
+                  partial=ds["partial"], n_partial=ds["n_partial"], rollup=str(s.get("species_rollup") or "family"),
                   n_verified=col["n_verified"], n_nofeat=col["n_nofeat"], n_static=col.get("n_static", 0), n_disagree=col.get("n_disagree", 0),
                   n_anchor_manual=col.get("n_anchor_manual", 0), n_anchor_auto=col.get("n_anchor_auto", 0), train_frames=col.get("train_frames"),
                   holdout_stations=sorted(holdout), holdout_batches=hb, n_holdout=len(ev_ids), base_mix=base_mix,
@@ -947,8 +1014,8 @@ def _run_train_a(project, opts, name, progress, stop, s, t0, col) -> dict:
     # 1) 検証用（地点・組）を除いて学習 → 検証用で学習前・後を比べる
     if ev_ids:
         head, rec = fit(ds["samples"], ds["classes"], "train")
-        before = evaluate_items(items, ev_ids, base_pred, s)
-        after = evaluate_items(items, ev_ids, lambda it: head.apply(it["feats"], it["codes"], it["pc"]), s)
+        before = evaluate_items(items, ev_ids, base_pred, s, tax, groups)
+        after = evaluate_items(items, ev_ids, lambda it: head.apply(it["feats"], it["codes"], it["pc"]), s, tax, groups)
         result.update(eval=dict(before=before, after=after, n_items=len(ev_ids), stations=sorted(holdout), batches=hb), train_record=rec)
         if progress:
             progress("eval", 1, 1, "")
@@ -961,13 +1028,14 @@ def _run_train_a(project, opts, name, progress, stop, s, t0, col) -> dict:
     if keep_out:
         ds_all, head_all, rec_all = ds, head, rec
     else:
-        ds_all = build_dataset(items, set(), opts, use_marks=False)
+        ds_all = build_dataset(items, set(), opts, use_marks=False, tax=tax)
         head_all, rec_all = fit(ds_all["samples"], ds_all["classes"], "train_all")
     result.update(classes=ds_all["classes"], counts=ds_all["counts"], dropped=ds_all["dropped"], n_items=ds_all["n_items"], n_crops=len(ds_all["samples"]), train_record_all=rec_all,
-                  final_without_holdout=keep_out)
+                  final_without_holdout=keep_out, partial=ds_all["partial"], n_partial=ds_all["n_partial"])
     # 学習に使った全部（検証用の地点も含む）での一致率も参考に
     all_ids = list(items.keys())
-    result["fit_all"] = dict(before=evaluate_items(items, all_ids, base_pred, s), after=evaluate_items(items, all_ids, lambda it: head_all.apply(it["feats"], it["codes"], it["pc"]), s))
+    result["fit_all"] = dict(before=evaluate_items(items, all_ids, base_pred, s, tax, groups),
+                             after=evaluate_items(items, all_ids, lambda it: head_all.apply(it["feats"], it["codes"], it["pc"]), s, tax, groups))
     folder = os.path.join(models_root(project), name)
     os.makedirs(folder, exist_ok=True)
     head_all.save(folder)
@@ -1191,9 +1259,15 @@ def _load_crop_tensor(path: str, augment: bool, rng: random.Random):
     return np.asarray(img, dtype=np.float32) / 255.0
 
 
+def partial_ce(z, M):
+    """部分ラベルの交差エントロピー（torch）: -log(印の付いた種の確率の合計) = logsumexp(z) - logsumexp(z[印])。印が 1 つなら普通の交差エントロピー"""
+    import torch
+    return torch.logsumexp(z, dim=1) - torch.logsumexp(z.masked_fill(~M, float("-inf")), dim=1)
+
+
 def finetune(model, device: str, samples: list, paths: dict, n_classes: int, opts: dict, val: list | None, progress=None, stop=None) -> tuple[dict, dict]:
     """model（SpeciesNet 本体。最終層は replace_head で差し替え済み）の後ろの層を学習する。
-    samples = [(item_id, k, class, weight)]、paths[(item_id, k)] = 枠の JPEG。返り値 (学習した重み {name: tensor}, 記録)"""
+    samples = [(item_id, k, class, weight)]（class は種の番号か、部分ラベル = 番号のタプル）、paths[(item_id, k)] = 枠の JPEG。返り値 (学習した重み {name: tensor}, 記録)"""
     import torch
     rng = random.Random(int(opts.get("train_seed", 1)))
     epochs, bs = int(opts.get("train_epochs_b", 5)), int(opts.get("train_batch_b", 16))
@@ -1210,7 +1284,9 @@ def finetune(model, device: str, samples: list, paths: dict, n_classes: int, opt
     params_body = [p for n, p in model.named_parameters() if n in train_names and n not in head_names]
     params_head = [p for n, p in model.named_parameters() if n in head_names]
     opt = torch.optim.AdamW([dict(params=params_body, lr=lr), dict(params=params_head, lr=lr * 10)], weight_decay=1e-4)
-    cnt = np.bincount([s[2] for s in samples], minlength=n_classes).astype(np.float64)
+    M_all = label_mask([s[2] for s in samples], n_classes)
+    frac = M_all / np.maximum(M_all.sum(axis=1, keepdims=True), 1)          # 部分ラベルは印の種に等分して数える
+    cnt = frac.sum(axis=0).astype(np.float64)
     cw = torch.tensor(np.sqrt(cnt.sum() / (n_classes * np.maximum(cnt, 1))), dtype=torch.float32, device=device)
     use_amp = device == "cuda"
     scaler = torch.cuda.amp.GradScaler() if use_amp else None
@@ -1246,11 +1322,11 @@ def finetune(model, device: str, samples: list, paths: dict, n_classes: int, opt
                 x, lst = batch_tensor(val[i:i + bs], False)
                 if x is None:
                     continue
-                y = torch.tensor([c for _, _, c, _ in lst], device=device)
+                M = torch.from_numpy(label_mask([c for _, _, c, _ in lst], n_classes)).to(device)
                 with torch.autocast(device_type="cuda", enabled=use_amp):
                     z = model(x).float()
-                tot += float(torch.nn.functional.cross_entropy(z, y, reduction="sum"))
-                correct += int((z.argmax(1) == y).sum())
+                tot += float(partial_ce(z.float(), M).sum())
+                correct += int(M[torch.arange(len(lst), device=device), z.argmax(1)].sum())      # 第 1 候補が印の中
                 n += len(lst)
         return tot / max(n, 1), correct / max(n, 1)
 
@@ -1269,12 +1345,14 @@ def finetune(model, device: str, samples: list, paths: dict, n_classes: int, opt
             x, lst = batch_tensor(order[i:i + bs], True)
             if x is None:
                 continue
-            y = torch.tensor([c for _, _, c, _ in lst], device=device)
-            w = torch.tensor([wt for _, _, _, wt in lst], dtype=torch.float32, device=device) * cw[y]
+            Mn = label_mask([c for _, _, c, _ in lst], n_classes)
+            M = torch.from_numpy(Mn).to(device)
+            fb = torch.from_numpy((Mn / Mn.sum(axis=1, keepdims=True)).astype(np.float32)).to(device)
+            w = torch.tensor([wt for _, _, _, wt in lst], dtype=torch.float32, device=device) * (fb @ cw)
             opt.zero_grad(set_to_none=True)
             with torch.autocast(device_type="cuda", enabled=use_amp):
                 z = model(x).float()
-                loss = (torch.nn.functional.cross_entropy(z, y, reduction="none") * w).sum() / w.sum()
+                loss = (partial_ce(z.float(), M) * w).sum() / w.sum()
             if scaler:
                 scaler.scale(loss).backward(); scaler.step(opt); scaler.update()
             else:
@@ -1374,10 +1452,12 @@ def _run_train_b(project, hub, opts, name, progress, stop, init_from, s, t0, ini
     items = col["items"]
     if not items:
         raise RuntimeError("学習に使える対象がありません（確認済みで、検出・種判別が済んでいるもの）")
+    from .detect import rollup_groups
     holdout, hb = pick_holdout(items, opts)
     ev_ids = mark_holdout(items, holdout, hb)
-    ds = build_dataset(items, holdout, opts)
-    ds_all = build_dataset(items, set(), opts, use_marks=False)
+    tax, groups = project.species.taxonomy, rollup_groups(project, s)     # 部分ラベルと、評価の判定のロールアップ
+    ds = build_dataset(items, holdout, opts, tax=tax)
+    ds_all = build_dataset(items, set(), opts, use_marks=False, tax=tax)
     if len(ds_all["classes"]) < 2:
         raise RuntimeError(f"学習に入れられる種が {len(ds_all['classes'])} つしかありません")
     # 枠の切り出し（学習に使う対象と、検証用の対象）
@@ -1446,8 +1526,8 @@ def _run_train_b(project, hub, opts, name, progress, stop, init_from, s, t0, ini
                 if not ok:
                     return classes, np.zeros((0, len(classes)), dtype=np.float32)
                 return classes, classify_crops(base_model, device, ok, int(opts.get("train_batch_b", 16)))
-            before = evaluate_items(items, ev_ids, base_pred, s)
-            after = evaluate_items(items, ev_ids, pred, s)
+            before = evaluate_items(items, ev_ids, base_pred, s, tax, groups)
+            after = evaluate_items(items, ev_ids, pred, s, tax, groups)
             result.update(eval=dict(before=before, after=after, n_items=len(ev_ids), stations=sorted(holdout), batches=hb), train_record=rec)
         else:
             result.update(eval=None)
@@ -1460,7 +1540,7 @@ def _run_train_b(project, hub, opts, name, progress, stop, init_from, s, t0, ini
         else:
             classes, state, rec_all = fit(ds_all, "train_all")
         result.update(classes=classes, counts=ds_all["counts"], dropped=ds_all["dropped"], n_items=ds_all["n_items"], n_crops=len(ds_all["samples"]), train_record_all=rec_all,
-                      final_without_holdout=keep_out)
+                      final_without_holdout=keep_out, partial=ds_all["partial"], n_partial=ds_all["n_partial"], rollup=str(s.get("species_rollup") or "family"))
         # 全部（検証用の地点も含む）での一致率も参考に（枠の画像があるものだけ）
         all_ids = list(items.keys())
         ensure_crops(project, items, all_ids, lambda a, b, c: progress and progress("crops", a, b, c), stop)
@@ -1471,7 +1551,7 @@ def _run_train_b(project, hub, opts, name, progress, stop, init_from, s, t0, ini
             if not ok:
                 return classes, np.zeros((0, len(classes)), dtype=np.float32)
             return classes, classify_crops(base_model, device, ok, int(opts.get("train_batch_b", 16)))
-        result["fit_all"] = dict(before=evaluate_items(items, all_ids, base_pred, s), after=evaluate_items(items, all_ids, pred_all, s))
+        result["fit_all"] = dict(before=evaluate_items(items, all_ids, base_pred, s, tax, groups), after=evaluate_items(items, all_ids, pred_all, s, tax, groups))
         folder = os.path.join(models_root(project), name)
         os.makedirs(folder, exist_ok=True)
         # 出発点のモデルから続けた場合: 今回動かさなかった層は出発点の重みのままなので、それも一緒に保存する（元の SpeciesNet に載せて再現できるように）
@@ -1517,7 +1597,8 @@ def load_local(project, hub, name: str) -> dict:
 
 
 def fold_disabled(project, codes: list[str], pc: np.ndarray) -> tuple[list[str], np.ndarray]:
-    """種リストで使わない種（enabled でない。固定項目は除く）の列を「不明」にまとめる"""
+    """種リストで使わない種（enabled でない。固定項目は除く）の列を、使う上位の行（ニホンイタチを外してイタチ科を使うならイタチ科）に、
+    なければ「不明」にまとめる（元の SpeciesNet のラベルの対応 build_label_map と同じ考え）"""
     from .species import FIXED_CODES
     enabled = {r["code"] for r in project.species.rows if r.get("enabled")} | set(FIXED_CODES)
     if all(c in enabled for c in codes):
@@ -1525,7 +1606,7 @@ def fold_disabled(project, codes: list[str], pc: np.ndarray) -> tuple[list[str],
     out: list[str] = []
     cols: dict[str, list[int]] = {}
     for j, c in enumerate(codes):
-        key = c if c in enabled else "unknown"
+        key = c if c in enabled else project.species.fold_target(c)
         if key not in cols:
             cols[key] = []
             out.append(key)
@@ -1560,8 +1641,10 @@ def reclassify_item(project, hub, item: dict, s: dict) -> dict | None:
         codes2, pc2 = hub.head.apply(feats, codes, pc)
     else:
         codes2, pc2 = codes, pc
-    codes2, pc2 = fold_disabled(project, codes2, pc2)         # 種リストで「使わない」にした種は「不明」に寄せる（付け直しでいまの種リストを反映）
-    cls = aggregate_video(pc2, codes2, float(s["species_p1"]), float(s["species_p2"]), int(s["species_k"]), str(s.get("species_pick") or "confidence"))
+    codes2, pc2 = fold_disabled(project, codes2, pc2)         # 種リストで「使わない」にした種は使う上位の行か「不明」に寄せる（付け直しでいまの種リストを反映）
+    from .detect import rollup_groups
+    cls = aggregate_video(pc2, codes2, float(s["species_p1"]), float(s["species_p2"]), int(s["species_k"]), str(s.get("species_pick") or "confidence"),
+                          rollup_groups(project, s))
     per_crop = []
     for n in range(len(pc2)):
         j = int(np.argmax(pc2[n]))

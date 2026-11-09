@@ -198,8 +198,9 @@ def human_codes(status: str, judgements: list[dict]) -> set[str]:
     return {j["species"] for j in judgements if (status == "verified" or j.get("origin") in HUMAN_ORIGINS) and j["species"] != "area"}
 
 
-def compare_codes(human: set[str], auto: list[str]) -> int | None:
-    """1 一致 / 2 部分一致 / 3 不一致 / None 比べられない"""
+def compare_codes(human: set[str], auto: list[str], tax=None) -> int | None:
+    """1 一致 / 2 部分一致 / 3 不一致 / None 比べられない。
+    tax（species.Taxonomy）を渡すと、上下関係にある種（人がイタチ科で AI がニホンイタチ、またはその逆）も部分一致（上位で合う）に数える"""
     a = {x for x in auto if x != "area"}
     if not human or not a:
         return None
@@ -207,7 +208,18 @@ def compare_codes(human: set[str], auto: list[str]) -> int | None:
         return 1
     if a & human:
         return 2
+    if tax is not None and any(tax.related(x, h) for x in a for h in human):
+        return 2
     return 3
+
+
+def taxonomy_of(db: Database):
+    """DB に持たせた種リストの上下関係（なければ None = 上下関係を見ない）"""
+    sp = getattr(db, "species_list", None)
+    try:
+        return sp.taxonomy if sp is not None else None
+    except Exception:
+        return None
 
 
 def update_agree(db: Database, item_ids: list[int] | None = None) -> int:
@@ -232,12 +244,13 @@ def update_agree(db: Database, item_ids: list[int] | None = None) -> int:
         for j in db.q(f"SELECT item_id, species, origin FROM judgements WHERE item_id IN ({qs})", part):
             js[j["item_id"]].append(dict(species=j["species"], origin=j["origin"]))
     changes = []
+    tax = taxonomy_of(db)
     for r in rows:
         try:
             auto = [x["species"] for x in json.loads(r["auto_json"]).get("species", [])]
         except Exception:
             auto = []
-        v = compare_codes(human_codes(r["status"], js[r["id"]]), auto)
+        v = compare_codes(human_codes(r["status"], js[r["id"]]), auto, tax)
         if v != r["agree"]:
             changes.append((v, r["id"]))
     if changes:
@@ -715,8 +728,9 @@ def evaluate_prior(project, f: dict | None = None, by: str | None = None) -> dic
             cur.setdefault(j["item_id"], []).append(j["species"])
     order = species_order(project)
     key = lambda c: (c == "(none)", order.get(c, len(order)), c)
+    tax = project.species.taxonomy if hasattr(project.species, "taxonomy") else None
     by_sp: dict[str, dict] = {}
-    n = correct = exact = n_none = n_unchecked = 0
+    n = correct = exact = n_none = n_unchecked = n_group = 0
     for iid in ids:
         if iid not in prior:
             n_unchecked += 1                          # 履歴がない = このアプリで確定していない（CSV や参照先で確認済みのまま）
@@ -728,13 +742,16 @@ def evaluate_prior(project, f: dict | None = None, by: str | None = None) -> dic
             continue
         n += 1
         p1 = ps[0]
-        d = by_sp.setdefault(p1, dict(n=0, correct=0, exact=0, conf={}))
+        d = by_sp.setdefault(p1, dict(n=0, correct=0, exact=0, group=0, conf={}))
         d["n"] += 1
         c1 = cs[0]
         d["conf"][c1] = d["conf"].get(c1, 0) + 1
         if p1 in cs:
             correct += 1
             d["correct"] += 1
+        elif tax is not None and any(tax.related(p1, c) for c in cs):
+            n_group += 1                              # 上位で合う（既存がイタチ科で確定がニホンイタチ、またはその逆）
+            d["group"] += 1
         if set(ps) == set(cs):
             exact += 1
             d["exact"] += 1
@@ -743,7 +760,7 @@ def evaluate_prior(project, f: dict | None = None, by: str | None = None) -> dic
     for d in by_sp.values():
         d["conf"] = dict(sorted(d["conf"].items(), key=lambda x: -x[1])[:6])
     people = [r[0] for r in db.q(f"SELECT DISTINCT verified_by FROM items WHERE {where} AND status='verified' AND missing=0 AND verified_by IS NOT NULL AND verified_by != '' ORDER BY 1", build_where(f or {})[1])]
-    return dict(n_verified=len(ids), n=n, n_prior=n, n_none=n_none, n_unchecked=n_unchecked, correct=correct, exact=exact,
+    return dict(n_verified=len(ids), n=n, n_prior=n, n_none=n_none, n_unchecked=n_unchecked, correct=correct, exact=exact, n_group=n_group,
                 by_species=dict(sorted(by_sp.items(), key=lambda x: key(x[0]))), matrix=matrix, cols=cols, people=people)
 
 
@@ -756,12 +773,13 @@ def export_prior_evaluation(project, path: str, f: dict | None = None, by: str |
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     with open(path, "w", newline="", encoding="utf-8-sig") as fh:
         w = _csv.writer(fh)
-        w.writerow(["Prior", "Prior_ja", "n", "Agree", "AgreeRate", "Exact", "Verified_breakdown"])
+        w.writerow(["Prior", "Prior_ja", "n", "Agree", "AgreeRate", "Exact", "Verified_breakdown", "HigherTaxon"])
         for c, d in ev["by_species"].items():
             w.writerow([sp.csv_label(c) if hasattr(sp, "csv_label") else c, name(c), d["n"], d["correct"], f"{d['correct'] / d['n']:.3f}" if d["n"] else "", d["exact"],
-                        "; ".join(f"{name(k)}={v}" for k, v in d["conf"].items())])
+                        "; ".join(f"{name(k)}={v}" for k, v in d["conf"].items()), d.get("group", 0)])
         w.writerow([])
-        w.writerow(["Total", "", ev["n"], ev["correct"], f"{ev['correct'] / ev['n']:.3f}" if ev["n"] else "", ev["exact"], f"verified={ev['n_verified']}; no_prior={ev['n_none']}; not_rechecked={ev['n_unchecked']}"])
+        w.writerow(["Total", "", ev["n"], ev["correct"], f"{ev['correct'] / ev['n']:.3f}" if ev["n"] else "", ev["exact"], f"verified={ev['n_verified']}; no_prior={ev['n_none']}; not_rechecked={ev['n_unchecked']}",
+                    ev.get("n_group", 0)])
     mpath = os.path.splitext(path)[0] + "_matrix.csv"
     cols = ev["cols"]
     with open(mpath, "w", newline="", encoding="utf-8-sig") as fh:
