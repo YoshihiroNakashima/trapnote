@@ -521,7 +521,8 @@ function showCtxMenu(x, y, id, i, rowObj) {
     [many || !row.train_exclude ? 'exclude' : 'include', many || !row.train_exclude ? t('ctx_excl') : t('ctx_incl')],
     many && ['unfavorite', t('ctx_unfav')], many && ['include', t('ctx_incl')],
     ['all', t('ctx_sel_all')], 'hr',
-    ['export', `${t('ctx_export')} (${ids.length})`], ['subset', `${t('ctx_subset')} (${ids.length})`], 'hr',
+    ['export', `${t('ctx_export')} (${ids.length})`], ['files', `${t('ctx_files')} (${ids.length})`], ['subset', `${t('ctx_subset')} (${ids.length})`],
+    !many && ['reveal', t('ctx_reveal')], 'hr',
     ['delete', `${t(S.project && S.project.kind === 'cross' ? 'ctx_del_cross' : 'ctx_del')}${many ? ` (${ids.length})` : ''}`, 'danger'],
   ].filter(Boolean);
   m.innerHTML = items.map(it => it === 'hr' ? '<hr>' : `<div data-act="${it[0]}" class="${it[2] || ''}">${esc(it[1])}</div>`).join('');
@@ -536,6 +537,8 @@ function showCtxMenu(x, y, id, i, rowObj) {
     if (act === 'open') openItem(id, i >= 0 ? i : undefined);
     else if (act === 'all') selectAll();
     else if (act === 'export') exportDialog({ ids });
+    else if (act === 'files') filesOutDialog(ids);
+    else if (act === 'reveal') revealItem(id);
     else if (act === 'subset') subsetDialog(ids);
     else if (act === 'delete') deleteItems(ids);
     else bulkAction(act, ids);
@@ -545,6 +548,10 @@ function showCtxMenu(x, y, id, i, rowObj) {
 function ctxOutside(e) { if (!e.target.closest('#ctxMenu')) hideCtxMenu(); }
 function ctxKey(e) { if (e.key === 'Escape') { e.preventDefault(); hideCtxMenu(); } }
 function hideCtxMenu() { const m = $('#ctxMenu'); if (m) m.classList.add('hidden'); document.removeEventListener('mousedown', ctxOutside); document.removeEventListener('keydown', ctxKey); }
+/* 元のフォルダを開く: その対象のファイルがあるフォルダを OS のファイル管理で開く（Windows はエクスプローラーでそのファイルを選んだ状態に） */
+async function revealItem(id) {
+  try { await api(`/api/items/${id}/reveal`, {}); } catch (e) { toast(e.message, 'error'); }
+}
 async function toggleExclude() {
   if (!S.cur) return;
   const on = !S.cur.train_exclude;
@@ -656,6 +663,7 @@ function renderJobs(jobs) {
   if (typeof yoloOnJobs === 'function') yoloOnJobs(jobs);
   if (typeof yoloExportOnJobs === 'function') yoloExportOnJobs(jobs);
   if (typeof subsetOnJobs === 'function') subsetOnJobs(jobs);
+  if (typeof filesOutOnJobs === 'function') filesOutOnJobs(jobs);
   if (typeof crossOnJobs === 'function') crossOnJobs(jobs);
 }
 async function pollJobs() {
@@ -792,6 +800,7 @@ function onKey(e) {
   if (k === 'Enter') { e.preventDefault(); confirmAndNext(); return; }
   if (k === '[' || k === ']') { e.preventDefault(); cycleSpeed(k === ']' ? 1 : -1); return; }
   if (k.toLowerCase() === 'b' && !speciesKeyMap()['B'] && typeof cycleEnhance === 'function') { e.preventDefault(); cycleEnhance(); return; }     // 暗い動画の補正を順に
+  if ((k === '-' || k === '+' || k === '=') && !speciesKeyMap()[k] && typeof stepEnhance === 'function') { e.preventDefault(); stepEnhance(k === '-' ? -1 : 1); return; }      // 補正を 1 段弱く・強く
   if (k.toLowerCase() === 'l' && !speciesKeyMap()['L']) { e.preventDefault(); $('#vbLoop').checked = !$('#vbLoop').checked; $('#vbLoop').dispatchEvent(new Event('change')); return; }
   if (k.length === 1) { const code = speciesKeyMap()[k.toUpperCase()]; if (code && S.cur) { e.preventDefault(); toggleSpecies(code); } }
 }

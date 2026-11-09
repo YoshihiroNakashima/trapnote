@@ -68,10 +68,28 @@ def write_json(path: Path | str, data) -> None:
     os.replace(tmp, path)
 
 
+def enhance_from_brightness(b) -> int:
+    """以前の「明るさ」（brightness、表示の倍率 ×0.5〜×3.0）を「補正」（enhance 0〜4）の段に読み替える。
+    補正の段のガンマの指数（0.75 / 0.55 / 0.4 / 0.3）はおよそ倍率 1/指数（×1.33 / ×1.82 / ×2.5 / ×3.33）にあたるので、隣どうしの中ほどで区切る（×1.8 → 2 = 中）"""
+    try:
+        b = float(b)
+    except (TypeError, ValueError):
+        return 0
+    for lv, upper in enumerate((1.17, 1.58, 2.16, 2.92)):
+        if b < upper:
+            return lv
+    return 4
+
+
 class Settings:
     def __init__(self):
         self.data = dict(DEFAULTS)
-        self.data.update({k: v for k, v in read_json(SETTINGS_FILE, {}).items() if k in DEFAULTS})
+        raw = read_json(SETTINGS_FILE, {})
+        if not isinstance(raw, dict):
+            raw = {}
+        self.data.update({k: v for k, v in raw.items() if k in DEFAULTS})
+        if "enhance" not in raw and "brightness" in raw:     # 明るさは補正に一本化した（90 回目）。古い設定の明るさを一度だけ補正に読み替える（次に保存したとき brightness は消える）
+            self.data["enhance"] = enhance_from_brightness(raw.get("brightness"))
         self._validate()
 
     def _validate(self) -> None:

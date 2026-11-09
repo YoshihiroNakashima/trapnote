@@ -127,7 +127,7 @@ function syncPlayerControls() {
   if (lp) lp.checked = !!s.loop;
   if (en) { en.value = String(s.enhance || 0); applyEnhance(); }
 }
-/* 暗い動画の補正（設定 enhance 0〜4）: 画面側のガンマ補正（SVG の feComponentTransfer）。動画・AVI の描画・静止画に掛け、枠の重ね描きには掛けない。B キーで順に */
+/* 暗い動画の補正（設定 enhance 0〜4）: 画面側のガンマ補正（SVG の feComponentTransfer）。動画・AVI の描画・静止画に掛け、枠の重ね描きには掛けない。B キーで順に、- / + で 1 段ずつ */
 function applyEnhance() {
   const en = $('#vbEnhance');
   const lv = Math.max(0, Math.min(4, parseInt((en && en.value) || S.settings.enhance || 0, 10) || 0));
@@ -139,6 +139,15 @@ function applyEnhance() {
 function cycleEnhance() {
   const en = $('#vbEnhance'); if (!en) return;
   en.value = String((parseInt(en.value, 10) + 1) % 5);
+  en.dispatchEvent(new Event('change'));
+  toast(`${t('enhance_' + en.value)}`, 'info');
+}
+/* 補正を 1 段弱く（dir = -1）・強く（+1）。なし〜最強の端では止まる（- / + キー） */
+function stepEnhance(dir) {
+  const en = $('#vbEnhance'); if (!en) return;
+  const v = Math.max(0, Math.min(4, (parseInt(en.value, 10) || 0) + dir));
+  if (String(v) === en.value) return;
+  en.value = String(v);
   en.dispatchEvent(new Event('change'));
   toast(`${t('enhance_' + en.value)}`, 'info');
 }

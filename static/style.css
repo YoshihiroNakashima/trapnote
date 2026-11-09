@@ -326,6 +326,7 @@ table.cr-batches td.warn { color: #8a5a00; }
 table.cr-batches td.ok { color: #1e6b2e; }
 .callout.warn { border-color: #e0c060; background: #fff3cd; color: #7a5c00; }
 .callout.ok { border-color: #9fd6ab; background: #d9f2de; color: #1e6b2e; }
+h4.cr-step { margin: 14px 0 4px; padding-top: 8px; border-top: 1px dashed var(--border); }
 .cr-sample-out { font-size: 12px; margin: 4px 0 8px; min-height: 1em; }
 .cr-sample-out b { font-size: 13px; }
 table.cr-labels tr.guess td:nth-child(2) b { color: #7a5c00; }
