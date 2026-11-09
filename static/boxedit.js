@@ -13,6 +13,11 @@ function boxEditStart() {
   const pl = player(); if (pl && !pl.paused && pl.pause) pl.pause();
   BE.on = true; BE.sel = -1; BE.drag = null;
   BE.orig = JSON.parse(JSON.stringify(P.boxes));
+  // 編集は全部の枠（P.boxesAll）に対して行う。枠の表示が「0.5 以上」「学習に使う枠」でも、保存は detections 表を丸ごと置き換えるので、
+  // 表示していない枠が消えてしまわないように。写し（deep copy）にして、キャンセルなら BE.orig（表示していた枠）に戻す
+  P.boxes = JSON.parse(JSON.stringify((P.boxesAll && P.boxesAll.length >= P.boxes.length) ? P.boxesAll : P.boxes));
+  P.boxTimes = [...new Set(P.boxes.map(b => b.t))].sort((a, b) => a - b);
+  $('#beClearAll').classList.toggle('hidden', !(P.fps > 0));             // 静止画は 1 フレームしかないので「動画の枠を全部消す」は出さない
   $('#vbBoxes').checked = true;
   $('#overlay').classList.add('editing');
   $('#boxTools').classList.remove('hidden');
@@ -120,10 +125,17 @@ function boxEditDelete() {
   if (!BE.on || BE.sel < 0 || !P.boxes[BE.sel]) return;
   P.boxes.splice(BE.sel, 1); BE.sel = -1; drawBoxes();
 }
-function boxEditClearHere() {   // いま見えている枠を全部消す
+function boxEditClearHere() {   // いま見えているフレームの枠を全部消す（ほかのフレームはそのまま）
   if (!BE.on) return;
   const vis = new Set(boxEditVisible());
   P.boxes = P.boxes.filter(b => !vis.has(b)); BE.sel = -1; drawBoxes();
+}
+async function boxEditClearAll() {   // この動画の枠を全フレーム消す（保存するまで確定しない。キャンセルで戻る）
+  if (!BE.on) return;
+  const n = P.boxes.length;
+  if (n && !await confirmModal(t('box_clear_all'), `<div>${esc(t('box_clear_all_q').replace('{n}', n))}</div>`, t('box_clear_all'), true)) return;
+  if (!BE.on) return;
+  P.boxes = []; P.boxTimes = []; BE.sel = -1; drawBoxes();
 }
 function boxEditDraw(ctx, r) {   // drawBoxes のあとに呼ばれる: 編集中の選択枠のつまみ
   if (!BE.on) return;
@@ -167,6 +179,7 @@ function wireBoxEdit() {
   $('#beCat').addEventListener('change', () => { BE.cat = $('#beCat').value; if (BE.sel >= 0 && P.boxes[BE.sel]) { P.boxes[BE.sel].c = BE.cat; P.boxes[BE.sel].edited = true; drawBoxes(); } });
   $('#beDel').onclick = boxEditDelete;
   $('#beClear').onclick = boxEditClearHere;
+  $('#beClearAll').onclick = boxEditClearAll;
   $('#beSave').onclick = boxEditSave;
   $('#beCancel').onclick = () => boxEditEnd(false);
 }

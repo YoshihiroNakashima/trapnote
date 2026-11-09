@@ -125,7 +125,22 @@ function syncPlayerControls() {
   om.value = s.open_mode || 'play';
   if (bx) bx.checked = s.show_boxes !== false;
   if (lp) lp.checked = !!s.loop;
+  applyBrightness(s.brightness, false);
 }
+/* 明るさ（設定 brightness、1.0 = そのまま、0.5〜3.0）: 夜間の暗い動画・画像を見やすくする。CSS の filter で表示だけ明るくする（ファイル・検出・学習には影響しない）。
+   動画（<video>）・MJPEG の AVI（canvas）・静止画の全部に同じ値。枠の重ね描き（#overlay）には掛けない。save = true なら設定に保存する */
+function applyBrightness(x, save) {
+  x = Math.round(10 * Math.min(3, Math.max(0.5, parseFloat(x) || 1))) / 10;
+  const f = x === 1 ? '' : `brightness(${x})`;
+  for (const id of ['#player', '#mjpeg', '#photo']) { const el = $(id); if (el) el.style.filter = f; }
+  const sl = $('#vbBright'), val = $('#vbBrightVal'), wrap = $('#vbBrightWrap'), rs = $('#vbBrightReset');
+  if (sl) sl.value = Math.round(100 * x);
+  if (val) val.textContent = `×${x.toFixed(1)}`;
+  if (wrap) wrap.classList.toggle('on', x !== 1);
+  if (rs) rs.classList.toggle('hidden', x === 1);
+  if (save && S.settings && S.settings.brightness !== x) { S.settings.brightness = x; clearTimeout(P.brightTimer); P.brightTimer = setTimeout(() => api('/api/settings', { brightness: x }).catch(() => {}), 300); }
+}
+function stepBrightness(dir) { applyBrightness(((S.settings && S.settings.brightness) || 1) + 0.1 * dir, true); }
 /* 開いたとき（設定 open_mode）: play = 先頭から自動再生 / pause = 先頭のフレームで止める / crop = 学習に使う枠（右下の欄で選んだ枠。開いた直後は時刻のいちばん早い枠）のフレームで止める。
    学習に使う枠はまだ読んでいる途中かもしれないので、そのときは先頭で止めて待ち、読み終わったら loadCrops がもう一度 applyOpenMode() を呼ぶ */
 function mediaReady(id, token) {
@@ -341,6 +356,8 @@ function wirePlayer() {
   sl.addEventListener('input', () => { P.seeking = true; const pl = player(); const dur = pl.duration || P.duration || 0; if (dur) { pl.currentTime = dur * sl.value / 1000; $('#vbInfo').textContent = `${fmtSec(pl.currentTime)} / ${fmtSec(dur)}`; } });
   sl.addEventListener('change', () => { P.seeking = false; });
   document.querySelectorAll('button.spd').forEach(b => { b.onclick = () => setSpeed(parseFloat(b.dataset.v)); });
+  $('#vbBright').addEventListener('input', () => applyBrightness($('#vbBright').value / 100, true));
+  $('#vbBrightReset').addEventListener('click', () => applyBrightness(1, true));
   $('#vbLoop').addEventListener('change', () => { S.settings.loop = $('#vbLoop').checked; v.loop = S.settings.loop; if (P.avi) P.avi.loop = S.settings.loop; api('/api/settings', { loop: S.settings.loop }).catch(() => {}); });
   // 再生バーの選択・チェック・スライダーは、変えたらフォーカスを外す（残っていると → ↓ などのキーが選択肢を動かし、画面の操作に届かない。
   // 「開いたら再生」を選んだあと → を押すと選択が「先頭で止める」「学習枠で止める」に変わってしまっていた）

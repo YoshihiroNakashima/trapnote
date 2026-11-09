@@ -119,13 +119,14 @@ def test_label_map_on_csv(tmp_path):
         other = tmp_path / "nas2" / "PRM_N"
         (other / "N250101" / "BSN0001").mkdir(parents=True)
         (other / "N250101" / "BSN0001" / "IMG_0001.AVI").write_bytes(b"")
-        cross.add_sources_under(p, str(other))
+        nm2 = cross.add_sources_under(p, str(other))["added"][0]        # 名前が重なるので ドライブ文字_PRM_N（Windows）か nas2_PRM_N
+        assert nm2 != "PRM_N" and "PRM_N" in nm2
         assert "sources" in cross.catalog_status(p)["reasons"]
         cross.build_catalog(p)
-        assert cross.catalog_counts(p, {"source": "nas2_PRM_N"})["total"] == 0
+        assert cross.catalog_counts(p, {"source": nm2})["total"] == 0
         p.update_settings(dict(catalog_scan_folders=True))
         cross.build_catalog(p)
-        assert cross.catalog_counts(p, {"source": "nas2_PRM_N"})["total"] == 1 and not cross.catalog_status(p)["stale"]
+        assert cross.catalog_counts(p, {"source": nm2})["total"] == 1 and not cross.catalog_status(p)["stale"]
     finally:
         p.close()
 

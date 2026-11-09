@@ -595,7 +595,7 @@ class ReclassifyJob(Job):
 
 class CrossImportJob(Job):
     """横断プロジェクト: 参照先から対象を取り込む（bg レーン）。
-    spec: dict(mode="select", params)（参照先を直接選ぶ）/ dict(mode="catalog", ids)（カタログの行）/ dict(mode="catalog_sample", filters, params)（カタログから種ごとに抽出）"""
+    spec: dict(mode="select", params)（参照先を直接選ぶ）/ dict(mode="catalog", ids)（目録の行）/ dict(mode="catalog_sample", filters, params)（目録から種ごとに抽出）"""
 
     def __init__(self, spec: dict, batch: str):
         super().__init__("cross_import", dict(mode=spec.get("mode"), batch=batch), "参照先からの取り込み")
@@ -623,7 +623,7 @@ class CrossImportJob(Job):
             r["counts"] = smp["counts"]
             r["units"] = smp.get("units") or []
         elif mode == "project":                                     # 別のプロジェクト（gold_station など）の動画を組として。複数なら順に（projects）
-            self.message = "カタログで探しています"
+            self.message = "目録で探しています"
             entries = self.spec.get("projects") or [dict(path=self.spec.get("path"), batch=self.batch, unit=self.spec.get("unit"), eval=self.spec.get("eval"))]
             r = cross.import_project_batches(project, entries, prog, self.stop_flag.is_set)
             self.batch = r["batch"]                                 # 1 つだけならその組を一覧に出す。複数なら全部
@@ -633,6 +633,8 @@ class CrossImportJob(Job):
             r = cross.import_items(project, self.spec.get("params") or {}, self.batch, prog, self.stop_flag.is_set)
         self.result = r
         self.done = self.total = r["n"]
+        if not r.get("n") and r.get("n_already") and mode in ("catalog", "catalog_sample"):
+            raise RuntimeError(f"選ばれた動画はすべて取り込み済みです（{r['n_already']} 本）。取り込みませんでした。別の動画を選ぶには乱数の種か絞り込みを変えてください")
         self.message = f"{r['n']} 件を取り込みました" + (f"（取り込み済みで飛ばした {r['n_already']}）" if r.get("n_already") else "") + (f"（一覧で見つからなかった {r['n_unmatched']}）" if r.get("n_unmatched") else "")
         if mode == "project":
             self.message = cross.project_batch_message(r)
@@ -647,7 +649,7 @@ class CrossImportJob(Job):
 
 
 class CrossLaneJob(Job):
-    """横断プロジェクトの長い処理（種名 CSV の読み込み、カタログの作成）の土台。cross レーンで動き、開いているプロジェクトとは別に自分で横断プロジェクトを開くので、
+    """横断プロジェクトの長い処理（種名 CSV の読み込み、目録の作成）の土台。cross レーンで動き、開いているプロジェクトとは別に自分で横断プロジェクトを開くので、
     その間に別のプロジェクトを開いて作業できる（プロジェクトを閉じても止まらない）。project.json は update_data で項目だけ書き、終わったら開いているプロジェクトに反映する"""
 
     def __init__(self, kind: str, params: dict, label: str, pdir: str):
@@ -671,10 +673,10 @@ class CrossLaneJob(Job):
 
 
 class CatalogImportJob(CrossLaneJob):
-    """横断プロジェクト: 別の横断プロジェクトからカタログ（参照先・対応表・行・種名 CSV のキャッシュ）を持ってくる（作り直さずに済ませる）"""
+    """横断プロジェクト: 別の横断プロジェクトから目録（参照先・対応表・行・種名 CSV のキャッシュ）を持ってくる（作り直さずに済ませる）"""
 
     def __init__(self, other_path: str, pdir: str = ""):
-        super().__init__("cross_catalog", dict(mode="import", other=other_path), "カタログを持ってくる", pdir)
+        super().__init__("cross_catalog", dict(mode="import", other=other_path), "目録を持ってくる", pdir)
         self.other_path = other_path
         self.result: dict | None = None
 
@@ -691,7 +693,7 @@ class CatalogImportJob(CrossLaneJob):
             r = cross.import_catalog_from(project, self.other_path, prog, self.stop_flag.is_set)
             self.result = r
             self.done = self.total = r["n"]
-            self.message = f"カタログ {r['n']:,} 本を {r['from_dir']} から持ってきました" + (f"（種名 CSV のキャッシュ {r['n_cache']}）" if r["n_cache"] else "") \
+            self.message = f"目録 {r['n']:,} 本を {r['from_dir']} から持ってきました" + (f"（種名 CSV のキャッシュ {r['n_cache']}）" if r["n_cache"] else "") \
                 + ("。対応表か種リストが違うので「当て直し」が要ります" if "labels" in r["stale"] else "")
         finally:
             if owned:
@@ -700,10 +702,10 @@ class CatalogImportJob(CrossLaneJob):
 
 
 class CatalogBuildJob(CrossLaneJob):
-    """横断プロジェクト: カタログ（参照先の全動画の目録）を作り直す。mode: full（全部作り直す）/ remap（対応表だけ当て直す）/ auto（対応表か種リストしか変わっていなければ remap、それ以外は full）"""
+    """横断プロジェクト: 目録（参照先の全動画の目録）を作り直す。mode: full（全部作り直す）/ remap（対応表だけ当て直す）/ auto（対応表か種リストしか変わっていなければ remap、それ以外は full）"""
 
     def __init__(self, mode: str = "full", pdir: str = ""):
-        super().__init__("cross_catalog", dict(mode=mode), "カタログの作成", pdir)
+        super().__init__("cross_catalog", dict(mode=mode), "目録の作成", pdir)
         self.mode = mode
         self.result: dict | None = None
 
@@ -721,7 +723,7 @@ class CatalogBuildJob(CrossLaneJob):
                 st = cross.catalog_status(project)
                 mode = "remap" if (st["built"] and st["n"] and all(r == "labels" for r in st["reasons"])) else "full"
             if mode == "remap":
-                self.label = "カタログの対応の当て直し"
+                self.label = "目録の対応の当て直し"
                 self.message = "表記の組ごとに種を当て直しています"
                 r = cross.remap_catalog(project, prog, self.stop_flag.is_set)
                 self.result = r
@@ -732,7 +734,7 @@ class CatalogBuildJob(CrossLaneJob):
             r = cross.build_catalog(project, prog, self.stop_flag.is_set)
             self.result = r
             self.done = self.total = r["n"]
-            self.message = ("止めました: " if self.stop_flag.is_set() else "") + f"カタログ {r['n']} 本（" + " · ".join(f"{k} {v}" for k, v in r["by_source"].items()) + "）"
+            self.message = ("止めました: " if self.stop_flag.is_set() else "") + f"目録 {r['n']} 本（" + " · ".join(f"{k} {v}" for k, v in r["by_source"].items()) + "）"
             if r["n"] == 0 and not self.stop_flag.is_set():
                 self.message += "。参照先の調査回に TrapNote のプロジェクトも種名の CSV の行もありません。親フォルダ（下に調査回が並ぶ）か調査回のフォルダを登録しているか、" \
                                 "種名の CSV（親フォルダか調査回フォルダの直下）があるかを 1 の段の表で確かめてください。種名のない新しい調査回なら「フォルダを走査する」を付けて作り直す"
@@ -780,7 +782,7 @@ class CrossRemoveJob(Job):
     """横断プロジェクト: 取り込んだ対象を外す（組 / 絞り込み / 全部。動画本体には触らない）"""
 
     def __init__(self, spec: dict):
-        super().__init__("cross_remove", dict(batch=spec.get("batch"), all=bool(spec.get("all"))), "取り込みの取り消し")
+        super().__init__("cross_remove", dict(batch=spec.get("batch"), all=bool(spec.get("all")), drop_log=bool(spec.get("drop_log"))), "取り込みの取り消し")
         self.spec = spec
         self.result: dict | None = None
 
@@ -793,10 +795,10 @@ class CrossRemoveJob(Job):
         def prog(a, b, msg):
             self.done, self.total, self.current = a, b, msg or ""
         self.message = "対象から外しています"
-        r = cross.remove_items(project, self.spec.get("batch"), self.spec.get("filters"), bool(self.spec.get("all")), prog, self.stop_flag.is_set)
+        r = cross.remove_items(project, self.spec.get("batch"), self.spec.get("filters"), bool(self.spec.get("all")), prog, self.stop_flag.is_set, drop_log=bool(self.spec.get("drop_log")))
         self.result = r
         self.done = self.total = r["n"]
-        self.message = f"{r['n']:,} 件を対象から外しました（動画は消していません）"
+        self.message = f"{r['n']:,} 件を対象から外しました（動画は消していません）" + ("（取り込みの記録も消しました）" if self.spec.get("drop_log") else "")
 
 
 class CrossSyncJob(Job):
@@ -887,6 +889,44 @@ class SubsetExportJob(Job):
         self.message = (f"止めました: {r['n']} 本を写したところまで（残り {r['n_left']}。同じ写す先でやり直せば続きから）" if r.get("stopped") else f"{r['n']} 本（{sp.lstrip('、')}）を {r['dataset_dir']} に写しました{conv}") \
             + f"（調査回プロジェクト。判定は {r['project_dir']}）" + (f"（見つからない {r['n_missing']}）" if r["n_missing"] else "") + (f"（写してあった {r['n_skipped']}）" if r["n_skipped"] else "") \
             + (f"（そこにあった空の横断プロジェクトは {r['renamed_cross']} に名前を変えました）" if r.get("renamed_cross") else "")
+
+    def status(self) -> dict:
+        d = super().status()
+        d.update(result=self.result)
+        return d
+
+
+class FilesOutJob(Job):
+    """選んだ対象の動画・画像ファイルだけを別のフォルダへ写す（右クリック「動画ファイルを書き出す…」。判定は写さない。bg レーン）"""
+
+    def __init__(self, ids: list[int], out_dir: str, keep_tree: bool = True, convert: bool = False, rows: list[dict] | None = None):
+        super().__init__("files_out", dict(out_dir=out_dir, n=len(rows) if rows is not None else len(ids), keep_tree=keep_tree, convert=convert), "動画ファイルの書き出し")
+        self.ids = ids
+        self.rows = rows                              # 横断の目録から（cross.catalog_files）。あれば ids の代わり
+        self.out_dir = out_dir
+        self.keep_tree = keep_tree
+        self.convert = convert
+        self.result: dict | None = None
+
+    def run(self, ctx) -> None:
+        from . import files_out
+        project = ctx.project
+        if project is None:
+            return
+
+        def prog(a, b, msg):
+            self.done, self.total, self.current = a, b, msg or ""
+        workers = int(ctx.settings.get("copy_workers", 3) or 3)
+        ffmpeg, ffprobe = media.find_ffmpeg(ctx.settings.get("ffmpeg_path", ""))
+        r = files_out.export_files(project, self.ids, self.out_dir, self.keep_tree, self.convert, prog, self.stop_flag.is_set, workers,
+                                   ffmpeg=ffmpeg, ffprobe=ffprobe, crf=int(project.setting("archive_crf") or 19), rows=self.rows)
+        self.result = r
+        self.done = r["n"] + r["n_same"] + r["n_missing"]
+        self.total = len(self.rows) if self.rows is not None else len(self.ids)
+        sp = f"、{r['speed']}、{r['seconds'] / 60:.0f} 分" if r.get("speed") else ""
+        conv = f"（MP4 に変換 {r['n_converted']}、{r['encoder']}" + (f"、変換できずそのまま {r['n_convert_failed']}" if r.get("n_convert_failed") else "") + "）" if r.get("n_converted") or r.get("n_convert_failed") else ""
+        self.message = (f"止めました: {r['n']} 本を写したところまで（残り {r['n_left']}。同じ書き出し先でやり直せば続きから）" if r.get("stopped") else f"{r['n']} 本{('（' + sp.lstrip('、') + '）') if sp else ''}を {r['out_dir']} に書き出しました") \
+            + conv + ("（階層のまま）" if r.get("keep_tree") else "（フォルダ名_ファイル名）") + (f"（見つからない {r['n_missing']}）" if r["n_missing"] else "") + (f"（あったので飛ばした {r['n_same']}）" if r["n_same"] else "")
 
     def status(self) -> dict:
         d = super().status()

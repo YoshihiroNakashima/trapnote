@@ -125,6 +125,7 @@ class AviPlayer extends EventTarget {
     this.index = -1; this._paused = true; this._ended = false; this._rate = 1; this.loop = false;
     this._t0 = 0; this._raf = null; this._cache = new Map(); this._token = 0; this._lastTick = 0; this._abort = null;
     this.bytesLoaded = 0; this.bytesTotal = 0; this._fetch = null; this.loading = false; this.totalFrames = 0;
+    this._busy = false; this._decMs = 0;   // 再生中に解読しているか / 1 コマの解読にかかる時間の目安（ms）
   }
   // ---- <video> と同じ読み取り ----
   get paused() { return this._paused; }
@@ -133,7 +134,7 @@ class AviPlayer extends EventTarget {
   get currentTime() { return Math.max(0, this.index) / this.fps; }
   set currentTime(t) { this.seekFrame(Math.round(t * this.fps)); }
   get playbackRate() { return this._rate; }
-  set playbackRate(r) { const t = this.currentTime; this._rate = r || 1; if (!this._paused) this._t0 = performance.now() - t / this._rate * 1000; }
+  set playbackRate(r) { const t = this.currentTime; this._rate = r || 1; this._decMs = 0; if (!this._paused) this._t0 = performance.now() - t / this._rate * 1000; }
   get videoWidth() { return this.width; }
   get videoHeight() { return this.height; }
   get clientWidth() { return this.canvas.clientWidth; }
@@ -223,7 +224,7 @@ class AviPlayer extends EventTarget {
     this.loading = false;
     for (const p of this._cache.values()) p.then(b => b && b.close && b.close()).catch(() => {});
     this._cache.clear();
-    this.buf = null; this.frames = []; this.index = -1; this.src = ''; this.active = false; this._ended = false;
+    this.buf = null; this.frames = []; this.index = -1; this.src = ''; this.active = false; this._ended = false; this._busy = false; this._decMs = 0;
     this.canvas.classList.add('hidden');
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
   }
@@ -268,33 +269,55 @@ class AviPlayer extends EventTarget {
           return;
         }
       }
-      if (i !== this.index) { this.index = i; this._show(i); this._prefetch(i); }
+      if (i !== this.index) { this.index = i; this._showPlaying(); this._prefetch(i); }
       if (performance.now() - this._lastTick > 100) { this._lastTick = performance.now(); this.dispatchEvent(new Event('timeupdate')); }
       this._raf = requestAnimationFrame(step);
     };
     this._raf = requestAnimationFrame(step);
   }
+  _decodeOpts() {                     // 2 倍速以上は画面に出す大きさで解読する（1920 px の JPEG を 960 px に。解読が数倍速くなり、見た目の画素数は同じ）
+    if (this._rate < 2 || !this.width) return null;
+    const want = Math.round(this.canvas.clientWidth * (window.devicePixelRatio || 1));
+    return want > 0 && want < this.width * 0.75 ? { resizeWidth: want, resizeQuality: 'low' } : null;
+  }
   _decode(i) {
-    let p = this._cache.get(i);
+    const opts = this._decodeOpts();
+    const key = opts ? `${i}s` : `${i}`;     // 縮めて解読したものは別に覚える
+    let p = this._cache.get(key);
     if (p) return p;
     const f = this.frames[i];
     const u8 = fixJpeg(this.buf.subarray(f.off, f.off + f.len));
-    p = createImageBitmap(new Blob([u8], { type: 'image/jpeg' })).catch(() => null);
-    this._cache.set(i, p);
+    const blob = new Blob([u8], { type: 'image/jpeg' });
+    p = (opts ? createImageBitmap(blob, opts) : createImageBitmap(blob)).catch(() => null);
+    this._cache.set(key, p);
     if (this._cache.size > 24) {           // 遠いコマは捨てる
-      for (const k of this._cache.keys()) { if (Math.abs(k - i) > 12) { this._cache.get(k).then(b => b && b.close && b.close()).catch(() => {}); this._cache.delete(k); } }
+      for (const k of this._cache.keys()) { if (Math.abs(parseInt(k, 10) - i) > 12) { this._cache.get(k).then(b => b && b.close && b.close()).catch(() => {}); this._cache.delete(k); } }
     }
     return p;
   }
-  _show(i) {
+  _draw(bmp) {
+    if (this.canvas.width !== bmp.width || this.canvas.height !== bmp.height) { this.canvas.width = bmp.width; this.canvas.height = bmp.height; }
+    if (!this.width || !this.height) { this.width = bmp.width; this.height = bmp.height; }     // 元の大きさは AVI の見出しから。縮めて解読しても videoWidth は元のまま（縦横比だけ使う）
+    this.ctx.drawImage(bmp, 0, 0);
+  }
+  _show(i) {                          // 1 コマ出す（シーク・コマ送り・開いた直後）
     const token = this._token;
-    return this._decode(i).then(bmp => {
-      if (!bmp || token !== this._token || this.index !== i) return;
-      if (this.canvas.width !== bmp.width || this.canvas.height !== bmp.height) { this.canvas.width = bmp.width; this.canvas.height = bmp.height; this.width = bmp.width; this.height = bmp.height; }
-      this.ctx.drawImage(bmp, 0, 0);
+    return this._decode(i).then(bmp => { if (!bmp || token !== this._token || this.index !== i) return; this._draw(bmp); });
+  }
+  _showPlaying() {                    // 再生中: 解読は 1 コマずつ。追いつかなければ間のコマを飛ばして、いちばん新しいコマを出す（4 倍速でも時間どおりに進む。遅い PC では出るコマが減る）
+    if (this._busy) return;
+    const i = this.index, token = this._token, t0 = performance.now();
+    this._busy = true;
+    this._decode(i).then(bmp => {
+      this._busy = false;
+      if (token !== this._token) return;
+      this._decMs = 0.8 * this._decMs + 0.2 * (performance.now() - t0);
+      if (bmp) this._draw(bmp);
+      if (!this._paused && this.index !== i) this._showPlaying();      // 解読している間に時間が進んでいたら、いまのコマをすぐ
     });
   }
-  _prefetch(i) {                      // 次に出すコマを先に解読しておく（4 倍速なら 1 コマおきなど、出す間隔に合わせて飛ばす）
+  _prefetch(i) {                      // 次に出すコマを先に解読しておく（出す間隔に合わせて飛ばす）。解読が追いついていないときはしない（飛ばすコマを解読しても無駄）
+    if (this._decMs > 1000 / (this.fps * this._rate)) return;
     const step = Math.max(1, Math.round(this._rate * this.fps / 60));
     for (let k = 1; k <= 6; k++) { const j = i + k * step; if (j < this.frames.length) this._decode(j); }
   }

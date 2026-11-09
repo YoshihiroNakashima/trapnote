@@ -9,7 +9,7 @@ const CR_F0 = { source: '', season: '', station: '', species: '', status: '', im
 const CR = { tab: '', f: Object.assign({}, CR_F0), counts: null,
   smp: { unit: 'station', n: 20, cap: 5, gap: 10, seed: 1, per_unit: 0, total: 3000, max_avail: 0, spread: true }, labelQ: '', report: '' };
 const CR_TABS_ALL = ['sources', 'labels', 'build', 'pick', 'study', 'merge', 'sync'];
-const CR_TABS_BY = { merge: ['sources', 'labels', 'build', 'merge'], train: ['sources', 'labels', 'build', 'pick', 'study', 'sync'], '': ['sources', 'labels', 'build'] };
+const CR_TABS_BY = { merge: ['sources', 'labels', 'build', 'merge'], pick: ['sources', 'labels', 'build', 'pick'], train: ['sources', 'labels', 'build', 'pick', 'study', 'sync'], '': ['sources', 'labels', 'build'] };
 let CR_TABS = CR_TABS_BY[''];
 const crPurpose = info => ((info.project.settings || {}).cross_purpose || '');
 
@@ -61,7 +61,7 @@ async function crossDialog(tab, opts) {
   else {                                   // 段を指定せずに開いたときは、いまの状態で次にやる段を出す
     if (!info.sources.length) CR.tab = 'sources';
     else if (!cs.built || !info.n_catalog) CR.tab = 'build';
-    else CR.tab = purpose === 'merge' ? 'merge' : (purpose === 'train' ? (info.n_items ? 'study' : 'pick') : 'build');
+    else CR.tab = purpose === 'merge' ? 'merge' : (purpose === 'pick' ? 'pick' : (purpose === 'train' ? (info.n_items ? 'study' : 'pick') : 'build'));
   }
   const evalB = (info.batches || []).filter(b => b.eval);
   const stepStatus = {
@@ -74,7 +74,7 @@ async function crossDialog(tab, opts) {
     sync: info.n_sync ? `${info.n_sync} ${t('items')}` : '',
   };
   const warnStep = { sources: !info.sources.length, build: info.sources.length && (!cs.built || cs.stale) };
-  const purposeLabel = purpose === 'merge' ? t('cr_purpose_merge') : (purpose === 'train' ? t('cr_purpose_train') : t('cr_purpose_none'));
+  const purposeLabel = purpose === 'merge' ? t('cr_purpose_merge') : (purpose === 'pick' ? t('cr_purpose_pick') : (purpose === 'train' ? t('cr_purpose_train') : t('cr_purpose_none')));
   const m = showModal(`<h3>${esc(t('cross_title'))} <span class="info">${esc(info.project.name)}</span></h3>
     <div class="cr-purpose-line"><span>${esc(t('cr_purpose'))}: <b>${esc(purposeLabel)}</b></span> <button type="button" class="small" id="crPurposeBtn">${esc(purpose ? t('cr_purpose_change') : t('cr_purpose_choose'))}</button> <span class="info">${esc(t('cr_intro'))}</span></div>
     <div id="crPurposeBox" class="${purpose ? 'hidden' : ''}">${crPurposeCards(purpose)}</div>
@@ -96,10 +96,10 @@ async function crossDialog(tab, opts) {
   crossOnJobs(S.snap && S.snap.jobs);
 }
 
-// 目的を選ぶ 2 枚のカード（統合 / 学習）。選ぶと段の並びが変わる（いつでも変えられる）
+// 目的を選ぶ 3 枚のカード（統合 / 絞り込んで書き出す / 学習と正答率）。選ぶと段の並びが変わる（いつでも変えられる）
 function crPurposeCards(cur) {
   const card = (k, title, body, steps) => `<button type="button" class="cr-card ${cur === k ? 'on' : ''}" data-purpose="${k}"><div class="cr-card-t">${esc(title)}</div><div class="cr-card-b">${esc(body)}</div><div class="cr-card-s">${esc(steps)}</div></button>`;
-  return `<div class="cr-cards">${card('merge', t('cr_purpose_merge'), t('cr_purpose_merge_help'), t('cr_purpose_merge_steps'))}${card('train', t('cr_purpose_train'), t('cr_purpose_train_help'), t('cr_purpose_train_steps'))}</div>`;
+  return `<div class="cr-cards">${card('merge', t('cr_purpose_merge'), t('cr_purpose_merge_help'), t('cr_purpose_merge_steps'))}${card('pick', t('cr_purpose_pick'), t('cr_purpose_pick_help'), t('cr_purpose_pick_steps'))}${card('train', t('cr_purpose_train'), t('cr_purpose_train_help'), t('cr_purpose_train_steps'))}</div>`;
 }
 
 // 対応表（か種リスト）だけが変わったときは、作り直さずに表記から種を当て直すだけ（数秒）。参照先が変わったときは作り直し
@@ -337,23 +337,22 @@ function crossTabBuild(m, body) {
 
 // ---------- 4. 動画を選んで取り込む ----------
 function crossTabPick(m, body) {
+  // 4 の段「動画を選ぶ」: ① 母集団を絞り込む → ② 選び方（ランダム / 全部）を決めて「数える」 → ③ 組の名前 → ④ 取り込む（左の一覧へ）か 動画ファイルを書き出す（取り込まない）。
+  // 別のプロジェクトを組として取り込む・取り込んだ組を消す は下の折りたたみ。目的が「絞り込んで書き出す」なら主ボタンは書き出し、「学習」なら取り込み
   const info = m._info;
-  if (!info.n_catalog) { body.innerHTML = `<div class="note">${esc(t('cr_pick_help'))}</div><div class="callout warn">${esc(t('cross_no_catalog_yet'))}</div>`; return; }
+  const purpose = crPurpose(info);
+  const forPick = purpose === 'pick';
+  if (!info.n_catalog) { body.innerHTML = `<div class="note">${esc(t(forPick ? 'cr_pick_help_pick' : 'cr_pick_help'))}</div><div class="callout warn">${esc(t('cross_no_catalog_yet'))}</div>`; return; }
   const srcs = info.sources || [], cs = info.catalog_status || {};
   const sm = CR.smp;
   const batches = (info.batches || []).filter(b => b.batch);
   const evalNames = batches.filter(b => b.eval).map(b => b.batch);
   if (CR.f.exclude_batches === null || CR.f.exclude_batches === undefined) CR.f.exclude_batches = evalNames.slice();     // 既定: 評価用の組（gold）の地点・調査回は母集団から除く
-  const unitOpts = [['station', t('cr_unit_station')], ['season', t('cr_unit_season')], ['station_season', t('cr_unit_station_season')], ['video', t('cr_unit_video')], ['species', t('cr_unit_species')]];
-  if (!CR.pj) CR.pj = [];                                                 // A で並べた別のプロジェクト（段を移っても残る。取り込んだら空に）
-  body.innerHTML = `<div class="note">${esc(t('cr_pick_help'))}</div>
+  const unitOpts = [['all', t('cr_unit_all')], ['video', t('cr_unit_video')], ['species', t('cr_unit_species')], ['station', t('cr_unit_station')], ['season', t('cr_unit_season')], ['station_season', t('cr_unit_station_season')]];
+  if (!CR.pj) CR.pj = [];                                                 // 別のプロジェクトを並べた一覧（段を移っても残る。取り込んだら空に）
+  body.innerHTML = `<div class="note">${esc(t(forPick ? 'cr_pick_help_pick' : 'cr_pick_help'))}</div>
     ${cs.stale ? `<div class="callout warn">${esc(crStaleText(cs))}: ${esc(t('cr_pick_stale'))}</div>` : ''}
-    <h4>${esc(t('cr_pj_h'))}</h4>
-    <div class="note">${esc(t('cr_pj_help'))}</div>
-    <div class="form-row"><label>${esc(t('cr_pj_path_l'))}</label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><input type="text" id="crPjPath" spellcheck="false" style="width:380px" placeholder="F:\\Copy\\gold_station"><button type="button" class="small" data-pick="crPjPath" data-kind="folder" data-name="">${esc(t('pick'))}</button><button type="button" class="small" id="crPjAdd">${esc(t('cr_pj_add'))}</button><span class="info">${esc(t('cr_pj_add_help'))}</span></span></div>
-    <div id="crPjList"></div>
-    <div class="cr-actions"><button type="button" class="primary small" id="crPjGo">${esc(t('cr_pj_go'))} (<span id="crPjN">0</span>)</button><span class="info">${esc(t('cr_pj_go_help'))}</span></div>
-    <h4>${esc(t('cr_filter_h'))} <span class="info">${esc(t('cr_filter_sub'))}</span></h4>
+    <h4 class="cr-step">${esc(t('cr_step_filter'))} <span class="info">${esc(t('cr_filter_sub'))}</span></h4>
     <div class="cr-filters">
       <select id="cfSource"><option value="">${esc(t('cross_all_sources'))}</option>${srcs.map(s => `<option value="${esc(s.name)}" ${CR.f.source === s.name ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select>
       <span class="msel" id="cfSeasonBox"><button type="button" class="small" id="cfSeasonBtn" title="${esc(t('cr_seasons_tip'))}"></button><div class="msel-pop hidden" id="cfSeasonPop"></div></span>
@@ -373,41 +372,49 @@ function crossTabPick(m, body) {
     </details>
     <div id="cfSummary" class="dt-counts"></div>
     <details class="adv" id="cfPivotBox"><summary>${esc(t('cross_pivot'))}</summary><div id="cfPivot" style="max-height:30vh;overflow:auto"></div></details>
-    <h4>${esc(t('cross_batch'))}</h4>
-    <div class="cr-actions"><input type="text" id="cfBatch" spellcheck="false" style="width:140px" placeholder="gold, round1" value="${esc(CR.batch || '')}"><span class="info">${esc(t('cr_batch_help'))}</span></div>
-    <h4>${esc(t('cr_random_h'))}</h4>
+    <h4 class="cr-step">${esc(t('cr_step_how'))}</h4>
     <div class="note">${esc(t('cr_random_help'))}</div>
     <div class="cr-actions"><span class="info">${esc(t('cr_presets'))}</span>
+      <button type="button" class="small" data-preset="all" title="${esc(t('cr_preset_all_tip'))}">${esc(t('cr_preset_all'))}</button>
       <button type="button" class="small" data-preset="video" title="${esc(t('cr_preset_video_tip'))}">${esc(t('cr_preset_video'))}</button>
       <button type="button" class="small" data-preset="species" title="${esc(t('cr_preset_species_tip'))}">${esc(t('cr_preset_species'))}</button>
       <button type="button" class="small" data-preset="station" title="${esc(t('cr_preset_station_tip'))}">${esc(t('cr_preset_station'))}</button>
       <button type="button" class="small" data-preset="season" title="${esc(t('cr_preset_season_tip'))}">${esc(t('cr_preset_season'))}</button>
       <button type="button" class="small" data-preset="rare" title="${esc(t('cr_preset_rare_tip'))}">${esc(t('cr_preset_rare'))}</button></div>
     <div class="cr-actions"><span>${esc(t('cr_unit'))} <select id="cfUnit">${unitOpts.map(([v, l]) => `<option value="${v}" ${sm.unit === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></span>
-      <span>${esc(t('cr_n'))} <input type="number" id="cfN" value="${sm.n}" min="1" step="1" style="width:70px"></span>
+      <span id="cfNWrap">${esc(t('cr_n'))} <input type="number" id="cfN" value="${sm.n}" min="1" step="1" style="width:70px"></span>
       <span id="cfPerUnitWrap" title="${esc(t('cr_per_unit_help'))}">${esc(t('cr_per_unit'))} <input type="number" id="cfPerUnit" value="${sm.per_unit}" min="0" style="width:70px"></span>
       <span id="cfTotalWrap" title="${esc(t('cr_total_help'))}">${esc(t('cr_total'))} <input type="number" id="cfTotal" value="${sm.total}" min="0" style="width:70px"></span>
       <span id="cfMaxAvailWrap" title="${esc(t('cr_max_avail_help'))}">${esc(t('cr_max_avail'))} <input type="number" id="cfMaxAvail" value="${sm.max_avail}" min="0" style="width:70px"></span>
       <label class="chk" id="cfSpreadWrap" title="${esc(t('cr_spread_help'))}"><input type="checkbox" id="cfSpread" ${sm.spread ? 'checked' : ''}> ${esc(t('cr_spread'))}</label>
       <span id="cfCapWrap" title="${esc(t('cross_cap_help'))}">${esc(t('cross_cap'))} <input type="number" id="cfCap" value="${sm.cap}" min="0" style="width:60px"></span>
       <span id="cfGapWrap" title="${esc(t('cross_gap_help'))}">${esc(t('cross_gap'))} <input type="number" id="cfGap" value="${sm.gap}" min="0" style="width:60px"> ${esc(t('cross_min'))}</span>
-      <span title="${esc(t('cr_seed_help'))}">${esc(t('cross_seed'))} <input type="number" id="cfSeed" value="${sm.seed}" min="0" style="width:60px"></span>
-      <button type="button" class="small" id="cfSampleCount">${esc(t('cross_count'))}</button><button type="button" class="primary small" id="cfSampleImport">${esc(t('cr_random_import'))}</button></div>
+      <span id="cfSeedWrap" title="${esc(t('cr_seed_help'))}">${esc(t('cross_seed'))} <input type="number" id="cfSeed" value="${sm.seed}" min="0" style="width:60px"></span>
+      <button type="button" class="small" id="cfSampleCount">${esc(t('cross_count'))}</button></div>
     <div id="cfSampleOut" class="cr-sample-out"></div>
-    <h4>${esc(t('cr_all_h'))}</h4>
-    <div class="note">${esc(t('cr_all_help'))}</div>
+    <h4 class="cr-step">${esc(t('cr_step_batch'))}</h4>
+    <div class="cr-actions"><input type="text" id="cfBatch" spellcheck="false" style="width:140px" placeholder="gold, round1" value="${esc(CR.batch || '')}"><span class="info">${esc(t('cr_batch_help'))}</span></div>
+    <h4 class="cr-step">${esc(t('cr_step_go'))}</h4>
     <div class="cr-actions">
-      <button type="button" class="small" id="cfImportAll">${esc(t('cross_import_filtered'))} (<span id="cfNAll">0</span>)</button>
+      <button type="button" class="${forPick ? '' : 'primary'}" id="cfImportGo">${esc(t('cr_import_btn'))}</button>
+      <button type="button" class="${forPick ? 'primary' : ''}" id="cfFilesOut">${esc(t('cr_files_btn'))}</button>
       <button type="button" class="small" id="cfExport">${esc(t('cross_export_catalog'))}</button>
     </div>
+    <div class="note">${esc(t('cr_go_help'))} <span class="info">${esc(t('cr_go_left'))}: <b id="cfNAll">0</b></span></div>
     <div id="cfLoad"></div>
-    ${info.n_items ? `<h4>${esc(t('cr_remove_h'))}</h4>
+    <details class="adv" ${CR.pj.length ? 'open' : ''}><summary>${esc(t('cr_pj_h'))}</summary>
+    <div class="note">${esc(t('cr_pj_help'))}</div>
+    <div class="form-row"><label>${esc(t('cr_pj_path_l'))}</label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><input type="text" id="crPjPath" spellcheck="false" style="width:380px" placeholder="F:\\Copy\\gold_station"><button type="button" class="small" data-pick="crPjPath" data-kind="folder" data-name="">${esc(t('pick'))}</button><button type="button" class="small" id="crPjAdd">${esc(t('cr_pj_add'))}</button><span class="info">${esc(t('cr_pj_add_help'))}</span></span></div>
+    <div id="crPjList"></div>
+    <div class="cr-actions"><button type="button" class="small" id="crPjGo">${esc(t('cr_pj_go'))} (<span id="crPjN">0</span>)</button><span class="info">${esc(t('cr_pj_go_help'))}</span></div>
+    </details>
+    ${info.n_items ? `<details class="adv"><summary>${esc(t('cr_remove_h'))}</summary>
     <div class="note">${esc(t('cr_remove_help'))}</div>
     <div class="cr-actions"><select id="cfRmBatch">${(info.batches || []).map(b => `<option value="${esc(b.batch)}">${esc(b.batch || t('cr_no_batch'))} (${b.n})</option>`).join('')}<option value="__all__">${esc(t('cr_all_items'))} (${info.n_items})</option></select>
-      <button type="button" class="small danger-outline" id="cfRemove">${esc(t('cr_remove_btn'))}</button></div>` : ''}`;
+      <button type="button" class="small danger-outline" id="cfRemove">${esc(t('cr_rm_batch_btn'))}</button></div></details>` : ''}`;
   const q = sel => m.querySelector(sel);
   wirePicks(m);                                                             // 「選ぶ」（OS のフォルダの窓）
-  // ---- A. 別のプロジェクトを並べて組として取り込む（CR.pj = [{path, batch, unit, eval}]）----
+  // ---- 別のプロジェクトを並べて組として取り込む（CR.pj = [{path, batch, unit, eval}]）----
   const pjBase = p => { const parts = p.replace(/[\\/]+$/, '').split(/[\\/]/); let b = parts.pop() || ''; if (b.toLowerCase() === 'trapnote') b = parts.pop() || b; return b; };
   const pjKey = p => p.replace(/[\\/]+$/, '').replace(/\//g, '\\').toLowerCase();
   const pjRead = () => { CR.pj.forEach((e, i) => { const b = q(`[data-pjb="${i}"]`), u = q(`[data-pju="${i}"]`), ev = q(`[data-pje="${i}"]`); if (b) e.batch = b.value.trim(); if (u) e.unit = u.value; if (ev) e.eval = ev.checked; }); };
@@ -474,34 +481,26 @@ function crossTabPick(m, body) {
   const batchOrWarn = () => { const b = q('#cfBatch').value.trim(); CR.batch = b; if (!b) { toast(t('cross_need_batch'), 'error'); q('#cfBatch').focus(); } return b; };
   q('#cfBatch').onchange = () => { CR.batch = q('#cfBatch').value.trim(); };
   histWire(q('#cfBatch'), 'batch', () => batches.map(b => b.batch));          // 候補 = 既存の組 + 過去に入れた名前（× で候補から消せる。組自体は消えない）
-  q('#cfImportAll').onclick = async () => {
-    const b = batchOrWarn(); if (!b) return;
-    readF();
-    const n = CR.counts ? CR.counts.total - CR.counts.imported : 0;
-    crossModalEl = null;
-    const ok = await confirmModal(t('cross_title'), `${esc(t('cross_import_filtered_q'))}: ${n}`, t('cross_do_import'));
-    await crossDialog('pick', { cached: true });
-    if (!ok) return;
-    try { const j = await api('/api/cross/import', { mode: 'catalog_sample', filters: CR.f, params: { unit: 'all' }, batch: b }); const mm = crossModalEl; if (mm) { crossTrack(mm, j, 'pick'); } } catch (e) { toast(e.message, 'error'); }
-  };
   q('#cfExport').onclick = async () => { readF(); try { const r = await api('/api/cross/catalog/export', { filters: CR.f }); toast(`${t('cross_list_done')}: ${r.path} (${r.n})`); } catch (e) { toast(e.message, 'error'); } };
-  if (q('#cfRemove')) q('#cfRemove').onclick = async () => {
+  if (q('#cfRemove')) q('#cfRemove').onclick = async () => {                 // 取り込んだ組を消す（取り込みの記録も）
     const v = q('#cfRmBatch').value;
     const all = v === '__all__';
     const n = all ? info.n_items : ((info.batches || []).find(b => b.batch === v) || {}).n;
     crossModalEl = null;
-    const ok = await confirmModal(t('cr_remove_h'), `<div>${esc(all ? t('cr_all_items') : (v || t('cr_no_batch')))}: ${n} ${esc(t('items'))}</div><div class="note">${esc(t('cr_remove_q'))}</div>`, t('cr_remove_btn'), true);
+    const ok = await confirmModal(t('cr_rm_batch_btn'), `<div><b>${esc(all ? t('cr_all_items') : (v || t('cr_no_batch')))}</b>: ${n} ${esc(t('items'))}</div><div class="note">${esc(t('cr_rm_batch_q'))}</div>`, t('cr_rm_batch_btn'), true);
     await crossDialog('pick', { cached: true });
     if (!ok) return;
-    try { const j = await api('/api/cross/items/remove', all ? { all: true } : { batch: v }); const mm = crossModalEl; if (mm) crossTrack(mm, j, 'pick'); } catch (e) { toast(e.message, 'error'); }
+    try { const j = await api('/api/cross/items/remove', all ? { all: true, drop_log: true } : { batch: v, drop_log: true }); const mm = crossModalEl; if (mm) crossTrack(mm, j, 'pick'); } catch (e) { toast(e.message, 'error'); }
   };
-  // ランダムに選ぶ
-  const unitUi = () => { const u = q('#cfUnit').value; CR.smp.unit = u; const grp = ['station', 'season', 'station_season'].includes(u);
+  // ② 選び方: 単位で出す項目を切り替える（全部 = 数の項目なし）
+  const unitUi = () => { const u = q('#cfUnit').value; CR.smp.unit = u; const grp = ['station', 'season', 'station_season'].includes(u), all = u === 'all';
+    q('#cfNWrap').classList.toggle('hidden', all); q('#cfSeedWrap').classList.toggle('hidden', all); q('#cfGapWrap').classList.toggle('hidden', all);
     q('#cfCapWrap').classList.toggle('hidden', u !== 'species'); q('#cfMaxAvailWrap').classList.toggle('hidden', u !== 'species'); q('#cfSpreadWrap').classList.toggle('hidden', u !== 'species' && u !== 'video');
-    q('#cfPerUnitWrap').classList.toggle('hidden', !grp); q('#cfTotalWrap').classList.toggle('hidden', !grp); };
+    q('#cfPerUnitWrap').classList.toggle('hidden', !grp); q('#cfTotalWrap').classList.toggle('hidden', !grp);
+    m.querySelectorAll('[data-preset]').forEach(x => { if (x.dataset.preset === 'all') x.classList.toggle('on', all); }); };
   q('#cfUnit').onchange = unitUi; unitUi();
   m.querySelectorAll('[data-preset]').forEach(b => { b.onclick = () => {           // 型（選び方の例）を入れる。あとは数を直すだけ
-    const P = { video: { unit: 'video', n: 500, spread: true }, species: { unit: 'species', n: 200, cap: 0, max_avail: 0, spread: true }, station: { unit: 'station', n: 20, per_unit: 0, total: 3000 },
+    const P = { all: { unit: 'all' }, video: { unit: 'video', n: 500, spread: true }, species: { unit: 'species', n: 200, cap: 0, max_avail: 0, spread: true }, station: { unit: 'station', n: 20, per_unit: 0, total: 3000 },
       season: { unit: 'season', n: 1, per_unit: 0, total: 5000 }, rare: { unit: 'species', n: 100, cap: 0, max_avail: 300, spread: true } }[b.dataset.preset];
     if (!P) return;
     q('#cfUnit').value = P.unit; unitUi();
@@ -515,7 +514,7 @@ function crossTabPick(m, body) {
     return { unit: CR.smp.unit, n: CR.smp.n, cap: CR.smp.cap, gap_min: CR.smp.gap, seed: CR.smp.seed, per_unit: CR.smp.per_unit, total: CR.smp.total, max_avail: CR.smp.max_avail, spread: CR.smp.spread ? 'station' : '', species: CR.f.species && !['none', 'any'].includes(CR.f.species) ? [CR.f.species] : [] }; };
   const showSample = r => {
     const unitName = { station: t('filter_station_s'), season: t('filter_season_s'), station_season: t('cr_unit_station_season_s') }[r.unit];
-    let html = `<div><b>${esc(t('cross_will_import'))} ${r.n} ${esc(t('items'))}</b>`;
+    let html = `<div><b>${esc(t('cross_will_pick'))} ${r.n} ${esc(t('items'))}</b>`;
     const thin = r.n_pool && r.n_pool_thin != null && r.n_pool_thin !== r.n_pool ? ` → ${t('cr_thinned')} ${r.n_pool_thin}` : '';     // 連続動画の間引きで減った分
     if (r.units && r.units.length) {
       const pool = {}; (r.units_pool || []).forEach(([k, n]) => { pool[k] = n; });
@@ -526,14 +525,40 @@ function crossTabPick(m, body) {
     html += '</div>';
     const cnt = Object.entries(r.counts || {});
     if (cnt.length) html += `<div class="info">${esc(t('species'))}: ${cnt.map(([k, v]) => `${esc(k === '(none)' ? t('sp_none') : spLabel(k))} ${v}${r.available && r.available[k] != null ? ` <span class="info">/ ${r.available[k]}</span>` : ''}`).join(' · ')}</div>`;
+    if (r.n_already) html += `<div class="info">${esc(t('cr_already_note').replace('{n}', r.n_already))}</div>`;       // 取り込み済みは母集団から除いてある
     q('#cfSampleOut').innerHTML = html;
   };
   q('#cfSampleCount').onclick = async () => { readF(); try { showSample(await api('/api/cross/catalog/sample', { filters: CR.f, params: sampleParams() })); } catch (e) { toast(e.message, 'error'); } };
-  q('#cfSampleImport').onclick = async () => {
+  // ④ 取り込む（左の一覧へ）: ランダムなら選んでから、全部なら数を確かめてから。取り込んだら次は別の動画が選ばれるように乱数の種を 1 進める
+  q('#cfImportGo').onclick = async () => {
     const b = batchOrWarn(); if (!b) return; readF();
-    try { const r = await api('/api/cross/catalog/sample', { filters: CR.f, params: sampleParams() }); showSample(r);
-      if (!r.n) { toast(t('cr_nothing'), 'error'); return; }
-      const j = await api('/api/cross/import', { mode: 'catalog_sample', filters: CR.f, params: sampleParams(), batch: b }); crossTrack(m, j, 'pick'); } catch (e) { toast(e.message, 'error'); }
+    const params = sampleParams();
+    let r;
+    try { r = await api('/api/cross/catalog/sample', { filters: CR.f, params }); showSample(r); } catch (e) { toast(e.message, 'error'); return; }
+    if (!r.n) { toast(t('cr_nothing'), 'error'); return; }
+    if (params.unit === 'all') {
+      crossModalEl = null;
+      const ok = await confirmModal(t('cross_title'), `${esc(t('cross_import_filtered_q'))}: ${r.n}`, t('cross_do_import'));
+      await crossDialog('pick', { cached: true });
+      if (!ok) return;
+      try { const j = await api('/api/cross/import', { mode: 'catalog_sample', filters: CR.f, params, batch: b }); const mm = crossModalEl; if (mm) crossTrack(mm, j, 'pick'); } catch (e) { toast(e.message, 'error'); }
+      return;
+    }
+    try {
+      const j = await api('/api/cross/import', { mode: 'catalog_sample', filters: CR.f, params, batch: b });
+      CR.smp.seed = (params.seed || 1) + 1; const se = q('#cfSeed'); if (se) se.value = CR.smp.seed;
+      crossTrack(m, j, 'pick');
+    } catch (e) { toast(e.message, 'error'); }
+  };
+  // ④ 動画ファイルを書き出す（取り込まない）: 選び方どおりに目録から選んで、ファイルだけを別のフォルダへ（右クリックの書き出しと同じ窓）
+  q('#cfFilesOut').onclick = async () => {
+    readF();
+    const params = sampleParams();
+    let r;
+    try { r = await api('/api/cross/catalog/sample', { filters: CR.f, params, exclude_imported: false }); showSample(r); } catch (e) { toast(e.message, 'error'); return; }
+    if (!r.n) { toast(t('cr_nothing'), 'error'); return; }
+    crossModalEl = null; closeModal();
+    filesOutDialog(null, { catalog: { filters: Object.assign({}, CR.f), params }, n: r.n });
   };
   crossLoadCatalog(m);
 }
@@ -558,7 +583,7 @@ async function crossLoadCatalog(m) {
   const ex = cnt.excluded;
   const exTxt = ex && ex.batches && ex.batches.length ? `<span title="${esc(t('cr_excl_batches_help'))}">${esc(t('cr_excluded'))} ${esc(ex.batches.join(', '))}: ${[ex.stations ? `${t('filter_station_s')} ${ex.stations}` : '', ex.seasons ? `${t('filter_season_s')} ${ex.seasons}` : '', ex.cells ? `${t('cr_unit_station_season_s')} ${ex.cells}` : ''].filter(Boolean).join(' · ') || '—'}</span>` : '';
   q('#cfSummary').innerHTML = `<span>${esc(t('cr_pool'))} <b>${cnt.total}</b></span><span>${esc(t('cross_imported'))} <b>${cnt.imported}</b></span><span>${esc(t('filter_station_s'))} <b>${(cnt.stations || []).filter(Boolean).length}</b></span><span>${esc(t('filter_season_s'))} <b>${(cnt.seasons || []).filter(Boolean).length}</b></span>${Object.entries(cnt.by_source).map(([k, v]) => `<span>${esc(k)} <b>${v}</b></span>`).join('')}${Object.entries(cnt.by_status).map(([k, v]) => `<span>${esc(k === 'verified' ? t('st_verified') : (k === 'auto' ? t('cross_st_labelled') : t('st_new')))} <b>${v}</b></span>`).join('')}${exTxt}`;
-  q('#cfNAll').textContent = cnt.total - cnt.imported;
+  if (q('#cfNAll')) q('#cfNAll').textContent = cnt.total - cnt.imported;
   // 種 × 調査回
   const seasons = cnt.seasons, sp = sortCodes(Object.keys(cnt.pivot).filter(c => c !== '(none)')).concat(cnt.pivot['(none)'] ? ['(none)'] : []);
   q('#cfPivot').innerHTML = sp.length ? `<table class="tbl matrix"><tr><th>${esc(t('species'))} \\ ${esc(t('cross_seasons'))}</th>${seasons.map(s => `<th>${esc(s || '—')}</th>`).join('')}<th>${esc(t('ag_n'))}</th></tr>${sp.map(c => `<tr><td><b>${esc(c === '(none)' ? t('sp_none') : spLabel(c))}</b></td>${seasons.map(s => `<td>${cnt.pivot[c][s] || ''}</td>`).join('')}<td><b>${cnt.by_species[c]}</b></td></tr>`).join('')}</table>` : '';
@@ -585,7 +610,7 @@ function crossRenderStudy(m, body) {
   const rows = named.map(b => `<tr class="${b.eval ? 'cur' : ''}"><td><b>${esc(b.batch)}</b><div class="info">${esc(fmtImports(b))}</div></td>
     <td><label class="chk" title="${esc(t('cr_eval_tip'))}"><input type="checkbox" data-evb="${esc(b.batch)}" ${b.eval ? 'checked' : ''}> ${esc(t('cr_eval_chip'))}</label></td>
     <td>${b.n}</td><td class="${b.n_verified < b.n ? 'warn' : 'ok'}">${b.n_verified}${b.n_verified < b.n ? ` <span class="info">/ ${b.n}</span>` : ''}</td><td>${b.n_ai}</td><td>${b.n_disagree}${b.n_partial ? ` <span class="info">+${b.n_partial}</span>` : ''}</td>
-    <td><button type="button" class="small" data-list="${esc(b.batch)}" title="${esc(t('cr_list_tip'))}">${esc(t('cr_list_btn'))}</button> <button type="button" class="small" data-dis="${esc(b.batch)}" title="${esc(t('cr_dis_tip'))}" ${b.n_disagree + b.n_partial ? '' : 'disabled'}>${esc(t('cr_dis_btn'))}</button> <button type="button" class="small ${b.eval ? 'primary' : ''}" data-rep="${esc(b.batch)}" ${b.n_verified ? '' : 'disabled'}>${esc(t('cr_report_btn'))}</button> <button type="button" class="small" data-sub="${esc(b.batch)}" data-n="${b.n}" title="${esc(t('cr_sub_tip'))}">${esc(t('cr_sub_short'))}</button></td></tr>`).join('');
+    <td><button type="button" class="small" data-list="${esc(b.batch)}" title="${esc(t('cr_list_tip'))}">${esc(t('cr_list_btn'))}</button> <button type="button" class="small" data-dis="${esc(b.batch)}" title="${esc(t('cr_dis_tip'))}" ${b.n_disagree + b.n_partial ? '' : 'disabled'}>${esc(t('cr_dis_btn'))}</button> <button type="button" class="small ${b.eval ? 'primary' : ''}" data-rep="${esc(b.batch)}" ${b.n_verified ? '' : 'disabled'}>${esc(t('cr_report_btn'))}</button> <button type="button" class="small" data-sub="${esc(b.batch)}" data-n="${b.n}" title="${esc(t('cr_sub_tip'))}">${esc(t('cr_sub_short'))}</button> <button type="button" class="small danger-outline" data-rmb="${esc(b.batch)}" data-n="${b.n}" title="${esc(t('cr_rm_batch_tip'))}">${esc(t('cr_rm_batch_btn'))}</button></td></tr>`).join('');
   body.innerHTML = `<div class="note">${esc(t('cr_study_help'))}</div>
     <details class="adv cr-proto" ${named.length ? '' : 'open'}><summary>${esc(t('cr_proto_h'))}</summary><ol>
       <li>${esc(t('cr_proto_1'))}</li><li>${esc(t('cr_proto_2'))}</li><li>${esc(t('cr_proto_3'))}</li><li>${esc(t('cr_proto_4'))}</li><li>${esc(t('cr_proto_5'))}</li></ol></details>
@@ -613,6 +638,14 @@ function crossRenderStudy(m, body) {
   m.querySelectorAll('[data-dis]').forEach(b => { b.onclick = async () => { crossModalEl = null; closeModal(); await showBatch(b.dataset.dis); S.filter.agree = 'disagree'; renderFilters(); saveUi(); await reloadList(); toast(`${t('filter_batch')} ${b.dataset.dis} · ${t('cmp_disagree')}: ${S.total} ${t('items')}`); }; });
   m.querySelectorAll('[data-rep]').forEach(b => { b.onclick = () => crossShowReport(m, b.dataset.rep); });
   m.querySelectorAll('[data-sub]').forEach(b => { b.onclick = () => { crossModalEl = null; closeModal(); subsetDialog(null, { filters: { batch: b.dataset.sub }, n: parseInt(b.dataset.n) || 0, name: b.dataset.sub }); }; });
+  m.querySelectorAll('[data-rmb]').forEach(b => { b.onclick = async () => {        // 組を消す（一覧から外し、取り込みの記録も消す。参照先の動画には触らない）
+    const name = b.dataset.rmb, n = b.dataset.n;
+    crossModalEl = null;
+    const ok = await confirmModal(t('cr_rm_batch_btn'), `<div><b>${esc(name)}</b>: ${n} ${esc(t('items'))}</div><div class="note">${esc(t('cr_rm_batch_q'))}</div>`, t('cr_rm_batch_btn'), true);
+    await crossDialog('study', { cached: true });
+    if (!ok) return;
+    try { const j = await api('/api/cross/items/remove', { batch: name, drop_log: true }); const mm = crossModalEl; if (mm) crossTrack(mm, j, 'study'); } catch (e) { toast(e.message, 'error'); }
+  }; });
   q('#crStApply').onclick = () => { crossModalEl = null; closeModal(); detectDialog({ mode: 'reclass' }); };
   q('#crStTrain').onclick = () => { crossModalEl = null; closeModal(); trainDialog(null, { holdout_batches: evalNames }); };
   q('#crStModels').onclick = () => { crossModalEl = null; closeModal(); trainDialog(); };
@@ -707,11 +740,22 @@ function crossTabSync(m, body) {
     <h4>${esc(t('cross_export_h'))}</h4>
     <div class="form-row"><label>${esc(t('cross_copy_to'))}</label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><input type="text" id="crCopyDir" spellcheck="false" style="width:340px"><button type="button" class="small" data-pick="crCopyDir" data-kind="folder" data-name="">${esc(t('pick'))}</button><button type="button" class="small" id="crCopy">${esc(t('cross_copy'))}</button><button type="button" class="small" id="crList">${esc(t('cross_list'))}</button></span></div>
     <div class="note">${esc(t('cross_export_help'))}</div>
-    ${imports.length ? `<h4>${esc(t('cross_log'))} (${imports.length})</h4><div class="note">${esc(t('cr_log_help'))}</div><div style="max-height:30vh;overflow:auto"><table class="tbl"><tr><th>${esc(t('tr_trained_at'))}</th><th>${esc(t('cross_batch'))}</th><th>n</th><th>${esc(t('cross_params'))}</th></tr>
-      ${imports.map(r => `<tr><td class="info">${esc((r.at || '').slice(0, 16).replace('T', ' '))}</td><td>${esc(r.batch || '')}</td><td>${r.n}</td><td class="info">${esc(fmtParams(r))} ${r.counts && Object.keys(r.counts).length ? esc(Object.entries(r.counts).map(([k, v]) => `${k === '(none)' ? t('sp_none') : spLabel(k)} ${v}`).join(' · ')) : ''}</td></tr>`).join('')}</table></div>` : ''}`;
+    ${imports.length ? `<h4>${esc(t('cross_log'))} (${imports.length}) <button type="button" class="small" id="crLogClear" title="${esc(t('cr_log_del_all_q'))}">${esc(t('cr_log_del_all'))}</button></h4><div class="note">${esc(t('cr_log_help'))}</div><div style="max-height:30vh;overflow:auto"><table class="tbl"><tr><th>${esc(t('tr_trained_at'))}</th><th>${esc(t('cross_batch'))}</th><th>n</th><th>${esc(t('cross_params'))}</th><th></th></tr>
+      ${imports.map((r, i) => `<tr><td class="info">${esc((r.at || '').slice(0, 16).replace('T', ' '))}</td><td>${esc(r.batch || '')}</td><td>${r.n}</td><td class="info">${esc(fmtParams(r))} ${r.counts && Object.keys(r.counts).length ? esc(Object.entries(r.counts).map(([k, v]) => `${k === '(none)' ? t('sp_none') : spLabel(k)} ${v}`).join(' · ')) : ''}</td><td><button type="button" class="small" data-logx="${imports.length - 1 - i}" data-at="${esc(r.at || '')}" title="${esc(t('cr_log_del_tip'))}">×</button></td></tr>`).join('')}</table></div>` : ''}`;
   wirePicks(m);
   const q = sel => m.querySelector(sel);
   histWire(q('#crCopyDir'), 'copy_dir');
+  // 取り込みの記録を消す（1 件 / 全部。動画も組もそのまま）。index は project.json の並び（表は新しい順なので逆）、日時が合うときだけ消す
+  m.querySelectorAll('[data-logx]').forEach(b => { b.onclick = async () => {
+    try { await api('/api/cross/imports/remove', { index: parseInt(b.dataset.logx), at: b.dataset.at }); CR.infoCache = null; crossModalEl = null; crossDialog('sync'); } catch (e) { toast(e.message, 'error'); }
+  }; });
+  if (q('#crLogClear')) q('#crLogClear').onclick = async () => {
+    crossModalEl = null;
+    const ok = await confirmModal(t('cross_log'), `<div>${esc(t('cr_log_del_all_q'))}</div>`, t('cr_log_del_all'), true);
+    await crossDialog('sync', { cached: true });
+    if (!ok) return;
+    try { await api('/api/cross/imports/remove', { all: true }); CR.infoCache = null; crossModalEl = null; crossDialog('sync'); } catch (e) { toast(e.message, 'error'); }
+  };
   const showSync = (dir, r) => {
     const bs = Object.entries(r.by_source || {}).map(([k, v]) => v.error ? `${esc(k)}: <span class="ng">${esc(v.error)}</span>` : `${esc(k)}: ${v.update} / ${v.conflict} / ${v.same}`).join(' · ');
     q('#crSyncOut').innerHTML = `<div class="dt-counts"><span>${esc(dir === 'push' ? t('cross_push') : t('cross_pull'))}: ${esc(t('cross_sync_update'))} <b>${r.n_update}</b></span><span>${esc(t('cross_sync_conflict'))} <b>${r.n_conflict}</b></span><span>${esc(t('cross_sync_same'))} <b>${r.n_same}</b></span></div><div class="info">${bs}</div>` +

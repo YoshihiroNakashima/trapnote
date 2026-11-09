@@ -15,7 +15,7 @@ from aiohttp import web
 
 from . import APP_ID, APP_NAME, BUILD, BUILD_TIME, VERSION, cross, detect, dialogs, export as export_mod, judge, media, merge as merge_mod, scan as scan_mod, timelapse, train, yolo
 from .config import APP_DIR, DATA_DIR, STATIC_DIR, Settings, State
-from .jobs import ArchiveJob, CatalogBuildJob, CatalogImportJob, CrossCopyJob, CrossImportJob, CrossRemoveJob, CrossSyncJob, DetectJob, LabelsJob, Lane, MetaJob, ReclassifyJob, ScanJob, SubsetExportJob, TrainJob, TranscodeJob, YoloExportJob, YoloImportJob
+from .jobs import ArchiveJob, CatalogBuildJob, CatalogImportJob, CrossCopyJob, CrossImportJob, CrossRemoveJob, CrossSyncJob, DetectJob, FilesOutJob, LabelsJob, Lane, MetaJob, ReclassifyJob, ScanJob, SubsetExportJob, TrainJob, TranscodeJob, YoloExportJob, YoloImportJob
 from .paths import key, norm
 from .pattern import names_in, preview as pattern_preview
 from .project import PROJECT_DIRNAME, Project, find_project_for_root, is_project_dir
@@ -473,6 +473,52 @@ def make_app(session: Session) -> web.Application:
         if yielded == "meta":
             S.bg.submit(MetaJob())
         return jr(S.jobs_status())
+
+    async def export_files(request):
+        """選んだ対象（ids）の動画・画像ファイルだけを out_dir へ写す（裏の処理）。keep_tree = 階層のまま / たたむ（<フォルダ名>_<ファイル名>）。convert = AVI などを MP4 に変換"""
+        p = S.need()
+        b = await _body(request)
+        ids = [int(x) for x in (b.get("ids") or [])]
+        out = norm(str(b.get("out_dir") or "").strip())
+        if not ids:
+            raise ApiError("対象が選ばれていません")
+        if not out:
+            raise ApiError("書き出し先のフォルダを指定してください")
+        if key(out) == key(str(APP_DIR)) or (p.root and (key(out) == key(p.root) or key(out).startswith(key(p.root).rstrip("/") + "/"))):
+            raise ApiError("そこには書き出せません（アプリのフォルダ、またはいまのプロジェクトの動画のフォルダの中）。別のフォルダを指定してください")
+        conv = b.get("convert")
+        if conv is None:
+            conv = S.settings.get("copy_convert", True)
+        else:
+            S.settings.update(dict(copy_convert=bool(conv)))
+        yielded = S.bg.yield_current(("meta", "scan"))
+        S.bg.submit(FilesOutJob(ids, out, b.get("keep_tree", True) is not False, bool(conv)), front=True)
+        if yielded == "meta":
+            S.bg.submit(MetaJob())
+        return jr(S.jobs_status())
+
+    async def item_reveal(request):
+        """対象のファイルがあるフォルダを OS のファイル管理で開く（Windows はエクスプローラーでそのファイルを選んだ状態に）"""
+        from . import files_out
+        p = S.need()
+        iid = int(request.match_info["id"])
+        row = p.db.q1("SELECT rel_path FROM items WHERE id=?", (iid,))
+        if row is None:
+            raise ApiError("対象がありません")
+        path = p.abs_path(row["rel_path"])
+        ok = await io(files_out.reveal, path)
+        if not ok:
+            raise ApiError(f"フォルダがありません: {os.path.dirname(path)}")
+        return jr(dict(ok=True, path=path))
+
+    async def fs_reveal(request):
+        """フォルダ（またはファイルのあるフォルダ）を OS のファイル管理で開く（「書き出し先を開く」）"""
+        from . import files_out
+        b = await _body(request)
+        path = norm(str(b.get("path") or ""))
+        if not path or not await io(files_out.reveal, path):
+            raise ApiError(f"フォルダがありません: {path}")
+        return jr(dict(ok=True))
 
     async def fs_prune_empty(request):
         """フォルダの下の空のフォルダを消す（ファイルは消さない。「整える」のあとに残った空の動画フォルダの片付け用）"""
@@ -1471,7 +1517,8 @@ def make_app(session: Session) -> web.Application:
         """取り込んだ対象を外す: batch（組。"" は組なし）/ filters / all。動画本体には触らない"""
         p = need_cross()
         b = await _body(request)
-        spec = dict(batch=(str(b["batch"]) if b.get("batch") is not None else None), filters=_filters(b.get("filters") or {}) if b.get("filters") else None, all=bool(b.get("all")))
+        spec = dict(batch=(str(b["batch"]) if b.get("batch") is not None else None), filters=_filters(b.get("filters") or {}) if b.get("filters") else None, all=bool(b.get("all")),
+                    drop_log=bool(b.get("drop_log")))                      # drop_log: その組の取り込みの記録も消す（「組を消す」）
         if spec["batch"] is None and spec["filters"] is None and not spec["all"]:
             raise ApiError("外す対象（組・絞り込み・全部）を指定してください")
         yielded = S.bg.yield_current(("meta", "scan"))
@@ -1479,6 +1526,39 @@ def make_app(session: Session) -> web.Application:
         if yielded == "meta":
             S.bg.submit(MetaJob())
         S.undo_stack.clear()
+        return jr(S.jobs_status())
+
+    async def cross_imports_remove(request):
+        """取り込みの記録（project.json の imports）を消す: at（記録の日時）/ batch / all。動画も組もそのまま"""
+        p = need_cross()
+        b = await _body(request)
+        r = await io(cross.remove_import_records, p, (int(b["index"]) if b.get("index") is not None else None), (str(b["batch"]) if b.get("batch") is not None else None), bool(b.get("all")),
+                     (str(b["at"]) if b.get("at") else None))
+        return jr(r)
+
+    async def cross_catalog_files_out(request):
+        """目録から選んだ動画（絞り込み + 選び方。取り込まない）のファイルだけを out_dir へ書き出す（裏の処理。右クリックの「動画ファイルを書き出す」と同じ FilesOutJob）"""
+        p = need_cross()
+        b = await _body(request)
+        out = norm(str(b.get("out_dir") or "").strip())
+        if not out:
+            raise ApiError("書き出し先のフォルダを指定してください")
+        if key(out) == key(str(APP_DIR)):
+            raise ApiError("そこには書き出せません（アプリのフォルダ）。別のフォルダを指定してください")
+        f, params = b.get("filters") or {}, b.get("params") or {}
+        smp = await io(cross.catalog_sample, p, f, params, b.get("exclude_imported", False) is True)
+        if not smp["ids"]:
+            raise ApiError("選ばれる動画がありません（母集団が空です）")
+        rows = await io(cross.catalog_files, p, smp["ids"])
+        conv = b.get("convert")
+        if conv is None:
+            conv = S.settings.get("copy_convert", True)
+        else:
+            S.settings.update(dict(copy_convert=bool(conv)))
+        yielded = S.bg.yield_current(("meta", "scan"))
+        S.bg.submit(FilesOutJob([], out, b.get("keep_tree", True) is not False, bool(conv), rows=rows), front=True)
+        if yielded == "meta":
+            S.bg.submit(MetaJob())
         return jr(S.jobs_status())
 
     async def cross_sources_add_under(request):
@@ -1527,7 +1607,7 @@ def make_app(session: Session) -> web.Application:
     async def cross_catalog_sample(request):
         p = need_cross()
         b = await _body(request)
-        r = await io(cross.catalog_sample, p, b.get("filters") or {}, b.get("params") or {})
+        r = await io(cross.catalog_sample, p, b.get("filters") or {}, b.get("params") or {}, b.get("exclude_imported", True) is not False)
         r["ids"] = r["ids"][:0]               # 本数だけ返す（id の列は大きい）
         return jr(r)
 
@@ -1673,6 +1753,9 @@ def make_app(session: Session) -> web.Application:
     r.add_post("/api/export/subset_check", export_subset_check)
     r.add_get("/api/projects/recent", projects_recent)
     r.add_post("/api/export/subset", export_subset)
+    r.add_post("/api/export/files", export_files)
+    r.add_post("/api/fs/reveal", fs_reveal)
+    r.add_post("/api/items/{id}/reveal", item_reveal)
     r.add_post("/api/projects/forget", projects_forget)
     r.add_post("/api/project/root", project_root)
     r.add_post("/api/project/close", project_close)
@@ -1736,6 +1819,8 @@ def make_app(session: Session) -> web.Application:
     r.add_post("/api/cross/plan", cross_plan)
     r.add_post("/api/cross/import", cross_import)
     r.add_post("/api/cross/items/remove", cross_items_remove)
+    r.add_post("/api/cross/imports/remove", cross_imports_remove)
+    r.add_post("/api/cross/catalog/files_out", cross_catalog_files_out)
     r.add_post("/api/cross/sync/plan", cross_sync_plan)
     r.add_post("/api/cross/sync", cross_sync)
     r.add_post("/api/cross/export_list", cross_export_list)

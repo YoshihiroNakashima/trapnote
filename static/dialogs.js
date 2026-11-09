@@ -1248,6 +1248,70 @@ function subsetOnJobs(jobs) {
   }
 }
 
+// ---------- 動画ファイルを書き出す（右クリック。判定は写さない） ----------
+let filesOutModalEl = null;
+function filesOutDialog(ids, opts) {
+  // ids = 対象の id（右クリック）。opts.catalog = {filters, params} なら横断の目録から選んだ動画（取り込まない。横断の 4 の段「動画ファイルを書き出す」）、opts.n はその本数
+  opts = opts || {};
+  const cat = opts.catalog || null;
+  if ((!ids || !ids.length) && !cat) return;
+  const n0 = cat ? (opts.n || 0) : ids.length;
+  const m = showModal(`<h3>${esc(t('fo_title'))}</h3><div class="note">${esc(t('fo_help'))}${cat ? ' ' + esc(t('fo_catalog_note')) : ''}</div>
+    <div class="dt-counts"><span>${esc(t('items'))} <b>${n0}</b></span></div>
+    ${pathRow('foDir', t('fo_dir'), 'folder', '', t('fo_dir_help'))}
+    <div class="form-row"><label>${esc(t('fo_layout'))}</label><span style="display:flex;flex-direction:column;gap:4px">
+      <label class="chk"><input type="radio" name="foTree" value="1" checked> ${esc(t('fo_tree'))} <span class="info">${esc(t('fo_tree_help'))}</span></label>
+      <label class="chk"><input type="radio" name="foTree" value="0"> ${esc(t('fo_flat'))} <span class="info">${esc(t('fo_flat_help'))}</span></label></span></div>
+    <div class="form-row"><label></label><span style="display:flex;flex-direction:column;gap:4px">
+      <label class="chk" title="${esc(t('sub_convert_help'))}"><input type="checkbox" id="foConvert" ${S.settings.copy_convert !== false ? 'checked' : ''}> ${esc(t('fo_convert'))}</label><span class="info">${esc(t('fo_convert_help'))}</span></span></div>
+    <div id="foStatus"></div>
+    <div class="modal-actions"><button id="mCancel">${esc(t('close'))}</button><button id="foStop" class="danger-outline hidden" title="${esc(t('fo_stop_tip'))}">${esc(t('jb_stop'))}</button><button id="mOk" class="primary">${esc(t('fo_run'))}</button></div>`);
+  filesOutModalEl = m;
+  wirePicks(m);
+  histWire(m.querySelector('#foDir'), 'files_out_dir');
+  m.querySelector('#mCancel').onclick = () => { filesOutModalEl = null; closeModal(); };
+  m.querySelector('#foStop').onclick = async () => { try { const j = await api('/api/jobs/stop', { lane: 'bg' }); m.querySelector('#foStop').disabled = true; filesOutOnJobs(j); } catch (e) { toast(e.message, 'error'); } };
+  m.querySelector('#mOk').onclick = async () => {
+    const out = m.querySelector('#foDir').value.trim();
+    if (!out) { toast(t('cross_need_dir'), 'error'); return; }
+    const keepTree = m.querySelector('input[name=foTree]:checked').value === '1';
+    try {
+      const body = { out_dir: out, keep_tree: keepTree, convert: m.querySelector('#foConvert').checked };
+      const j = cat ? await api('/api/cross/catalog/files_out', Object.assign({ filters: cat.filters, params: cat.params, exclude_imported: false }, body)) : await api('/api/export/files', Object.assign({ ids }, body));
+      S.settings.copy_convert = m.querySelector('#foConvert').checked;
+      histRemember('files_out_dir', out);
+      // この窓が出した仕事の id を覚える（すぐ終わる仕事だと、最初の表示のときに前回の結果（recent）を拾ってしまうので）
+      const nj = (j.bg && j.bg.current && j.bg.current.kind === 'files_out') ? j.bg.current : ((j.bg && j.bg.queued) || []).find(x => x.kind === 'files_out');
+      m._jobId = nj ? nj.id : null;
+      S._bgWasRunning = true; m._running = true; m.querySelector('#mOk').disabled = true;
+      filesOutOnJobs(j);
+    } catch (e) { toast(e.message, 'error'); }
+  };
+}
+function filesOutOnJobs(jobs) {
+  const m = filesOutModalEl;
+  if (!m || !document.body.contains(m) || !jobs || !jobs.bg) return;
+  const el = m.querySelector('#foStatus'); if (!el) return;
+  const mine = x => x && x.kind === 'files_out' && (m._jobId == null || x.id === m._jobId);
+  const cur = jobs.bg.current, rec = (jobs.bg.recent || []).find(mine);
+  const stopBtn = m.querySelector('#foStop');
+  if (mine(cur)) {
+    const pct = cur.total ? Math.round(100 * cur.done / cur.total) : 0;
+    el.innerHTML = `<div><b>${esc(t('ar_running'))}</b>: ${cur.done} / ${cur.total} (${pct}%)</div><div class="prog"><div style="width:${pct}%"></div></div><div class="info">${esc(cur.current || '')}</div>`;
+    m._running = true;
+    stopBtn.classList.remove('hidden'); stopBtn.disabled = false;
+  } else if (m._running && rec) {
+    m._running = false;
+    stopBtn.classList.add('hidden');
+    const r = rec.result || {};
+    el.innerHTML = `<div class="${rec.state === 'done' && !r.stopped ? 'ok' : 'warn'}"><b>${esc(t('ar_result'))}</b>: ${esc(rec.message || rec.error || '')}</div>${r.out_dir ? `<div class="btn-row"><button type="button" class="small" id="foOpen">${esc(t('fo_open'))}</button></div>` : ''}`;
+    m.querySelector('#mOk').disabled = false;
+    const b = el.querySelector('#foOpen'); if (b) b.onclick = () => api('/api/fs/reveal', { path: r.out_dir }).catch(e => toast(e.message, 'error'));
+  } else if (m._running && (jobs.bg.queued || []).some(mine)) {
+    el.innerHTML = `<div class="info">${esc(t('jb_queued'))}</div>`;
+  }
+}
+
 // ---------- 入力欄の候補（過去に入れた値。× で消せる） ----------
 // histWire(input, key, extra): 欄に候補の窓を付ける。候補 = 設定の input_history[key] ∪ extra − input_hidden[key]。値を決めたら histRemember(key, value)
 function histValues(key, extra) {

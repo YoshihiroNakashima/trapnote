@@ -34,6 +34,7 @@ DEFAULTS = {
     "auto_advance": True,           # 確定したら次の対象へ進む
     "play_speed": 1.0,              # 再生の速さ（0.5 / 1 / 2 / 4）
     "loop": False,                  # ループ再生
+    "brightness": 1.0,              # 再生画面の明るさ（1.0 = そのまま。0.5〜3.0。暗い夜間の動画を見やすくする。表示だけで、ファイルや学習には影響しない）
     "show_boxes": True,             # 検出枠の重ね描き（第 2 段階）
     "box_mode": "all",              # 枠の表示: all（判定の閾値以上の全部）/ conf（学習に使う信頼度以上）/ train（学習に使う枠だけ）
     "open_mode": "play",            # 動画を開いたとき: play（先頭から自動再生）/ pause（先頭のフレームで停止）/ crop（学習に使う枠の最初のフレームで停止。枠がなければ先頭）
@@ -109,6 +110,10 @@ class Settings:
         if d["play_speed"] not in (0.5, 1.0, 2.0, 4.0):
             d["play_speed"] = 1.0
         d["loop"] = bool(d.get("loop"))
+        try:
+            d["brightness"] = round(min(3.0, max(0.5, float(d.get("brightness") or 1.0))), 2)
+        except Exception:
+            d["brightness"] = 1.0
         d["avi_direct"] = bool(d.get("avi_direct", True))
         d["show_boxes"] = bool(d.get("show_boxes", True))
         if d.get("box_mode") not in ("all", "conf", "train"):

@@ -7,7 +7,7 @@
   使った条件は project.json の imports に残す（論文の方法に書けるように）。
 - 書き戻し（横断で確定した判定を参照先へ）と再取得（参照先で直した判定を横断へ）は push / pull。
 - 種名の対応表（project.json の label_map: 表記 → 種コード）: 種名の CSV の値と調査回プロジェクトの判定の種コードを、横断の種リストのどの種と見なすか。
-  カタログ・取り込み・書き戻し・再取得のすべてに当てる。種名の CSV は生の表記で読んで cache/labels に残し、対応は読み込み時に当てる（_apply_map）。"""
+  目録・取り込み・書き戻し・再取得のすべてに当てる。種名の CSV は生の表記で読んで cache/labels に残し、対応は読み込み時に当てる（_apply_map）。"""
 from __future__ import annotations
 
 import csv
@@ -261,7 +261,7 @@ def _tree_rows_by_season(project, s: dict, seasons: list[str] | None = None, pro
 
 
 def _cat_rows_by_season(project, s: dict, progress=None, stop=None, code_names: dict | None = None):
-    """build_catalog 用: 親フォルダ参照の行をカタログの tuple（CAT_INSERT の順）で調査回ごとに yield する。
+    """build_catalog 用: 親フォルダ参照の行を目録の tuple（CAT_INSERT の順）で調査回ごとに yield する。
     種名の CSV の行は LabelRow から直接 tuple を作る（dict を経由すると 120 万行で 10 秒余計にかかる）"""
     root = norm(s.get("root") or "")
     name = s["name"]
@@ -392,7 +392,7 @@ def species_sig(sl) -> str:
 
 
 def map_sig(project) -> str:
-    """対応表 + 種リストの署名（これが変わると、種名の CSV の読み直しはせずに対応だけ当て直す。カタログは作り直しが要る）"""
+    """対応表 + 種リストの署名（これが変わると、種名の CSV の読み直しはせずに対応だけ当て直す。目録は作り直しが要る）"""
     return json.dumps([sorted(label_map(project).items()), species_sig(project.species)], ensure_ascii=False)
 
 
@@ -487,7 +487,7 @@ def set_label_map(project, mapping: dict) -> dict:
 
 def label_candidates(project) -> dict:
     """対応表の画面の元: 参照先に出てくる種名の表記と、本数・出どころ・自動の当たり・いまの対応。
-    表記 = 種名の CSV の値（kind = csv）と、調査回プロジェクトの人の判定の種コード（kind = code。親フォルダ参照の中の調査回プロジェクトはカタログを作ったときに控えたもの）。
+    表記 = 種名の CSV の値（kind = csv）と、調査回プロジェクトの人の判定の種コード（kind = code。親フォルダ参照の中の調査回プロジェクトは目録を作ったときに控えたもの）。
     返り値 dict(rows=[dict(label, kind, n, sources={name: n}, auto, name_ja, name_en, mapped, current)], pending=[CSV をまだ読んでいない参照先], map, n_unresolved)"""
     lm = label_map(project)
     known = project.species.by_code()
@@ -542,7 +542,7 @@ def label_candidates(project) -> dict:
 
 
 def catalog_status(project) -> dict:
-    """カタログの様子と、作り直しが要るか（参照先が増減した・対応表か種リストが変わった）"""
+    """目録の様子と、作り直しが要るか（参照先が増減した・対応表か種リストが変わった）"""
     cat = project.data.get("catalog") or {}
     if not cat:
         return dict(built=False, stale=False, reasons=[], n=0, built_at=None)
@@ -550,7 +550,7 @@ def catalog_status(project) -> dict:
     if sorted(cat.get("sources") or []) != sorted(s["name"] for s in project.sources()):
         reasons.append("sources")
     if project.db.scalar("SELECT 1 FROM catalog WHERE species IS NOT NULL AND labels IS NULL LIMIT 1"):
-        reasons.append("old")                    # v61 以前に作ったカタログ（表記の列がない）。作り直すと以後は当て直しだけで済む
+        reasons.append("old")                    # v61 以前に作った目録（表記の列がない）。作り直すと以後は当て直しだけで済む
     if (cat.get("map_sig") or "") != map_sig(project):
         reasons.append("labels")
     return dict(built=True, stale=bool(reasons), reasons=reasons, n=cat.get("n") or 0, built_at=cat.get("built_at"), by_source=cat.get("by_source") or {})
@@ -938,7 +938,7 @@ def _labels(project, s: dict, progress=None, stop=None) -> dict:
     return out
 
 
-_FS: dict = {}                 # NAS のフォルダ一覧・stat のキャッシュ（key → (時刻, 値)）。窓を開くたびに NAS を何十回も見に行かないため。参照先の増減・CSV の指定・カタログ作成・CSV 読み込み・「見直す」で捨てる
+_FS: dict = {}                 # NAS のフォルダ一覧・stat のキャッシュ（key → (時刻, 値)）。窓を開くたびに NAS を何十回も見に行かないため。参照先の増減・CSV の指定・目録作成・CSV 読み込み・「見直す」で捨てる
 FS_TTL = 900.0
 _SCANNING: set = set()         # 裏で見直し中の参照先（key）
 _SCAN_LOCK = threading.Lock()
@@ -1510,7 +1510,7 @@ def import_rows(project, picked: list, batch: str, progress=None, stop=None) -> 
                         srow = dict(srow)
                         src_rel = srow["rel_path"]
                         prefix = r.get("prefix") or ""                     # 親フォルダ参照の中の調査回プロジェクトなら <調査回>/ が付く
-                        rel = r.get("rel_full") or (f"{name}/{prefix}/{src_rel}" if prefix else f"{name}/{src_rel}")   # rel_full = カタログの 参照先/rel に合わせた相対パス
+                        rel = r.get("rel_full") or (f"{name}/{prefix}/{src_rel}" if prefix else f"{name}/{src_rel}")   # rel_full = 目録の 参照先/rel に合わせた相対パス
                         vals = {c_: srow.get(c_) for c_ in copy_cols}
                         st0 = map_state(lm, item_state(src.db, sid))      # 判定の種コードに対応表を当てる（書き戻し・再取得の比較もこの形で）
                         vals.update(rel_path=rel, rel_key=rel_key(rel), folder=os.path.dirname(rel), season=srow.get("season") or prefix or name,
@@ -1588,7 +1588,7 @@ def _import_tree_rows(project, name: str, rows: list[dict], batch: str, now: str
     return n
 
 
-# ---------- カタログ（参照先の全動画の目録。ここから取り込む対象を選ぶ） ----------
+# ---------- 目録（参照先の全動画の目録。ここから取り込む対象を選ぶ） ----------
 CAT_INDEXES = {"idx_cat_season": "season", "idx_cat_station": "station", "idx_cat_species": "species", "idx_cat_status": "status", "idx_cat_item": "item_id", "idx_cat_labels": "labels"}
 CAT_INSERT = "INSERT OR IGNORE INTO catalog(source, src_id, rel, season, station, name, datetime, status, species, ai, agree, det_state, duration, size, labels) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
 
@@ -1681,7 +1681,7 @@ def build_catalog(project, progress=None, stop=None) -> dict:
 
 
 def remap_catalog(project, progress=None, stop=None) -> dict:
-    """対応表（か種リスト）を変えたあと、カタログを作り直さずに species だけ当て直す（labels 列 = 元の表記から。表記の組ごとに UPDATE するので数十万行でも数秒）。
+    """対応表（か種リスト）を変えたあと、目録を作り直さずに species だけ当て直す（labels 列 = 元の表記から。表記の組ごとに UPDATE するので数十万行でも数秒）。
     参照先が変わったときは build_catalog が要る。返り値 dict(n_changed, n_combos)"""
     db = project.db
     lm = label_map(project)
@@ -1784,13 +1784,13 @@ def _other_cross(project, other_path: str):
         raise ValueError("自分自身からは持ってこられません")
     odata = read_json(os.path.join(pdir, PROJECT_JSON), None) or {}
     if not odata.get("catalog"):
-        raise ValueError("そのプロジェクトにはまだカタログがありません")
+        raise ValueError("そのプロジェクトにはまだ目録がありません")
     return pdir, odata
 
 
 def prepare_catalog_import(project, other_path: str) -> dict:
-    """カタログを持ってくる前の支度（開いているプロジェクトで、その場で）: 参照先（名前が重ならないもの）と対応表（こちらにない表記）を足し、
-    こちらにカタログも対応表もなければ種リスト・追加項目も相手のものにする。参照先の名前が同じで場所が違うものがあれば止める（カタログの行は参照先の名前で結び付く）"""
+    """目録を持ってくる前の支度（開いているプロジェクトで、その場で）: 参照先（名前が重ならないもの）と対応表（こちらにない表記）を足し、
+    こちらに目録も対応表もなければ種リスト・追加項目も相手のものにする。参照先の名前が同じで場所が違うものがあれば止める（目録の行は参照先の名前で結び付く）"""
     pdir, odata = _other_cross(project, other_path)
     mine = {s["name"]: s for s in project.sources()}
     added = []
@@ -1823,15 +1823,15 @@ def prepare_catalog_import(project, other_path: str) -> dict:
 
 
 def import_catalog_from(project, other_path: str, progress=None, stop=None) -> dict:
-    """別の横断プロジェクトからカタログを持ってくる（作り直さずに済ませる。prepare_catalog_import のあとに裏で）:
-    catalog 表の全行（取り込み済みの印はこちらの対象で付け直す）、種名 CSV の読み込みキャッシュ（cache/labels。署名は CSV のパス・更新時刻・大きさなのでそのまま使える）、カタログの記録"""
+    """別の横断プロジェクトから目録を持ってくる（作り直さずに済ませる。prepare_catalog_import のあとに裏で）:
+    catalog 表の全行（取り込み済みの印はこちらの対象で付け直す）、種名 CSV の読み込みキャッシュ（cache/labels。署名は CSV のパス・更新時刻・大きさなのでそのまま使える）、目録の記録"""
     pdir, odata = _other_cross(project, other_path)
     ocat = odata.get("catalog") or {}
     db = project.db
     conn = db.conn()
     odb = os.path.join(pdir, "data.sqlite")
     if progress:
-        progress(0, 0, "カタログの行を写しています")
+        progress(0, 0, "目録の行を写しています")
     with db.tx() as c:
         c.execute("DELETE FROM catalog")
         for ix in CAT_INDEXES:
@@ -2041,8 +2041,8 @@ def _thin_rows(rows: list[tuple], gap_min: float) -> list[tuple]:
     return out
 
 
-def catalog_sample(project, f: dict, params: dict) -> dict:
-    """カタログの絞り込み（未取り込みのもの）から、乱数で選ぶ。params["unit"]:
+def catalog_sample(project, f: dict, params: dict, exclude_imported: bool = True) -> dict:
+    """目録の絞り込み（未取り込みのもの）から、乱数で選ぶ。params["unit"]:
       all             絞り込みの全部
       video           動画を n 本（同じ地点で gap_min 分以内の連続動画は 1 本に間引いてから）
       species         種ごとに n 本（既存の種名から。地点 × 調査回の上限 cap、間引き gap_min。species=[code...] で種を限る）
@@ -2054,14 +2054,19 @@ def catalog_sample(project, f: dict, params: dict) -> dict:
       （video / species は spread = "station" で地点をできるだけたがえる: 地点を順繰りに 1 本ずつ取る（地点の順も地点の中の順も乱数）。学習データの地点の偏りを減らす）
     乱数の種 seed で同じ結果が再現できる。返り値 dict(ids, n, counts={code: n}, available={code: n}（種ごと）, units=[(名前, 選んだ本数)], units_pool=[(名前, 母数)], n_pool, n_pool_thin, n_units_available)"""
     db = project.db
-    where, p = catalog_where(dict(f, imported="0"), project)
+    where, p = catalog_where(dict(f, imported="0") if exclude_imported else f, project)
     unit = params.get("unit") or ("species" if params.get("n_per_species") else "all")
+    # 絞り込みに入っているが取り込み済みのもの（母集団から除いてある本数。画面で「取り込み済み n 本は除いてある」と出す）
+    n_already = 0
+    if exclude_imported and f.get("imported") in (None, ""):
+        w1, p1 = catalog_where(dict(f, imported="1"), project)
+        n_already = int(db.scalar(f"SELECT COUNT(*) FROM catalog WHERE {w1}", p1) or 0)
     if unit not in SAMPLE_UNITS:
         raise ValueError(f"選び方が分かりません: {unit}")
     n_want = int(params.get("n") or params.get("n_per_species") or 0)
     if unit == "all" or (n_want <= 0 and unit != "species"):
         ids = [r[0] for r in db.q(f"SELECT id FROM catalog WHERE {where}", p)]
-        return dict(ids=ids, counts=_species_counts_sql(db, where, p), available={}, n=len(ids), units=[], n_units_available=0, unit="all")
+        return dict(n_already=n_already, ids=ids, counts=_species_counts_sql(db, where, p), available={}, n=len(ids), units=[], n_units_available=0, unit="all")
     cap = int(params.get("cap") or 0)
     gap_min = float(params.get("gap_min") or 0)
     seed = int(params.get("seed") or 1)
@@ -2100,7 +2105,7 @@ def catalog_sample(project, f: dict, params: dict) -> dict:
         for r in picked:
             for code in (r[5] or "(none)").split(";"):
                 counts[code] += 1
-        return dict(ids=[r[0] for r in picked], counts=dict(counts), available={}, n=len(picked), units=[(k, sel_by_unit[k]) for k in chosen],
+        return dict(n_already=n_already, ids=[r[0] for r in picked], counts=dict(counts), available={}, n=len(picked), units=[(k, sel_by_unit[k]) for k in chosen],
                     units_pool=[(k, groups[k]) for k in chosen], n_pool=n_pool, n_pool_thin=n_pool_thin, n_units_available=len(keys), unit=unit, gap_min=gap_min)
     rows = [tuple(r) for r in db.q(f"SELECT id, source, season, station, datetime, species FROM catalog WHERE {where}" + (" AND species IS NOT NULL" if unit == "species" else ""), p)]
     if unit == "video":
@@ -2111,7 +2116,7 @@ def catalog_sample(project, f: dict, params: dict) -> dict:
             cands = _spread_by_station(cands)
         picked = cands[:n_want]
         cnt = lambda rs: dict(Counter(code for r in rs for code in (r[5] or "(none)").split(";")))
-        return dict(ids=[r[0] for r in picked], counts=cnt(picked), available=cnt(cands), n=len(picked), units=[], n_units_available=len(cands), unit=unit,
+        return dict(n_already=n_already, ids=[r[0] for r in picked], counts=cnt(picked), available=cnt(cands), n=len(picked), units=[], n_units_available=len(cands), unit=unit,
                     n_pool=len(rows), n_pool_thin=len(cands), gap_min=gap_min, spread=spread, n_stations=len({(r[1], r[3]) for r in picked}))
     # unit == species
     n_per = n_want
@@ -2149,7 +2154,7 @@ def catalog_sample(project, f: dict, params: dict) -> dict:
             seen.add(r[0]); ids.append(r[0]); n_sp += 1
             picked_rows.append(r)
         counts2[code] = n_sp
-    return dict(ids=ids, counts=counts2, available={k: len(v) for k, v in pool.items()}, n=len(ids), units=[], n_units_available=len(pool), unit=unit,
+    return dict(n_already=n_already, ids=ids, counts=counts2, available={k: len(v) for k, v in pool.items()}, n=len(ids), units=[], n_units_available=len(pool), unit=unit,
                 n_pool=len(rows), n_pool_thin=len(thinned), gap_min=gap_min, spread=spread, n_stations=len({(r[1], r[3]) for r in picked_rows}))
 
 
@@ -2172,13 +2177,24 @@ def _spread_by_station(rows: list[tuple]) -> list[tuple]:
 
 
 def catalog_import(project, ids: list[int], batch: str, record: dict | None = None, progress=None, stop=None) -> dict:
-    """カタログの行（id）を取り込む"""
+    """目録の行（id）を取り込む。取り込み済みの動画（目録の印、または同じ相対パスの対象がある）は飛ばして n_already に数える。
+    1 本も取り込まなければ取り込みの記録は残さない（同じ条件・同じ乱数の種で 2 回取り込んでも同じ動画が 2 回入らない）"""
+    from .paths import rel_key
     db = project.db
+    _catalog_mark_imported(project)                                 # 印が外れていた行（目録を作り直した直後など）に付け直してから
     picked = []
+    n_already = 0
     src_of = {s["name"]: s for s in project.sources()}
     for i0 in range(0, len(ids), 900):
         part = ids[i0:i0 + 900]
-        for r in db.q(f"SELECT id, source, src_id, rel, season, station, name, datetime, species FROM catalog WHERE id IN ({','.join('?' * len(part))}) AND item_id IS NULL", part):
+        got = {r["id"]: r for r in db.q(f"SELECT id, source, src_id, rel, season, station, name, datetime, species, item_id FROM catalog WHERE id IN ({','.join('?' * len(part))})", part)}
+        for i in part:
+            r = got.get(i)
+            if r is None:
+                continue
+            if r["item_id"] is not None or db.scalar("SELECT 1 FROM items WHERE rel_key=? LIMIT 1", (rel_key(f"{r['source']}/{r['rel']}"),)):
+                n_already += 1
+                continue
             s = src_of.get(r["source"])
             if s is None:
                 continue
@@ -2193,19 +2209,20 @@ def catalog_import(project, ids: list[int], batch: str, record: dict | None = No
                                                          status="auto" if r["species"] else "new", species=set((r["species"] or "").split(";")) - {""}, src_name=r["source"], src_dir="", src_kind="tree", src_root=root)))
             else:
                 picked.append((r["source"], s["dir"], dict(id=r["src_id"], rel_path=r["rel"], name=r["name"], station=r["station"], season=r["season"])))
-    n = import_rows(project, picked, batch, progress, stop)
-    rec = dict(at=now_iso(), batch=batch, params=dict(record or {}, mode="catalog"), n=n, counts=(record or {}).get("counts") or {}, by_source={})
-    for name, _, _ in picked:
-        rec["by_source"][name] = rec["by_source"].get(name, 0) + 1
-    project.data.setdefault("imports", []).append(rec)
-    project.save()
-    return dict(n=n, n_requested=len(ids))
+    n = import_rows(project, picked, batch, progress, stop) if picked else 0
+    if n > 0:
+        rec = dict(at=now_iso(), batch=batch, params=dict(record or {}, mode="catalog"), n=n, counts=(record or {}).get("counts") or {}, by_source={})
+        for name, _, _ in picked:
+            rec["by_source"][name] = rec["by_source"].get(name, 0) + 1
+        project.data.setdefault("imports", []).append(rec)
+        project.save()
+    return dict(n=n, n_requested=len(ids), n_already=n_already)
 
 
 def match_project_items(project, other_dir: str) -> dict:
-    """別のプロジェクト（gold_station など。横断から「別のフォルダへ写す」で作ったものでも、調査回のプロジェクトでも）の動画をカタログで探す。
+    """別のプロジェクト（gold_station など。横断から「別のフォルダへ写す」で作ったものでも、調査回のプロジェクトでも）の動画を目録で探す。
     相対パスの先頭が参照先の名前ならそれ（横断から写したもの）、そうでなければ各参照先で rel そのもの・調査回/rel、最後は 地点 + ファイル名（1 行だけ見つかれば）。
-    返り値 dict(rows=[(カタログ行, 相手の items 行)], already={組: 本数}, unmatched=[名前...], n_items)"""
+    返り値 dict(rows=[(目録行, 相手の items 行)], already={組: 本数}, unmatched=[名前...], n_items)"""
     db = project.db
     src_names = [s["name"] for s in project.sources()]
     other = open_source(other_dir, allow_cross=True)
@@ -2285,7 +2302,7 @@ def import_project_batch(project, other_path: str, batch: str = "", unit: str = 
     if make_eval is None:
         make_eval = any(k in low for k in ("gold", "eval", "評価", "検証"))
     if progress:
-        progress(0, 0, "カタログで探しています")
+        progress(0, 0, "目録で探しています")
     m = match_project_items(project, pdir)
     picked = []
     for hit, it in m["rows"]:
@@ -2338,12 +2355,12 @@ def project_batch_message(r: dict) -> str:
             continue
         alr = "、".join(f"{k or '（組なし）'} {v}" for k, v in (x.get("already") or {}).items())
         parts.append(f"{x['project']} → 組 {x['batch']}: {x['n_items']} 本のうち {x['n']} 件を取り込みました" + ("・評価用にしました" if x.get("eval") else "")
-                     + (f"（別の組に取り込み済み: {alr}）" if alr else "") + (f"（カタログで見つからなかった {x['n_unmatched']}: {', '.join(x.get('unmatched') or [])[:300]}）" if x.get("n_unmatched") else ""))
+                     + (f"（別の組に取り込み済み: {alr}）" if alr else "") + (f"（目録で見つからなかった {x['n_unmatched']}: {', '.join(x.get('unmatched') or [])[:300]}）" if x.get("n_unmatched") else ""))
     return " / ".join(parts) if parts else "取り込むプロジェクトがありません"
 
 
 def export_catalog(project, path: str, f: dict | None = None, long: bool = False) -> dict:
-    """カタログ（参照先の全動画と判定）を 1 つの CSV に。
+    """目録（参照先の全動画と判定）を 1 つの CSV に。
     long=False: 1 行 = 1 動画。Source, Season, Station, File, DateTime, Status, Species（複数は ; 区切り）, AI, Agree, Imported, RelPathInSource
     long=True : 1 行 = 1 動画 × 1 種（調査回ごとのデータを 1 つにまとめる用。PRM_N の CSV と同じ Season, Station, File, DateTime, Species が先頭。
                 Season は調査回のフォルダ名。種のない動画は Species 空で 1 行。続けて Status, Source, AI, Imported, RelPathInSource）"""
@@ -2374,6 +2391,40 @@ def export_catalog(project, path: str, f: dict | None = None, long: bool = False
 
 
 # ---------- 学習と評価（組 = batch を単位に。gold など評価用の組と、round1 … の学習用の組） ----------
+def remove_import_records(project, index: int | None = None, batch: str | None = None, all_records: bool = False, at: str | None = None) -> dict:
+    """取り込みの記録（project.json の imports）を消す: index（何番目か。at があればその日時と合うときだけ = 同じ秒の記録が並ぶので日時だけでは決まらない）/
+    batch（その組の記録を全部）/ all_records。動画も組もそのまま"""
+    recs = list(project.data.get("imports") or [])
+    if all_records:
+        keep = []
+    elif index is not None:
+        keep = [r for i, r in enumerate(recs) if not (i == index and (at is None or r.get("at") == at))]
+    elif batch is not None:
+        keep = [r for r in recs if (r.get("batch") or "") != batch]
+    else:
+        keep = recs
+    project.update_data(imports=keep)
+    return dict(n=len(recs) - len(keep), n_left=len(keep))
+
+
+def catalog_files(project, ids: list[int]) -> list[dict]:
+    """目録の行（id）→ 動画ファイルの書き出し（files_out.export_files の rows）用の行: rel_path = <参照先の名前>/<参照先での相対パス>、abs = この PC での絶対パス、
+    kind は拡張子から。codec は分からないので None（変換するときは書き出しの側で probe する）"""
+    from .media import kind_of
+    db = project.db
+    out = []
+    for i0 in range(0, len(ids), 900):
+        part = [int(x) for x in ids[i0:i0 + 900]]
+        got = {r["id"]: r for r in db.q(f"SELECT id, source, rel, duration, datetime FROM catalog WHERE id IN ({','.join('?' * len(part))})", part)}
+        for i in part:
+            r = got.get(i)
+            if r is None:
+                continue
+            rel = f"{r['source']}/{r['rel']}"
+            out.append(dict(id=i, rel_path=rel, abs=project.abs_path(rel), kind=kind_of(r["rel"]), vcodec=None, acodec=None, container=None, duration=r["duration"], datetime=r["datetime"]))
+    return out
+
+
 def eval_batches(project) -> list[str]:
     """評価用の組（学習には使わず、モデルの一致率を見るためだけの組。gold など）"""
     return [str(x) for x in (project.data.get("eval_batches") or []) if str(x)]
@@ -2443,7 +2494,7 @@ def _compare_sets(pairs: list[tuple[set[str], list[str]]], order: dict[str, int]
 
 def batch_report(project, batch: str) -> dict:
     """組（gold など）の評価: 目視（確認済みの判定）を正解として、
-    existing = 既存の判定（カタログの種 = 調査回のプロジェクトの判定か種名の CSV。手動の判定の誤り率）、
+    existing = 既存の判定（目録の種 = 調査回のプロジェクトの判定か種名の CSV。手動の判定の誤り率）、
     ai       = いまの AI の判定（items.auto_json。SpeciesNet か学習したモデル）を比べる。確認済みの動画だけが対象"""
     from .detect import species_order
     from .judge import human_codes
@@ -2492,8 +2543,8 @@ def batch_report(project, batch: str) -> dict:
 
 
 # ---------- 取り込みを取り消す（対象から外す。動画本体には触らない） ----------
-def remove_items(project, batch: str | None = None, f: dict | None = None, all_items: bool = False, progress=None, stop=None) -> dict:
-    """組（batch）か絞り込みか全部の対象を横断プロジェクトから外す。判定・枠・特徴量・枠の画像も消え、カタログの「取り込み済み」の印が外れる。参照先の動画には触らない"""
+def remove_items(project, batch: str | None = None, f: dict | None = None, all_items: bool = False, progress=None, stop=None, drop_log: bool = False) -> dict:
+    """組（batch）か絞り込みか全部の対象を横断プロジェクトから外す。判定・枠・特徴量・枠の画像も消え、目録の「取り込み済み」の印が外れる。参照先の動画には触らない"""
     from .judge import build_where, delete_items
     db = project.db
     if all_items:
@@ -2511,7 +2562,12 @@ def remove_items(project, batch: str | None = None, f: dict | None = None, all_i
         n += r["n"]
         if progress:
             progress(n, len(ids), "")
-    project.data.setdefault("imports", []).append(dict(at=now_iso(), batch=batch if batch is not None else ("*" if all_items else ""), params=dict(mode="remove", filters=f or {}), n=-n, counts={}, by_source={}))
+    if drop_log and batch is not None:                                # 組を消す: その組の取り込みの記録も消す（記録に残さない）
+        project.data["imports"] = [rec for rec in (project.data.get("imports") or []) if (rec.get("batch") or "") != batch]
+    elif drop_log and all_items:
+        project.data["imports"] = []
+    else:
+        project.data.setdefault("imports", []).append(dict(at=now_iso(), batch=batch if batch is not None else ("*" if all_items else ""), params=dict(mode="remove", filters=f or {}), n=-n, counts={}, by_source={}))
     project.data["eval_batches"] = [b for b in eval_batches(project) if db.scalar("SELECT 1 FROM items WHERE batch=? LIMIT 1", (b,))]      # なくなった組の「評価用」の印は消す
     project.save()
     return dict(n=n, n_requested=len(ids))
