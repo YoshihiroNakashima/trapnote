@@ -16,6 +16,15 @@ SETTINGS_FILE = DATA_DIR / "settings.json"
 STATE_FILE = DATA_DIR / "state.json"
 LOG_FILE = DATA_DIR / "app.log"
 
+# 版（1 つのプログラムから 3 つの版を出す。確認事項 125 回目）: public = 公開版（既定）/ lite = 検出と目視の確認まで / research = 研究用（全部の機能）。
+# 起動のしかたで決まる（app.py の --edition → 環境変数 TRAPNOTE_EDITION）。画面が出す機能を切り替えるだけで、サーバーの API とプロジェクトの形は、どの版でも同じ
+EDITIONS = ("public", "lite", "research")
+
+
+def edition() -> str:
+    e = (os.environ.get("TRAPNOTE_EDITION") or "public").strip().lower()
+    return e if e in EDITIONS else "public"
+
 DEFAULTS = {
     "language": "ja",               # 画面の言語（ja / en）
     "user_name": "",                # 確認者として記録する名前

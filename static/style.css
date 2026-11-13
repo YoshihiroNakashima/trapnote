@@ -124,8 +124,11 @@ button.spd.active { background: var(--accent); color: #fff; border-color: var(--
 .fld { display: grid; grid-template-columns: 110px 1fr auto; gap: 4px 6px; align-items: center; margin: 2px 0; font-size: 12px; }
 button.fdel { font-size: 11px; line-height: 1; padding: 1px 5px; color: #bbb; border-color: transparent; background: none; }
 button.fdel:hover { color: var(--danger); border-color: #e0a9a3; background: #fdf1f0; }
-.fld button.fdel, .rep-head button.fdel { visibility: hidden; }
-.fld:hover button.fdel, .rep-head:hover button.fdel, .box-head:hover button.fdel { visibility: visible; }
+/* 入力の行（個体数・性別など）と ＋ の組の「−」は、いつも見せる（前は、マウスを載せたときだけ見えて、あることに気づけなかった。確認事項 131 回目） */
+.fld button.fdel, .rep-head button.fdel { visibility: visible; color: #999; }
+/* 学習の窓の「材料に加えるプロジェクト」: いま開いているプロジェクトの行（印つき・操作できない） */
+.sp-grid label.src-self { opacity: .55; cursor: default; }
+.sp-grid label.src-self:hover { background: none; }
 #folderTree:empty + #splitTree { display: none; }
 .fld input[type=text], .fld input[type=number], .fld select, #noteInput { font: inherit; font-size: 12px; padding: 3px 5px; border: 1px solid var(--border); border-radius: 4px; width: 100%; min-width: 0; background: #fff; }
 .fld .ms label { display: inline-flex; align-items: center; gap: 2px; margin-right: 8px; }
@@ -379,3 +382,27 @@ li.empty .info { margin: 4px 0; }
 #viewWrap.fx2 #player, #viewWrap.fx2 #mjpeg, #viewWrap.fx2 #photo { filter: url(#fxGamma2) contrast(1.05); }
 #viewWrap.fx3 #player, #viewWrap.fx3 #mjpeg, #viewWrap.fx3 #photo { filter: url(#fxGamma3) contrast(1.1); }
 #viewWrap.fx4 #player, #viewWrap.fx4 #mjpeg, #viewWrap.fx4 #photo { filter: url(#fxGamma4) contrast(1.15); }
+
+/* 版ごとに出す機能（body の data-edition = public / lite / research。app.js の setSnapshot が付ける。確認事項 125 回目）。
+   only-research = 研究用だけ（公開版と Lite では隠す）。not-lite = 公開版と研究用（Lite では隠す）。印が付く前（読み込み中）は、研究用だけの機能を隠しておく */
+body:not([data-edition="research"]) .only-research { display: none !important; }
+body[data-edition="lite"] .not-lite { display: none !important; }
+.ed-chip { display: inline-block; padding: 0 6px; border-radius: 8px; font-size: 11px; background: #e7edff; color: #2b46b5; margin-right: 4px; }
+body[data-edition="research"] .ed-chip { background: #fff1d6; color: #8a5a00; }
+
+/* 抜き取りの確認の帯（一覧の上） */
+.spotbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 4px 8px; background: #fff7e0; border-bottom: 1px solid #ecd9a0; font-size: 12px; }
+.spotbar.hidden { display: none; }
+
+/* 地点のフォルダを選ぶ画面: 1 本の動画までのフォルダの並び */
+.stn-chain { display: flex; flex-wrap: wrap; align-items: stretch; gap: 4px; margin: 10px 0; padding: 10px; background: #f6f7fb; border: 1px solid #dfe3ee; border-radius: 8px; }
+.stn-chain small { display: block; font-size: 11px; color: #6b7280; font-weight: normal; }
+.stn-root, .stn-file { display: flex; flex-direction: column; justify-content: center; padding: 4px 8px; color: #374151; }
+.stn-file { font-family: Consolas, monospace; font-size: 12px; }
+.stn-sep { display: flex; align-items: center; color: #9aa3b5; }
+.stn-seg { display: flex; flex-direction: column; align-items: flex-start; padding: 6px 12px; border: 2px solid #c7cede; border-radius: 8px; background: #fff; cursor: pointer; min-width: 84px; text-align: left; }
+.stn-seg:hover { border-color: #3b5bdb; }
+.stn-seg.on { border-color: #3b5bdb; background: #e7edff; }
+.stn-seg.on2 { border-color: #c98a00; background: #fff5db; }
+.stn-seg .stn-tag { font-size: 11px; font-weight: bold; color: #2b46b5; min-height: 14px; }
+.stn-seg.on2 .stn-tag { color: #8a5a00; }

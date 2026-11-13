@@ -47,6 +47,80 @@ def _mp4_name(name: str) -> str:
     return stem + (".MP4" if ext and ext.isupper() else ".mp4")
 
 
+def wants_mp4(convert, kind, vcodec, acodec, container) -> bool:
+    """MP4 に変換して写すか（動画の書き出しの窓の「MP4 に変換」。確認事項 125 回目）。
+    convert: False = 変換しない / True か "unplayable" = ブラウザがそのまま再生できない動画だけ / "all" = MP4 でない動画は全部。
+    すでに H.264 の MP4 になっている動画は、"all" でもそのまま写す（変換し直すと、画質が落ちるだけなので）"""
+    if not convert or kind != "video":
+        return False
+    if not media.direct_playable(vcodec, acodec, container):
+        return True
+    return convert == "all" and ("." + (container or "").lower().lstrip(".")) != ".mp4"
+
+
+LIST_NAME = "video_list.csv"
+LIST_COLS = ["OutFile", "SourceFolder", "SourceFile", "Season", "Station", "DateTime", "Species", "Count", "Status"]
+
+
+def write_list_csv(project, out_dir: str, pairs: list[tuple]) -> dict:
+    """書き出した動画の一覧（video_list.csv）を out_dir に書く（動画の書き出しには、必ず付ける。確認事項 125 回目）。1 行 = 動画 1 本。
+    pairs = [(対象の id か None, もとの行（rel_path。目録の行なら abs・season・station も）, 書き出し先での相対パス)]。
+    列: OutFile（書き出し先でのファイル名）, SourceFolder・SourceFile（もとのフォルダとファイル名）, Season（調査回）, Station（地点）, DateTime（修正後があればそれ）,
+    Species（種。CSV 表記。2 種以上は ; でつなぐ）, Count（個体数。種と同じ順に ; でつなぐ）, Status。
+    階層をたたんだり MP4 に変換したりしてファイル名が変わっても、もとの動画との対応が残る。
+    同じ書き出し先にもう一度書き出したときは、前の一覧に足す（同じ OutFile の行は、新しいもので置き換える）"""
+    import csv
+    path = os.path.join(out_dir, LIST_NAME)
+    rows: dict[str, list] = {}
+    if os.path.isfile(path):                             # 前の一覧（続きから書き出したとき）
+        try:
+            with open(path, newline="", encoding="utf-8-sig") as fh:
+                rd = csv.reader(fh)
+                if next(rd, None) == LIST_COLS:
+                    for r in rd:
+                        if r:
+                            rows[r[0]] = (r + [""] * len(LIST_COLS))[:len(LIST_COLS)]
+        except Exception as e:
+            log.warning("前の一覧を読めません %s: %s", path, e)
+    db = project.db
+    sp = project.species.by_code()
+    ids = [int(p[0]) for p in pairs if p[0] is not None]
+    items: dict[int, dict] = {}
+    js: dict[int, list[dict]] = {}
+    cnt: dict[int, str] = {}
+    for i0 in range(0, len(ids), 900):
+        part = ids[i0:i0 + 900]
+        qs = ",".join("?" * len(part))
+        for r in db.q(f"SELECT id, rel_path, season, station, datetime, datetime_corrected, status FROM items WHERE id IN ({qs})", part):
+            items[r["id"]] = dict(r)
+        for j in db.q(f"SELECT id, item_id, species FROM judgements WHERE item_id IN ({qs}) ORDER BY id", part):
+            js.setdefault(j["item_id"], []).append(dict(j))
+        for v in db.q(f"SELECT judgement_id, value FROM field_values WHERE item_id IN ({qs}) AND field_key='count' AND judgement_id IS NOT NULL AND seq=0", part):
+            cnt[v["judgement_id"]] = v["value"] or ""
+    n = 0
+    for iid, src, dst_rel in pairs:
+        rel = src.get("rel_path") or ""
+        src_abs = src.get("abs") or project.abs_path(rel)
+        it = items.get(int(iid)) if iid is not None else None
+        jl = js.get(int(iid), []) if iid is not None else []
+        rows[dst_rel] = [dst_rel, os.path.dirname(src_abs), os.path.basename(rel),
+                         (it or src).get("season") or "", (it or src).get("station") or "",
+                         ((it or {}).get("datetime_corrected") or (it or src).get("datetime") or ""),
+                         ";".join(sp.get(j["species"], {}).get("csv_label") or j["species"] for j in jl),
+                         ";".join(cnt.get(j["id"], "") for j in jl) if any(cnt.get(j["id"]) for j in jl) else "",
+                         (it or {}).get("status") or ""]
+        n += 1
+    os.makedirs(out_dir, exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", newline="", encoding="utf-8-sig") as fh:
+        w = csv.writer(fh)
+        w.writerow(LIST_COLS)
+        for k in sorted(rows):
+            w.writerow(rows[k])
+    os.replace(tmp, path)
+    return dict(path=path, rows=len(rows), added=n)
+
+
 def export_files(project, ids: list[int], out_dir: str, keep_tree: bool = True, convert: bool = False, progress=None, stop=None,
                  workers: int = 3, ffmpeg: str | None = None, ffprobe: str | None = None, crf: int = 19, rows: list[dict] | None = None) -> dict:
     """ids の動画・画像ファイルを out_dir へ写す。rows を渡せば（横断の目録から: cross.catalog_files）ids の代わりにその行を写す（rel_path・abs・kind、codec は None でよい）。返り値: n（写した）, n_same（あったので飛ばした）, n_missing, n_converted, n_convert_failed, stopped, n_left, out_dir, speed, seconds, encoder, files（書き出し先の相対パス）"""
@@ -77,8 +151,10 @@ def export_files(project, ids: list[int], out_dir: str, keep_tree: bool = True, 
         if progress:
             progress(counts["n"] + counts["same"] + counts["miss"], total, f"{rel} · {tp.text()}" if tp.bytes else rel)
 
+    pairs: list[tuple] = []      # 一覧の CSV 用: (id, もとの行, 書き出し先での相対パス)
+
     def want_convert(r) -> bool:
-        return bool(convert and r.get("kind") == "video" and not media.direct_playable(r.get("vcodec"), r.get("acodec"), r.get("container")))
+        return wants_mp4(convert, r.get("kind"), r.get("vcodec"), r.get("acodec"), r.get("container"))
 
     def do_copy(r):
         rel = r["rel_path"]
@@ -141,6 +217,7 @@ def export_files(project, ids: list[int], out_dir: str, keep_tree: bool = True, 
         else:
             st, dst_rel = res
             files.append(dst_rel)
+            pairs.append((r.get("id"), r, dst_rel))
             if st == "same":
                 counts["same"] += 1
             else:
@@ -152,9 +229,15 @@ def export_files(project, ids: list[int], out_dir: str, keep_tree: bool = True, 
     os.makedirs(out_dir, exist_ok=True)
     stopped = copy_many(rows, do_copy, on_done, workers=workers, stop=stop)
     done = counts["n"] + counts["same"] + counts["miss"]
+    list_csv = ""
+    if pairs:                                            # 一覧の CSV は必ず付ける（途中で止めても、写し終えた分を書く）
+        try:
+            list_csv = write_list_csv(project, out_dir, pairs)["path"]
+        except Exception as e:
+            log.warning("一覧の CSV を書けません %s: %s", out_dir, e)
     return dict(n=counts["n"], n_same=counts["same"], n_missing=counts["miss"], n_converted=counts["conv"], n_convert_failed=counts["conv_fail"],
                 stopped=stopped, n_left=max(0, total - done), out_dir=out_dir, speed=tp.text() if tp.bytes else "", seconds=tp.seconds,
-                encoder=("nvenc" if use_nvenc else "libx264") if convert else "", files=sorted(files), keep_tree=keep_tree)
+                encoder=("nvenc" if use_nvenc else "libx264") if convert else "", files=sorted(files), keep_tree=keep_tree, list_csv=list_csv)
 
 
 _FRONT_PS = r"""

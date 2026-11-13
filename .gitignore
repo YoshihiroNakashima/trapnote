@@ -10,3 +10,10 @@ build/
 *.log
 # 試験で作ったもの
 shots/
+# インストーラ（TrapNote-Setup.exe）が入れる Miniforge と、その記録
+miniforge3/
+install.log
+install-requirements.txt
+# この PC だけのメモ（上げない）
+reports/
+research_notes/

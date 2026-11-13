@@ -13,10 +13,10 @@ from concurrent.futures import ThreadPoolExecutor
 
 from aiohttp import web
 
-from . import APP_ID, APP_NAME, BUILD, BUILD_TIME, VERSION, cross, detect, dialogs, export as export_mod, judge, media, merge as merge_mod, scan as scan_mod, timelapse, train, yolo
-from .config import APP_DIR, DATA_DIR, STATIC_DIR, Settings, State
+from . import APP_ID, APP_NAME, BUILD, BUILD_TIME, VERSION, cross, detect, dialogs, export as export_mod, judge, media, merge as merge_mod, scan as scan_mod, spot, station, timelapse, train, yolo
+from .config import APP_DIR, DATA_DIR, STATIC_DIR, Settings, State, edition
 from .jobs import ArchiveJob, CatalogBuildJob, CatalogImportJob, CrossCopyJob, CrossImportJob, CrossRemoveJob, CrossSyncJob, DetectJob, FilesOutJob, LabelsJob, Lane, MetaJob, ReclassifyJob, ScanJob, SubsetExportJob, TrainJob, TranscodeJob, YoloExportJob, YoloImportJob
-from .paths import key, norm
+from .paths import is_foreground_path, key, norm, note_foreground_read
 from .pattern import names_in, preview as pattern_preview
 from .project import PROJECT_DIRNAME, Project, find_project_for_root, is_project_dir
 
@@ -83,11 +83,15 @@ class Session:
                 return dict(needs_create=True, path=path)
         if create and not is_project_dir(pdir) and key(pdir) == key(str(APP_DIR)):
             raise ApiError("アプリのフォルダ（TrapNote）にはプロジェクトを作れません。別のフォルダを指定してください")
+        fresh = bool(create) and not is_project_dir(pdir)
         self.close_project()
         try:
             self.project = Project(pdir, root=root, create=create, kind=kind)
         except FileNotFoundError as e:
             raise ApiError(str(e))
+        if fresh and not self.project.is_cross:        # フォルダを開いて作ったばかりのプロジェクト: 走査のあとで、地点のフォルダを一度だけ訊く（公開版と Lite。station.py）
+            self.project.data["station_asked"] = False
+            self.project.save()
         if not self.project.root:
             return dict(needs_root=True, project=self.project.to_dict())
         self.settings.remember_project(self.project.dir)
@@ -328,10 +332,11 @@ class Session:
     # ---------- 画面に渡す状態 ----------
     def snapshot(self) -> dict:
         ffmpeg, ffprobe = media.find_ffmpeg(self.settings.get("ffmpeg_path", ""))
-        d = dict(app=APP_ID, app_name=APP_NAME, version=VERSION, build=BUILD, build_time=BUILD_TIME,
+        d = dict(app=APP_ID, app_name=APP_NAME, version=VERSION, build=BUILD, build_time=BUILD_TIME, edition=edition(),
                  settings=self.settings.to_dict(), project=self.project.to_dict() if self.project else None,
                  ffmpeg=dict(ffmpeg=ffmpeg, ffprobe=ffprobe), jobs=self.jobs_status(), ui=self.state.ui,
-                 recent_projects=self.settings.get("recent_projects", []), platform=os.name)
+                 recent_projects=self.settings.get("recent_projects", []), platform=os.name,
+                 station_ask=bool(self.project and self.project.data.get("station_asked") is False))      # まだ地点のフォルダを訊いていない（作ったばかりのプロジェクト）
         if self.project and self.project.root:
             d["facets"] = judge.facets(self.project.db)
             d["species"] = self.project.species.to_dict()
@@ -342,6 +347,16 @@ class Session:
 
     def jobs_status(self) -> dict:
         return dict(bg=self.bg.status(), transcode=self.tc.status(), archive=self.ar.status(), ml=self.ml.status(), cross=self.cr.status(), transcoding=sorted(self.transcoding_ids()), build=BUILD)
+
+    def busy_lanes(self) -> list[str]:
+        """処理が走っている（か、待っている）レーンの名前。起動のとき（app.py）に、動いているサーバーを止めてよいかを決めるのに使う。
+        再生用の変換（transcode）は数えない（開いた動画のためのもので、止めても作り直せる）"""
+        out = []
+        for name, lane in (("bg", self.bg), ("archive", self.ar), ("ml", self.ml), ("cross", self.cr)):
+            st = lane.status() or {}
+            if st.get("current") or st.get("queued"):
+                out.append(name)
+        return out
 
     def close(self) -> None:
         self.cr.stop_all()
@@ -362,6 +377,8 @@ def jr(data, status: int = 200) -> web.Response:
 @web.middleware
 async def errors_mw(request, handler):
     try:
+        if is_foreground_path(request.method, request.path):       # 画面が人のために読むもの（再生・サムネイルなど）: 裏の処理は、これが続く間だけ読み出しの優先度を下げる（paths.foreground_active）
+            note_foreground_read()
         resp = await handler(request)
         if request.path.startswith("/static/"):
             resp.headers["Cache-Control"] = "no-cache"
@@ -382,7 +399,12 @@ async def _body(request) -> dict:
     return json.loads(text) if text.strip() else {}
 
 
-FILTER_KEYS = ("station", "season", "folder", "folder_prefix", "status", "kind", "species", "species_src", "date_from", "date_to", "assignee", "flag", "missing", "text", "include_missing", "favorite", "corrected", "det", "agree", "exclude", "boxes", "batch")
+FILTER_KEYS = ("station", "season", "folder", "folder_prefix", "status", "kind", "species", "species_src", "date_from", "date_to", "assignee", "flag", "missing", "text", "include_missing", "favorite", "corrected", "det", "agree", "exclude", "boxes", "batch", "adv")
+
+
+def _conv_mode(conv):
+    """動画の書き出しの「MP4 に変換」: "all"（MP4 でない動画は全部）か、True（ブラウザがそのまま再生できない動画だけ）か、False（変換しない）"""
+    return "all" if conv == "all" else bool(conv)
 
 
 def _filters(src) -> dict:
@@ -414,7 +436,7 @@ def make_app(session: Session) -> web.Application:
         return web.Response(text=html, content_type="text/html", charset="utf-8", headers={"Cache-Control": "no-store"})
 
     async def ping(request):
-        return jr(dict(app=APP_ID, version=VERSION, build=BUILD, build_time=BUILD_TIME))
+        return jr(dict(app=APP_ID, version=VERSION, build=BUILD, build_time=BUILD_TIME, edition=edition(), busy=S.busy_lanes()))
 
     async def state(request):
         return jr(await io(S.snapshot))
@@ -469,7 +491,7 @@ def make_app(session: Session) -> web.Application:
             conv = S.settings.get("copy_convert", True)
         else:
             S.settings.update(dict(copy_convert=bool(conv)))                  # 次回の既定に
-        S.bg.submit(SubsetExportJob(ids, out, b.get("copy_videos", True) is not False, name, bool(conv)), front=True)
+        S.bg.submit(SubsetExportJob(ids, out, b.get("copy_videos", True) is not False, name, _conv_mode(conv)), front=True)
         if yielded == "meta":
             S.bg.submit(MetaJob())
         return jr(S.jobs_status())
@@ -492,7 +514,7 @@ def make_app(session: Session) -> web.Application:
         else:
             S.settings.update(dict(copy_convert=bool(conv)))
         yielded = S.bg.yield_current(("meta", "scan"))
-        S.bg.submit(FilesOutJob(ids, out, b.get("keep_tree", True) is not False, bool(conv)), front=True)
+        S.bg.submit(FilesOutJob(ids, out, b.get("keep_tree", True) is not False, _conv_mode(conv)), front=True)
         if yielded == "meta":
             S.bg.submit(MetaJob())
         return jr(S.jobs_status())
@@ -643,8 +665,31 @@ def make_app(session: Session) -> web.Application:
         s = p.update_settings(b)
         if ("pattern" in b and b["pattern"] != old_pattern) or ("season_name" in b and b["season_name"] != old_season):
             n = await io(scan_mod.apply_pattern, p)
-            log.info("パターンを %s に変え、%d 件に当て直しました", b["pattern"], n)
+            log.info("パターンを %s に変え、%d 件に当て直しました", p.setting("pattern"), n)
         return jr(dict(settings=s, state=await io(S.snapshot)))
+
+    # ---------- 地点のフォルダを選ぶ（station.py。1 本の動画までのフォルダの並びから、地点と調査回の階層を選ぶ） ----------
+    def _level(v):
+        return None if v in (None, "", "none") else int(v)
+
+    async def station_info(request):
+        p = S.need()
+        return jr(await io(station.info, p))
+
+    async def station_preview(request):
+        p = S.need()
+        b = await _body(request)
+        return jr(await io(station.preview, p, _level(b.get("station_level")), _level(b.get("season_level"))))
+
+    async def station_pick(request):
+        p = S.need()
+        b = await _body(request)
+        if b.get("skip"):                              # 選ばずに閉じた: もう自動では訊かない
+            await io(station.skip, p)
+            return jr(dict(state=await io(S.snapshot)))
+        res = await io(station.pick, p, _level(b.get("station_level")), _level(b.get("season_level")))
+        log.info("地点のフォルダを選んだ: パターン %s、%d 件に当て直しました", res["pattern"], res["n"])
+        return jr(dict(res, state=await io(S.snapshot)))
 
     async def pattern_preview_api(request):
         b = await _body(request)
@@ -974,7 +1019,8 @@ def make_app(session: Session) -> web.Application:
         if S.ml.status()["current"]:
             raise ApiError("検出はもう動いています")
         env = detect.env_status(S.settings, S.models_dir())
-        if not env["ok"]:
+        only_detect = bool(b.get("keep_classifier")) and b.get("classifier") == "none"      # 「検出のみ」（Lite ではいつも）: SpeciesNet は要らない
+        if not (env["ok"] or (only_detect and env["torch"] and env["megadetector"])):
             raise ApiError("torch / megadetector / speciesnet が入っていません（インストール.bat で環境を作り直してください）")
         ps = {}
         if b.get("species_pick") in ("confidence", "count"):
@@ -1042,7 +1088,8 @@ def make_app(session: Session) -> web.Application:
     async def detect_eval_csv(request):
         p = S.need()
         b = await _body(request)
-        path = b.get("path") or os.path.join(p.dir, "exports", f"agreement_{__import__('datetime').date.today().isoformat()}.csv")
+        # 名前に時刻まで入れる（日付だけだと、同じ日に 2 回書き出すと前のものが上書きされた。学習の前・後を書き出す使い方で困る）
+        path = b.get("path") or os.path.join(p.dir, "exports", f"agreement_{__import__('datetime').datetime.now().strftime('%Y-%m-%d_%H%M%S')}.csv")
         return jr(await io(detect.export_evaluation, p, path, _filters(b.get("filters") or {}), S.settings.get("language", "ja")))
 
     async def judge_eval_prior(request):
@@ -1053,7 +1100,7 @@ def make_app(session: Session) -> web.Application:
     async def judge_eval_prior_csv(request):
         p = S.need()
         b = await _body(request)
-        path = b.get("path") or os.path.join(p.dir, "exports", f"prior_agreement_{__import__('datetime').date.today().isoformat()}.csv")
+        path = b.get("path") or os.path.join(p.dir, "exports", f"prior_agreement_{__import__('datetime').datetime.now().strftime('%Y-%m-%d_%H%M%S')}.csv")
         return jr(await io(judge.export_prior_evaluation, p, path, _filters(b.get("filters") or {}), (str(b.get("by") or "").strip() or None), S.settings.get("language", "ja")))
 
     # ---- 追加学習（第 3 段階） ----
@@ -1237,9 +1284,28 @@ def make_app(session: Session) -> web.Application:
         b = await _body(request)
         f = _filters(b.get("filters") or {})
         if b.get("count_only"):
-            return jr(dict(n=await io(judge.bulk_verify_count, p.db, f)))
+            # n_unboxed = 対象のうち、検出で枠が付かなかった動画（抜き取りの確認を勧めるかどうかを、画面が決める）
+            return jr(dict(n=await io(judge.bulk_verify_count, p.db, f), n_unboxed=await io(spot.pool_count, p.db, f)))
         n = await io(judge.bulk_verify, p.db, f, user())
         return jr(dict(n=n))
+
+    # ---------- 抜き取りの確認（一括確定の前に、枠が付かなかった動画から無作為に選んで目で確かめる。spot.py） ----------
+    async def spot_status(request):
+        p = S.need()
+        return jr(await io(spot.status, p))
+
+    async def spot_start(request):
+        p = S.need()
+        b = await _body(request)
+        return jr(await io(spot.start, p, _filters(b.get("filters") or {}), b.get("n"), user()))
+
+    async def spot_finish(request):
+        p = S.need()
+        return jr(await io(spot.finish, p, user()))
+
+    async def spot_cancel(request):
+        p = S.need()
+        return jr(await io(spot.cancel, p))
 
     async def detect_labels(request):
         """SpeciesNet のラベル → 種コードの対応表（分類器を読み込んだあとだけ）"""
@@ -1556,7 +1622,7 @@ def make_app(session: Session) -> web.Application:
         else:
             S.settings.update(dict(copy_convert=bool(conv)))
         yielded = S.bg.yield_current(("meta", "scan"))
-        S.bg.submit(FilesOutJob([], out, b.get("keep_tree", True) is not False, bool(conv), rows=rows), front=True)
+        S.bg.submit(FilesOutJob([], out, b.get("keep_tree", True) is not False, _conv_mode(conv), rows=rows), front=True)
         if yielded == "meta":
             S.bg.submit(MetaJob())
         return jr(S.jobs_status())
@@ -1761,6 +1827,9 @@ def make_app(session: Session) -> web.Application:
     r.add_post("/api/project/close", project_close)
     r.add_post("/api/project/settings", project_settings)
     r.add_post("/api/project/pattern/preview", pattern_preview_api)
+    r.add_get("/api/project/station", station_info)
+    r.add_post("/api/project/station/preview", station_preview)
+    r.add_post("/api/project/station/pick", station_pick)
     r.add_post("/api/project/rescan", rescan)
     r.add_get("/api/project/facets", facets)
     r.add_get("/api/items", items)
@@ -1836,6 +1905,10 @@ def make_app(session: Session) -> web.Application:
     r.add_post("/api/judge/eval_prior", judge_eval_prior)
     r.add_post("/api/judge/eval_prior/csv", judge_eval_prior_csv)
     r.add_post("/api/judge/bulk_verify", bulk_verify)
+    r.add_get("/api/spot/status", spot_status)
+    r.add_post("/api/spot/start", spot_start)
+    r.add_post("/api/spot/finish", spot_finish)
+    r.add_post("/api/spot/cancel", spot_cancel)
     r.add_get("/api/project/cache", cache_info)
     r.add_post("/api/project/cache/clear", cache_clear)
     r.add_get("/api/train/plan", train_plan)
@@ -1870,13 +1943,14 @@ def make_app(session: Session) -> web.Application:
     r.add_post("/api/ui", ui_post)
     r.add_post("/api/quit", quit_)
     r.add_post("/api/restart", restart)
+    from . import search as search_mod; search_mod.register(app, S, io)      # 高度な検索（別窓 /search と /api/search/…）
     r.add_static("/static/", STATIC_DIR, show_index=False)
     return app
 
 
 async def serve(session: Session, host: str, port: int, on_ready=None) -> None:
     app = make_app(session)
-    runner = web.AppRunner(app, access_log=None)
+    runner = web.AppRunner(app, access_log=None, max_line_size=262144)      # 高度な検索の条件（adv の JSON）が一覧の URL に入るので、URL の長さの上限を上げる（既定は 8190 バイト）
     await runner.setup()
     site = web.TCPSite(runner, host, port)
     await site.start()

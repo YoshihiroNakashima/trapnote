@@ -2,7 +2,9 @@
 
 方式 A（軽い分類器）: 第 2 段階で保存した枠ごとの特徴量（cache/features/*.npz。SpeciesNet の最終層の手前）に、
   種リストのコードを出力とする線形の分類器（softmax 回帰）を学習する。numpy だけで動き CPU でも速い。
-  判定のときは、新しい分類器の確率に元の SpeciesNet の確率を base_mix の割合で混ぜる（学習に出てこなかった種も残るように）。
+  判定のときは、新しい分類器の確率に元の SpeciesNet の確率を base_mix の割合で混ぜる。既定は 0（混ぜない。2026-11-13 に 0.3 から変えた）。
+  0.3 では、元の SpeciesNet が判定できない種（タヌキなど）を間違えやすかった。学習に出てこなかった種の確率は最大でも base_mix なので、
+  基準の線（species_p1 = 0.5）より小さい割合では、その種が答えになることもない（確認事項 119〜121 回目）。
 方式 B（本体の再学習）: SpeciesNet 本体の後ろの層と、種リストのコードを出す新しい最終層を学習する（GPU 向け）。
   学習用の枠は動画から切り出して cache/crops に置く（JPEG、480×480）。
 
@@ -10,7 +12,7 @@
   - 種が 1 つの動画: その動画の枠は全部その種
   - 種が複数の動画: 枠ごとに元のモデルの第 1 候補がその動画の種のどれかならそれ（違えば使わない）
   - 「動物なし」と確定した動画に枠があれば「動物なし」（誤検出を覚える）。「不明」「人」「車」だけの動画は使わない
-  - 人の判定と AI が食い違っていた動画（agree = 3）と見直し済み（recheck）の枠は重み weight_hard 倍
+  - 人の判定と AI が食い違っていた動画（agree = 3）と見直し済み（recheck）の枠は重み weight_hard 倍（既定は 1 = 重みを付けない）
 評価: 地点（station）のうち holdout_frac の割合（または横断プロジェクトの組 holdout_batches = gold など）を検証用に取り分け（学習に使わない）、動画 1 本の判定（第 2 段階と同じ p1 / p2 / K の規則）
   を人の判定と突き合わせて、学習前（元の SpeciesNet）と学習後の一致率を出す。検証用の地点には「学習から外す」対象も入れる。
   評価のあと、全部の地点で学習し直したものを保存する（models/<名前>/）"""
@@ -468,7 +470,7 @@ def build_dataset(items: dict, holdout: set[str], opts: dict, use_marks: bool = 
     holdout = 検証用の地点。use_marks なら検証用の印（it["holdout"] = 地点と組。mark_holdout）も外す（全部で学習し直すときは False）"""
     min_per = int(opts.get("train_min_per_class", 5))
     max_per = int(opts.get("train_max_per_class", 20000))
-    w_hard = float(opts.get("train_weight_hard", 2.0))
+    w_hard = float(opts.get("train_weight_hard", TRAIN_DEFAULTS["train_weight_hard"]))
     skip = lambda it: it["excluded"] or it["station"] in holdout or (use_marks and it.get("holdout"))
     cnt = Counter()
     for it in items.values():
@@ -719,7 +721,8 @@ def write_manifest(folder: str, project, items: dict, ds_final: dict, ev_ids, ke
 
 # ---------- 方式 A: 線形の分類器（numpy） ----------
 class Head:
-    """特徴量 → 種コードの確率。W [D, K], b [K]、標準化 mu / sd。元のモデルの確率を base_mix で混ぜる"""
+    """特徴量 → 種コードの確率。W [D, K], b [K]、標準化 mu / sd。元のモデルの確率を base_mix で混ぜる（0 なら混ぜない）。
+    base_mix を省いたときの 0.3 は、記録（model.json）に割合のない古いモデルのためのもの（そのころの既定）。新しく学習するモデルの割合は、設定 train_base_mix（既定 0）で決まる"""
 
     def __init__(self, classes: list[str], W, b, mu, sd, base_mix: float = 0.3, name: str = ""):
         self.classes = list(classes)
@@ -912,7 +915,7 @@ def _run_train_a(project, opts, name, progress, stop, s, t0, col) -> dict:
     ds = build_dataset(items, holdout, opts)
     if len(ds["classes"]) < 2:
         raise RuntimeError(f"学習に入れられる種が {len(ds['classes'])} つしかありません（種ごとに {opts.get('train_min_per_class', 5)} 枚以上の枠が要ります）")
-    base_mix = float(opts.get("train_base_mix", 0.3))
+    base_mix = float(opts.get("train_base_mix", TRAIN_DEFAULTS["train_base_mix"]))
 
     def fit(samples, classes, tag):
         # 学習用の枠のうち 1 割の動画は早めに止めるための検証に（検証用の地点とは別）

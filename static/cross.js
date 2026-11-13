@@ -55,7 +55,14 @@ async function crossDialog(tab, opts) {
   }
   if (fresh) crossWatchStale(info, 0);
   const cs = info.catalog_status || {};
-  const purpose = crPurpose(info);
+  const stored = crPurpose(info);              // プロジェクトに保存してある目的
+  // 公開する版（公開版と Lite）は「調査回の統合」だけ: 目的を選ぶ段は出さず、統合の 4 つの段を出す（確認事項 125 回目）。目的がまだなく、参照先も登録していない（作ったばかりの）プロジェクトには「統合」と書いておく。参照先のあるプロジェクトには書かない（開いただけで、前からあるプロジェクトを変えない）。
+  // 研究用の目的（絞り込んで書き出す / 学習と正答率）で使っているプロジェクトは、保存してある目的を変えずに、統合の段だけを見せる
+  const pub = !isResearch();
+  if (pub && !stored && !info.sources.length) {
+    try { await api('/api/project/settings', { cross_purpose: 'merge' }); info.project.settings = Object.assign({}, info.project.settings, { cross_purpose: 'merge' }); } catch (e) { /* 表示だけ統合にする */ }
+  }
+  const purpose = pub ? 'merge' : stored;
   CR_TABS = CR_TABS_BY[purpose] || CR_TABS_BY[''];
   if (tab && CR_TABS.includes(tab)) CR.tab = tab;
   else {                                   // 段を指定せずに開いたときは、いまの状態で次にやる段を出す
@@ -76,8 +83,9 @@ async function crossDialog(tab, opts) {
   const warnStep = { sources: !info.sources.length, build: info.sources.length && (!cs.built || cs.stale) };
   const purposeLabel = purpose === 'merge' ? t('cr_purpose_merge') : (purpose === 'pick' ? t('cr_purpose_pick') : (purpose === 'train' ? t('cr_purpose_train') : t('cr_purpose_none')));
   const m = showModal(`<h3>${esc(t('cross_title'))} <span class="info">${esc(info.project.name)}</span></h3>
-    <div class="cr-purpose-line"><span>${esc(t('cr_purpose'))}: <b>${esc(purposeLabel)}</b></span> <button type="button" class="small" id="crPurposeBtn">${esc(purpose ? t('cr_purpose_change') : t('cr_purpose_choose'))}</button> <span class="info">${esc(t('cr_intro'))}</span></div>
-    <div id="crPurposeBox" class="${purpose ? 'hidden' : ''}">${crPurposeCards(purpose)}</div>
+    <div class="cr-purpose-line only-research"><span>${esc(t('cr_purpose'))}: <b>${esc(purposeLabel)}</b></span> <button type="button" class="small" id="crPurposeBtn">${esc(purpose ? t('cr_purpose_change') : t('cr_purpose_choose'))}</button> <span class="info">${esc(t('cr_intro'))}</span></div>
+    <div id="crPurposeBox" class="only-research ${purpose ? 'hidden' : ''}">${crPurposeCards(purpose)}</div>
+    ${pub && stored && stored !== 'merge' ? `<div class="note" style="color:#8a5a00">${esc(t('cr_pub_other'))}</div>` : ''}
     <div class="steps" id="crTabs">${CR_TABS.map((k, i) => `<button type="button" class="stp ${CR.tab === k ? 'on' : ''} ${warnStep[k] ? 'warn' : ''}" data-tab="${k}"><span class="n">${i + 1}</span><span class="l">${esc(t('cr_tab_' + k))}</span><span class="s">${esc(stepStatus[k] || '')}</span></button>`).join('')}</div>
     <div id="crBody"></div>
     <div id="crStatus"></div>
@@ -819,6 +827,7 @@ function crossOnJobs(jobs) {
   const L = crLanes(jobs);
   const cur = L.cur, rec = L.recent[0], queued = L.queued.length > 0;
   const st = m.querySelector('#crStatus');
+  if (!st) return;                                   // 窓の入れ物はほかの窓と共用。横断の窓が閉じた・入れ替わったあとは何もしない
   if (m._recId === undefined) m._recId = rec ? rec.id : null;      // 窓を開いたときの最後の処理（これより新しい処理が終わったときだけ「終わった」と見なす）
   const finished = !cur && !queued && m._wasRunning && rec && (m._jobId != null ? L.recent.some(x => x.id === m._jobId) : rec.id !== m._recId);
   const stopBtn = `<button type="button" class="small" id="crStop" title="${esc(t('cr_stop_tip'))}">${esc(t('jb_stop'))}</button>`;

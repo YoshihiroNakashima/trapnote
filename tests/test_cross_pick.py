@@ -89,7 +89,8 @@ def test_catalog_files_out(tmp_path):
         out2 = str(tmp_path / "out_flat")
         res2 = files_out.export_files(p, [], out2, keep_tree=False, rows=rows)
         assert res2["n"] == 3
-        names = sorted(os.listdir(out2))
+        names = sorted(x for x in os.listdir(out2) if x != files_out.LIST_NAME)        # 一覧の CSV（video_list.csv）は必ず付く（確認事項 129 回目）
+        assert os.path.isfile(os.path.join(out2, files_out.LIST_NAME))
         assert all(n.startswith("PRM_N_N24") and "_BSN0812_IMG_" in n for n in names), names
         assert int(p.db.scalar("SELECT COUNT(*) FROM items")) == 0                     # 取り込んでいない
     finally:

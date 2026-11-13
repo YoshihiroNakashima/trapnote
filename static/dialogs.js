@@ -92,8 +92,9 @@ async function settingsDialog() {
     ${p ? `<h4>${esc(t('s_project'))}</h4>
     <div class="form-row"><label>${esc(t('s_name'))}</label><input type="text" id="pName" value="${esc(p.name)}"></div>
     <div class="form-row"><label>${esc(t('s_root'))}</label><input type="text" id="pRoot" value="${esc(p.root || '')}" readonly><button type="button" class="small" id="pRootPick">${esc(t('root_pick'))}</button></div>
-    <div class="form-row"><label>${esc(t('s_pattern'))}</label><input type="text" id="pPattern" value="${esc(ps.pattern || '')}" spellcheck="false"><button type="button" class="small" id="pPrev">${esc(t('s_preview'))}</button><div class="help">${esc(t('s_pattern_help'))}</div></div>
-    <div id="pPrevBox"></div>
+    <div class="form-row only-research"><label>${esc(t('s_pattern'))}</label><input type="text" id="pPattern" value="${esc(ps.pattern || '')}" spellcheck="false"><button type="button" class="small" id="pPrev">${esc(t('s_preview'))}</button><div class="help">${esc(t('s_pattern_help'))}</div></div>
+    <div id="pPrevBox" class="only-research"></div>
+    <div class="form-row" id="pStationRow"><label>${esc(t('stn_row'))}</label><span><span id="pStationNow" class="info"></span> <button type="button" class="small" id="pStationPick">${esc(t('stn_pick_btn'))}</button></span></div>
     <div class="form-row"><label>${esc(t('s_skip'))}</label><input type="text" id="pSkip" value="${esc((ps.skip_names || []).join(', '))}"></div>
     <div class="form-row"><label>${esc(t('s_z'))}</label><input type="checkbox" id="pZ" ${ps.z_is_utc ? 'checked' : ''}><div class="help">${esc(t('s_z_help'))}</div></div>
     <div class="btn-row" style="margin-top:8px"><button type="button" id="pSpecies">${esc(t('s_species_edit'))}</button><button type="button" id="pFields">${esc(t('s_fields_edit'))}</button><button type="button" id="pMeta">${esc(t('s_meta_redo'))}</button></div>
@@ -102,6 +103,12 @@ async function settingsDialog() {
   wirePicks(m);
   m.querySelector('#mCancel').onclick = closeModal;
   if (p) {
+    // 地点のフォルダ: いまの決め方を出す。「選び直す…」で、地点のフォルダを選ぶ画面へ（設定の窓は閉じる。ここで変えたほかの項目は保存しない）
+    if (p.kind === 'cross') m.querySelector('#pStationRow').classList.add('hidden');
+    else {
+      api('/api/project/station').then(info => { const el = m.querySelector('#pStationNow'); if (el) el.textContent = stnNowText(info); }).catch(() => {});
+      m.querySelector('#pStationPick').onclick = () => { closeModal(); stationDialog(false); };
+    }
     m.querySelector('#pPrev').onclick = async () => {
       const r = await api('/api/project/pattern/preview', { pattern: m.querySelector('#pPattern').value });
       const names = r.names.filter(n => n !== 'file');
@@ -245,7 +252,9 @@ async function exportDialog(preset) {
     <div class="form-row"><label>${esc(t('ex_range'))}</label><select id="exRange">${selIds.length ? `<option value="selection">${esc(t('ex_selection'))} (${selIds.length})</option>` : ''}<option value="all">${esc(t('ex_all'))}</option><option value="filter">${esc(t('ex_filter'))}</option><option value="verified">${esc(t('ex_verified'))}</option></select></div>
     <div class="form-row"><label></label><label><input type="checkbox" id="exRecords"> ${esc(t('ex_records'))}</label></div>
     <div class="form-row"><label></label><label><input type="checkbox" id="exJudged"> ${esc(t('ex_judged_only'))}</label></div>
+    <div class="btn-row"><button id="mOk" class="primary">${esc(t('ex_run_csv'))}</button></div>
     <div id="exResult" class="note"></div>
+    <h3 class="ex-other">${esc(t('ex_other'))}</h3><div class="note">${esc(t('ex_other_help'))}</div>
     <h4>${esc(t('ex_index'))}</h4><div class="note">${esc(t('ex_index_help'))}</div><button type="button" id="exIndex">${esc(t('ex_index'))}</button>
     <h4>${esc(t('ex_md'))}</h4><div class="note">${esc(t('ex_md_help'))}</div><button type="button" id="exMd">${esc(t('ex_md'))}</button>
     <h4>${esc(t('ex_tl'))}</h4><div class="note">${esc(t('ex_tl_help'))}</div>
@@ -253,13 +262,13 @@ async function exportDialog(preset) {
     <div class="form-row"><label>${esc(t('ex_tl_style'))}</label><select id="exTlStyle"><option value="choice">${esc(t('ex_tl_choice'))}</option><option value="flags">${esc(t('ex_tl_flags'))}</option></select></div>
     <div class="form-row"><label></label><span><label class="chk"><input type="checkbox" id="exTlFields" checked> ${esc(t('ex_tl_fields'))}</label>　<label class="chk"><input type="checkbox" id="exTlCorrected" checked> ${esc(t('ex_tl_corrected'))}</label></span></div>
     <button type="button" id="exTl">${esc(t('ex_tl_run'))}</button>
-    <h4>${esc(t('ex_yolo'))}</h4><div class="note">${esc(t('ex_yolo_help'))}</div>
+    <div class="only-research"><h4>${esc(t('ex_yolo'))}</h4><div class="note">${esc(t('ex_yolo_help'))}</div>
     <div class="form-row"><label>${esc(t('ex_yolo_where'))}</label><select id="exYoloWhere"><option value="new">${esc(t('ex_yolo_new'))}</option><option value="in_place">${esc(t('ex_yolo_in_place'))}</option></select></div>
     <div id="exYoloNewRows">${pathRow('exYoloDir', t('ex_yolo_dir'), 'folder', `${S.project.dir}/exports/yolo`, '')}
     <div class="form-row"><label>${esc(t('ex_yolo_class'))}</label><select id="exYoloClass"><option value="animal0">${esc(t('ex_yolo_class0'))}</option><option value="species">${esc(t('ex_yolo_class_sp'))}</option></select></div>
     <div class="form-row"><label></label><span><label class="chk"><input type="checkbox" id="exYoloPer" checked> ${esc(t('ex_yolo_per'))}</label>　<label class="chk"><input type="checkbox" id="exYoloImg" checked> ${esc(t('ex_yolo_img'))}</label></span></div></div>
-    <button type="button" id="exYolo">${esc(t('ex_yolo_run'))}</button><div id="exYoloStatus" class="note"></div>
-    <div class="modal-actions"><button id="mCancel">${esc(t('close'))}</button><button id="mOk" class="primary">${esc(t('run'))}</button></div>`);
+    <button type="button" id="exYolo">${esc(t('ex_yolo_run'))}</button><div id="exYoloStatus" class="note"></div></div>
+    <div class="modal-actions"><button id="mCancel">${esc(t('close'))}</button></div>`);
   exportModalEl = m;
   m.querySelector('#exYoloWhere').addEventListener('change', () => { m.querySelector('#exYoloNewRows').classList.toggle('hidden', m.querySelector('#exYoloWhere').value === 'in_place'); });
   m.querySelector('#exYolo').onclick = async () => {
@@ -357,7 +366,7 @@ async function importDialog(kind) {
 async function timelapseDialog() {
   const fixedOpts = (S.species.fixed || []);
   const m = showModal(`<h3>${esc(t('timelapse'))}</h3><div class="note">${esc(t('tl_help'))}</div>
-    <div class="btn-row"><button type="button" class="small" id="tlYolo">${esc(t('yl_title'))}…</button><span class="info">${esc(t('yl_link'))}</span></div>
+    <div class="btn-row only-research"><button type="button" class="small" id="tlYolo">${esc(t('yl_title'))}…</button><span class="info">${esc(t('yl_link'))}</span></div>
     <div class="step" id="tlS1"><div class="num">1</div><div class="head">${esc(t('tl_step1'))}</div>
       <div class="body"><div class="note">${esc(t('tl_step1_help'))}</div>
         <div class="pathbox"><input type="text" id="tlPath" placeholder=".tdb / .ddb" spellcheck="false"><button type="button" class="primary" id="tlPick">${esc(t('pick'))}</button></div></div></div>
@@ -515,6 +524,7 @@ function archiveOnJobs(jobs) {
   if (!m || !document.body.contains(m) || !jobs || !jobs.archive) return;
   const cur = jobs.archive.current, rec = (jobs.archive.recent || [])[0];
   const st = m.querySelector('#arStatus');
+  if (!st) return;                                   // 窓の入れ物はほかの窓と共用。保存用の変換の窓が閉じた・入れ替わったあとは何もしない
   if (cur) {
     const pct = cur.total ? Math.round(100 * (cur.done + cur.failed) / cur.total) : 0;
     st.innerHTML = `<div><b>${esc(t('ar_running'))}</b>: ${cur.done + cur.failed} / ${cur.total} (${pct}%)${cur.remain != null ? ' · ' + Math.round(cur.remain / 60) + ' min' : ''}${cur.encoder ? ' · ' + esc(cur.encoder) : ''}</div><div class="prog"><div style="width:${pct}%"></div></div><div class="info">${esc(cur.current || '')}</div><div class="info">${esc(cur.message || '')}</div>`;
@@ -531,21 +541,21 @@ async function detectDialog(preset) {
   // preset = {mode: 'reclass', classifier: 'local:<名前>'}（追加学習の窓から「付け直す」で開いたとき）
   const m = showModal(`<h3>${esc(t('dt_title'))}</h3><div class="note">${esc(t('dt_help'))}</div>
     <div id="dtEnv" class="env-row">${esc(t('loading'))}</div>
-    <div class="form-row"><label>${esc(t('dt_mode'))}</label><select id="dtMode"><option value="detect">${esc(t('dt_mode_detect'))}</option><option value="reclass">${esc(t('dt_mode_reclass'))}</option></select></div>
+    <div class="form-row not-lite"><label>${esc(t('dt_mode'))}</label><select id="dtMode"><option value="detect">${esc(t('dt_mode_detect'))}</option><option value="reclass">${esc(t('dt_mode_reclass'))}</option></select></div>
     <div id="dtModeHelp" class="note hidden">${esc(t('dt_mode_reclass_help'))}</div>
     <div class="form-row"><label>${esc(t('dt_range'))}</label><select id="dtRange"><option value="all">${esc(t('ex_all'))}</option><option value="filter">${esc(t('ex_filter'))}</option></select></div>
     <div id="dtPlan" class="dt-counts"></div>
     <div class="form-row dt-det"><label>${esc(t('dt_model'))}</label><select id="dtModel"></select></div>
-    <div class="form-row"><label>${esc(t('dt_classifier'))}</label><select id="dtCls"><option value="speciesnet">SpeciesNet</option><option value="none">${esc(t('dt_cls_none'))}</option></select></div>
+    <div class="form-row not-lite"><label>${esc(t('dt_classifier'))}</label><select id="dtCls"><option value="speciesnet">SpeciesNet</option><option value="none">${esc(t('dt_cls_none'))}</option></select></div>
     <div class="form-row"><label>${esc(t('dt_device'))}</label><select id="dtDevice"><option value="auto">${esc(t('dt_dev_auto'))}</option><option value="cuda">GPU (CUDA)</option><option value="mps">GPU (Apple)</option><option value="cpu">CPU</option></select></div>
-    <div class="form-row dt-det"><label>${esc(t('dt_redo'))}</label><span style="display:flex;flex-direction:column;gap:2px"><label class="chk"><input type="checkbox" id="dtRedo"> ${esc(t('dt_redo_l'))}</label><label class="chk"><input type="checkbox" id="dtVerified"> ${esc(t('dt_verified_l'))}</label><label class="chk"><input type="checkbox" id="dtExisting"> ${esc(t('dt_existing_l'))}</label><span class="info">${esc(t('dt_redo_help'))}</span></span></div>
+    <div class="form-row dt-det"><label>${esc(t('dt_redo'))}</label><span style="display:flex;flex-direction:column;gap:2px"><label class="chk"><input type="checkbox" id="dtRedo"> ${esc(t('dt_redo_l'))}</label><label class="chk"><input type="checkbox" id="dtVerified"> ${esc(t('dt_verified_l'))}</label><label class="chk not-lite"><input type="checkbox" id="dtExisting"> ${esc(t('dt_existing_l'))}</label><span class="info">${esc(t('dt_redo_help'))}</span></span></div>
     <details class="adv dt-det"><summary>${esc(t('dt_adv'))}</summary>
       <div class="form-row"><label>${esc(t('dt_frames'))}</label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><input type="number" id="dtFirstSec" step="0.5" min="0" style="width:70px"> s × <input type="number" id="dtFirstFps" step="1" min="1" style="width:60px"> fps, ${esc(t('dt_then'))} <input type="number" id="dtInterval" step="0.1" min="0.1" style="width:90px"> s <span class="info">${esc(t('dt_interval_help'))}</span></span></div>
       <div class="form-row"><label>${esc(t('dt_animal_rule'))}</label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${esc(t('dt_conf'))} ≥ <input type="number" id="dtAth" step="0.05" min="0.05" max="0.95" style="width:70px"> × <input type="number" id="dtAmin" step="1" min="1" style="width:60px"> ${esc(t('dt_frames_u'))}</span></div>
       <div class="form-row"><label>${esc(t('dt_person_rule'))}</label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${esc(t('dt_conf'))} ≥ <input type="number" id="dtPth" step="0.05" min="0.05" max="0.95" style="width:70px"> × <input type="number" id="dtPmin" step="1" min="1" style="width:60px"> ${esc(t('dt_frames_u'))}</span></div>
-      <div class="form-row"><label>${esc(t('dt_species_rule'))}</label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">p1 <input type="number" id="dtP1" step="0.05" min="0.1" max="0.99" style="width:70px"> p2 <input type="number" id="dtP2" step="0.05" min="0.1" max="0.99" style="width:70px"> K <input type="number" id="dtK" step="1" min="1" style="width:60px"> <span title="${esc(t('dt_pick_tip'))}">${esc(t('dt_pick'))} <select id="dtPick" style="width:auto"><option value="confidence">${esc(t('dt_pick_conf'))}</option><option value="count">${esc(t('dt_pick_count'))}</option></select></span> <span title="${esc(t('dt_empty_rule_tip'))}">${esc(t('dt_empty_rule'))} <input type="number" id="dtPEmpty" step="0.05" min="0" max="0.99" style="width:70px"></span> ${esc(t('dt_crops'))} <input type="number" id="dtCrops" step="1" min="1" max="64" style="width:60px"> <span title="${esc(t('dt_crop_spread_tip'))}">${esc(t('dt_crop_gap'))} <input type="number" id="dtCropGap" step="0.1" min="0" max="10" style="width:60px"> s · ${esc(t('dt_crop_per_frame'))} <input type="number" id="dtCropPer" step="1" min="0" max="12" style="width:50px"></span></span></div>
-      <div class="form-row"><label>${esc(t('dt_country'))}</label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><input type="text" id="dtCountry" maxlength="3" style="width:70px;text-transform:uppercase" spellcheck="false"> <span class="info">${esc(t('dt_country_help'))}</span></span></div>
-      <div class="form-row"><label>${esc(t('dt_batch'))}</label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><input type="number" id="dtBatch" step="1" min="1" max="64" style="width:70px"> ${esc(t('dt_imgsize'))} <input type="number" id="dtImgSize" step="32" min="0" max="2560" style="width:80px"> <label class="chk"><input type="checkbox" id="dtFeat"> ${esc(t('dt_features'))}</label></span></div>
+      <div class="form-row not-lite"><label>${esc(t('dt_species_rule'))}</label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">p1 <input type="number" id="dtP1" step="0.05" min="0.1" max="0.99" style="width:70px"> p2 <input type="number" id="dtP2" step="0.05" min="0.1" max="0.99" style="width:70px"> K <input type="number" id="dtK" step="1" min="1" style="width:60px"> <span title="${esc(t('dt_pick_tip'))}">${esc(t('dt_pick'))} <select id="dtPick" style="width:auto"><option value="confidence">${esc(t('dt_pick_conf'))}</option><option value="count">${esc(t('dt_pick_count'))}</option></select></span> <span title="${esc(t('dt_empty_rule_tip'))}">${esc(t('dt_empty_rule'))} <input type="number" id="dtPEmpty" step="0.05" min="0" max="0.99" style="width:70px"></span> ${esc(t('dt_crops'))} <input type="number" id="dtCrops" step="1" min="1" max="64" style="width:60px"> <span title="${esc(t('dt_crop_spread_tip'))}">${esc(t('dt_crop_gap'))} <input type="number" id="dtCropGap" step="0.1" min="0" max="10" style="width:60px"> s · ${esc(t('dt_crop_per_frame'))} <input type="number" id="dtCropPer" step="1" min="0" max="12" style="width:50px"></span></span></div>
+      <div class="form-row not-lite"><label>${esc(t('dt_country'))}</label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><input type="text" id="dtCountry" maxlength="3" style="width:70px;text-transform:uppercase" spellcheck="false"> <span class="info">${esc(t('dt_country_help'))}</span></span></div>
+      <div class="form-row"><label>${esc(t('dt_batch'))}</label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><input type="number" id="dtBatch" step="1" min="1" max="64" style="width:70px"> ${esc(t('dt_imgsize'))} <input type="number" id="dtImgSize" step="32" min="0" max="2560" style="width:80px"> <label class="chk not-lite"><input type="checkbox" id="dtFeat"> ${esc(t('dt_features'))}</label></span></div>
       <div class="note">${esc(t('dt_adv_help'))}</div>
     </details>
     <div id="dtStatus"></div>
@@ -576,20 +586,22 @@ async function detectDialog(preset) {
     const filters = q('#dtRange').value === 'filter' ? Object.assign({}, S.filter) : {};
     try {
       const r = await api('/api/detect/plan', { filters });
+      if (!q('#dtPlan')) return;                       // 答えが来る前に窓が閉じた・入れ替わった
       planData = r;
       const env = r.env, chip = (ok, label) => `<span class="${ok ? 'ok' : 'ng'}">${esc(label)} ${ok ? '✓' : '✗'}</span>`;
-      let envHtml = env.fake ? `<span class="ok">${esc(t('dt_fake'))}</span>` : chip(env.torch, 'torch' + (env.torch_info && env.torch_info.version ? ' ' + env.torch_info.version : '')) + chip(env.megadetector, 'megadetector') + chip(env.speciesnet, 'speciesnet') + (env.dill ? '' : chip(false, 'dill'));
+      let envHtml = env.fake ? `<span class="ok">${esc(t('dt_fake'))}</span>` : chip(env.torch, 'torch' + (env.torch_info && env.torch_info.version ? ' ' + env.torch_info.version : '')) + chip(env.megadetector, 'megadetector') + (isLite() ? '' : chip(env.speciesnet, 'speciesnet') + (env.dill ? '' : chip(false, 'dill')));
       const ti = env.torch_info;
       if (ti && !ti.error) envHtml += ti.cuda ? `<span class="ok">CUDA ✓ ${esc(ti.gpu || '')}</span>` : (ti.mps ? `<span class="ok">Apple MPS ✓</span>` : `<span class="ng">CUDA ✗</span>`);
       const ld = env.loaded || {};
       if (ld.device_name) envHtml += `<span class="ok">${esc(ld.device_name)}</span>`;
       if (ti && !ti.error && !ti.cuda && !ti.mps) envHtml += `<div class="note">${esc(t('dt_no_cuda'))}</div>`;
-      if (!env.fake && env.torch && !env.dill) envHtml += `<div class="note">${esc(t('dt_no_dill'))}</div>`;
+      if (!env.fake && env.torch && !env.dill && !isLite()) envHtml += `<div class="note">${esc(t('dt_no_dill'))}</div>`;
       if (ld.detector) envHtml += `<span>${esc(ld.detector)}</span>`;
       if (ld.classifier) envHtml += `<span class="clickable" id="dtLabels" title="${esc(t('dt_labels_tip'))}">${esc(t('dt_labels'))}</span>`;
       if (r.n_done) envHtml += `<span class="clickable" id="dtEval" title="${esc(t('ag_tip'))}">${esc(t('ag_title'))}</span>`;
       if (ld.loading) envHtml += `<span>${esc(ld.loading)}</span>`;
-      if (!env.ok) envHtml += `<div class="note">${esc(t('dt_env_missing'))}</div>`;
+      const envOk = env.ok || (isLite() && env.torch && env.megadetector);          // Lite は検出だけ: SpeciesNet がなくても始められる
+      if (!envOk) envHtml += `<div class="note">${esc(t('dt_env_missing'))}</div>`;
       q('#dtEnv').innerHTML = envHtml;
       q('#dtPlan').innerHTML = `<span>${esc(t('dt_n_all'))} <b>${r.n_all}</b></span><span>${esc(t('dt_n_todo'))} <b>${r.n_todo}</b>${r.n_todo !== r.n_todo_unverified ? ` (${esc(t('dt_unverified'))} ${r.n_todo_unverified})` : ''}</span><span>${esc(t('dt_n_done'))} <b>${r.n_done}</b></span>` +
         (r.n_low ? `<span>${esc(t('det_low'))} <b>${r.n_low}</b></span>` : '') + (r.n_failed ? `<span>${esc(t('det_failed'))} <b>${r.n_failed}</b></span>` : '') +
@@ -603,12 +615,12 @@ async function detectDialog(preset) {
         if (preset && preset.mode) q('#dtMode').value = preset.mode;
         modeUi();
       }
-      q('#mOk').disabled = !env.ok;
+      q('#mOk').disabled = !envOk;
       const lb = q('#dtLabels');
       if (lb) lb.onclick = labelsDialog;
       const ev = q('#dtEval');
       if (ev) ev.onclick = () => evalDialog(q('#dtRange').value === 'filter' ? Object.assign({}, S.filter) : {}, () => detectDialog());
-    } catch (e) { q('#dtPlan').textContent = e.message; }
+    } catch (e) { const pl = q('#dtPlan'); if (pl) pl.textContent = e.message; }
   };
   q('#dtRange').addEventListener('change', plan);
   q('#dtMode').addEventListener('change', modeUi);
@@ -635,12 +647,12 @@ async function detectDialog(preset) {
     const redo = q('#dtRedo').checked;
     const body = {                                     // 確認の窓で中身が入れ替わる前に読んでおく
       filters: filters || undefined, redo, include_verified: q('#dtVerified').checked, use_existing: q('#dtExisting').checked,
-      md_model: q('#dtModel').value, classifier: q('#dtCls').value, device: q('#dtDevice').value, batch_size: parseInt(q('#dtBatch').value) || 8,
+      md_model: q('#dtModel').value, classifier: isLite() ? 'none' : q('#dtCls').value, device: q('#dtDevice').value, batch_size: parseInt(q('#dtBatch').value) || 8,
       frame_first_sec: parseFloat(q('#dtFirstSec').value), frame_first_fps: parseFloat(q('#dtFirstFps').value), frame_interval_sec: parseFloat(q('#dtInterval').value) || 'auto',
       animal_threshold: parseFloat(q('#dtAth').value), animal_min_frames: parseInt(q('#dtAmin').value), person_threshold: parseFloat(q('#dtPth').value), person_min_frames: parseInt(q('#dtPmin').value),
       species_p1: parseFloat(q('#dtP1').value), species_p2: parseFloat(q('#dtP2').value), species_k: parseInt(q('#dtK').value), species_empty_p: parseFloat(q('#dtPEmpty').value) || 0, species_pick: q('#dtPick').value, max_crops: parseInt(q('#dtCrops').value), crop_min_gap_sec: parseFloat(q('#dtCropGap').value) || 0, crop_per_frame: parseInt(q('#dtCropPer').value) || 0,
       detect_image_size: parseInt(q('#dtImgSize').value) || 0, save_features: q('#dtFeat').checked, country: q('#dtCountry').value.trim().toUpperCase(),
-      keep_classifier: !!(preset && preset.detect_only),      // 「検出のみ」から: 分類器の設定（SpeciesNet など）はそのまま残す
+      keep_classifier: isLite() || !!(preset && preset.detect_only),      // 「検出のみ」から（Lite ではいつも）: 分類器の設定（SpeciesNet など）はそのまま残す
     };
     if (redo && !body.use_existing) {
       detectModalEl = null;
@@ -676,7 +688,7 @@ async function evalDialog(filters, back, mode) {
       <label class="inline"><input type="checkbox" id="agFilter" ${st.useFilter ? 'checked' : ''}> ${esc(t('ag_use_filter'))}</label>
       <span id="agByWrap" class="hidden"><label class="inline">${esc(t('ag_by'))} <select id="agBy" style="width:auto"><option value="">${esc(t('ag_by_all'))}</option></select></label></span></span></div>
     <div id="agBody"></div>
-    <div id="agResult" class="note"></div>
+    <div id="agResult" class="callout ok hidden"></div>
     <div class="modal-actions"><button id="mCancel">${esc(t('close'))}</button><button id="agExport" class="primary">${esc(t('ag_export'))}</button></div>`);
   const q = sel => m.querySelector(sel);
   q('#agMode').value = st.mode;
@@ -684,6 +696,7 @@ async function evalDialog(filters, back, mode) {
   const render = async () => {
     st.mode = q('#agMode').value;
     q('#agByWrap').classList.toggle('hidden', st.mode !== 'prior');
+    q('#agResult').classList.add('hidden');            // 比べる相手・絞り込みを変えたら、前に書き出した知らせは消す
     const body = q('#agBody');
     body.innerHTML = `<div class="note">${esc(t('loading'))}</div>`;
     let r;
@@ -698,10 +711,22 @@ async function evalDialog(filters, back, mode) {
   q('#agMode').onchange = render; q('#agFilter').onchange = render; q('#agBy').onchange = () => { st.by = q('#agBy').value; render(); };
   q('#mCancel').onclick = () => (back ? back() : closeModal());
   q('#agExport').onclick = async () => {
+    // 書き出したら、緑の知らせ（ファイル名・場所・「書き出し先を開く」）を出して見える所まで送り、トーストも出す。
+    // 以前は表の下に小さな文字が出るだけで、何も起きていないように見えた
+    const btn = q('#agExport');
+    btn.disabled = true;
     try {
       const x = st.mode === 'prior' ? await api('/api/judge/eval_prior/csv', { filters: curFilters(), by: st.by }) : await api('/api/detect/eval/csv', { filters: curFilters() });
-      q('#agResult').textContent = `${t('ag_exported')}: ${x.path} / ${x.matrix_path}`;
-    } catch (e) { toast(e.message, 'error'); }
+      const base = s => String(s || '').split(/[\\/]/).pop();
+      const res = q('#agResult');
+      res.innerHTML = `${esc(t('ag_exported'))}: <b>${esc(base(x.path))}</b>${x.matrix_path ? ` / <b>${esc(base(x.matrix_path))}</b>` : ''}
+        <div class="info">${esc(String(x.path || '').replace(/\\/g, '/'))}</div>
+        <button id="agOpen" class="small" style="margin-top:6px">${esc(t('fo_open'))}</button>`;
+      res.classList.remove('hidden');
+      q('#agOpen').onclick = () => api('/api/fs/reveal', { path: x.path }).catch(e => toast(e.message, 'error'));
+      res.scrollIntoView({ block: 'nearest' });
+      toast(`${t('ag_exported')}: ${base(x.path)}`);
+    } catch (e) { toast(e.message, 'error'); } finally { btn.disabled = false; }
   };
   await render();
 }
@@ -738,13 +763,102 @@ function evalPriorHtml(r) {
     <div style="max-height:34vh;overflow:auto"><table class="tbl"><tr><th>${esc(t('ag_prior'))}</th><th>${esc(t('ag_n'))}</th><th>${esc(t('ag_rate'))}</th><th>${esc(t('ag_exact'))}</th><th>${esc(t('ag_verified'))}</th></tr>${rows || `<tr><td colspan="5" class="note">${esc(t('ag_prior_empty'))}</td></tr>`}</table></div>
     ${matrix}`;
 }
+// ---------- 抜き取りの確認（確認事項 125 回目で決めたもの。129 回目で作った） ----------
+// 「一括確定」の対象に、検出で枠が付かなかった動画が入っているとき、その中から無作為に選んだ動画（既定 100 本）を目で確かめて、
+// 動物が映っていた数と、枠が付かなかった動画の全体での見積もりを出す。結果はプロジェクト（project.json の spot_checks）に残る。サーバー側は spot.py
+const SPOT = { dir: null, st: null };
+const scFmt = (key, o) => t(key).replace(/\{(\w+)\}/g, (_, k) => (o[k] != null ? o[k] : ''));
+const scPct = v => (v == null ? '–' : (v * 100 >= 10 ? (v * 100).toFixed(0) : (v * 100).toFixed(1)) + ' %');
+const scVals = r => ({ pool: r.n_pool, sample: r.n_sample, done: r.n_done, animal: r.n_animal, other: r.n_other, est: r.est, est_hi: r.est_hi, share: scPct(r.share), share_hi: scPct(r.share_hi) });
+const scLine = r => scFmt(r.n_done ? 'sc_line' : 'sc_line_zero', scVals(r));
+async function spotRefresh(force) {
+  if (!S.project || !S.project.root) { SPOT.dir = null; SPOT.st = null; renderSpotBar(); return; }
+  if (!force && SPOT.dir === S.project.dir && !(SPOT.st && SPOT.st.active)) return;      // 途中の抜き取りがなければ、訊き直さない
+  const dir = S.project.dir;
+  let st = null;
+  try { st = await api('/api/spot/status'); } catch (e) { st = null; }
+  if (!S.project || S.project.dir !== dir) return;
+  SPOT.dir = dir; SPOT.st = st;
+  renderSpotBar();
+  if (S.filter.ids && !(st && st.active)) { S.filter.ids = ''; renderFilters(); saveUi(); reloadList(); }      // 抜き取りが終わっているのに、一覧が抜き取った動画のままなら、戻す
+}
+function renderSpotBar() {
+  const el = $('#spotBar'); if (!el) return;
+  const a = SPOT.st && SPOT.st.active;
+  if (!a) { el.classList.add('hidden'); el.innerHTML = ''; return; }
+  el.classList.remove('hidden');
+  el.innerHTML = `<b>${esc(t('sc_bar'))}</b><span>${esc(t('sc_done'))} ${a.n_done} / ${a.n_sample}</span><button type="button" class="small" id="spShow" title="${esc(t('sc_show_tip'))}">${esc(t('sc_show'))}</button><button type="button" class="small primary" id="spResult">${esc(t('sc_result'))}</button>`;
+  el.querySelector('#spShow').onclick = () => spotShow();
+  el.querySelector('#spResult').onclick = () => spotResultDialog();
+}
+const SC_CLEAR = { station: '', season: '', batch: '', status: '', species: '', species_src: '', assignee: '', text: '', favorite: '', det: '', flag: '', agree: '', exclude: '', boxes: '', ids: '' };
+function spotShow() {      // 一覧を、抜き取った動画だけにする（ほかの絞り込みは外す。確認すると「未確認」などの条件から外れてしまうため）
+  const a = SPOT.st && SPOT.st.active; if (!a) return;
+  if (typeof advReset === 'function') advReset();          // 高度な検索の条件も外す（search_main.js）
+  Object.assign(S.filter, SC_CLEAR, { folder_prefix: (a.filters && a.filters.folder_prefix) || '', ids: a.ids.join(',') });
+  $('#fText').value = '';
+  renderFilters(); saveUi(); reloadList();
+}
+function spotRestore(filters) {      // 抜き取りを始めたときの絞り込みに戻す
+  if (typeof advReset === 'function') advReset();
+  Object.assign(S.filter, SC_CLEAR, { folder_prefix: '' }, filters || {}, { ids: '' });
+  if (S.filter.adv && typeof S.filter.adv !== 'string') S.filter.adv = JSON.stringify(S.filter.adv);      // 高度な検索の条件は、文字列で持つ
+  $('#fText').value = S.filter.text || '';
+  renderFilters(); saveUi();
+  return reloadList();
+}
+async function spotResultDialog() {
+  await spotRefresh(true);
+  const a = SPOT.st && SPOT.st.active; if (!a) return;
+  const left = a.n_sample - a.n_done;
+  const m = showModal(`<h3>${esc(t('sc_title'))}</h3><div class="note">${esc(t('sc_result_help'))}</div>
+    <div class="dt-counts"><span>${esc(t('sc_pool'))} <b>${a.n_pool}</b></span><span>${esc(t('sc_sample'))} <b>${a.n_sample}</b></span><span>${esc(t('sc_done'))} <b>${a.n_done}</b></span><span>${esc(t('sc_animal'))} <b>${a.n_animal}</b></span><span>${esc(t('sc_other'))} <b>${a.n_other}</b></span></div>
+    ${a.n_done ? `<div class="callout ${a.n_animal ? 'warn' : ''}">${esc(scFmt(a.n_animal ? 'sc_sent_some' : 'sc_sent_none', scVals(a)))}</div>` : ''}
+    ${left ? `<div class="note" style="color:#8a5a00">${esc(scFmt('sc_left', { left }))}</div>` : ''}
+    <div class="modal-actions"><button id="mCancel">${esc(t(left ? 'sc_continue' : 'close'))}</button><button id="spCancel" class="danger-outline" title="${esc(t('sc_cancel_tip'))}">${esc(t('sc_cancel'))}</button><button id="mOk" class="primary" title="${esc(t('sc_finish_tip'))}">${esc(t('sc_finish'))}</button></div>`);
+  m.querySelector('#mCancel').onclick = closeModal;
+  m.querySelector('#spCancel').onclick = async () => {
+    if (!await confirmModal(t('sc_cancel'), `<div class="note">${esc(t('sc_cancel_tip'))}</div>`, t('sc_cancel'), true)) { spotResultDialog(); return; }
+    try { const r = await api('/api/spot/cancel', {}); SPOT.st = null; SPOT.dir = null; await spotRestore(r.filters); await spotRefresh(true); await refreshFacets(); }
+    catch (e) { toast(e.message, 'error'); }
+  };
+  m.querySelector('#mOk').onclick = async () => {
+    try {
+      const r = await api('/api/spot/finish', {});
+      closeModal(); SPOT.st = null; SPOT.dir = null;
+      await spotRestore(r.filters); await spotRefresh(true); await refreshFacets();
+      toast(t('sc_recorded'));
+      bulkDialog();
+    } catch (e) { toast(e.message, 'error'); }
+  };
+}
 async function bulkDialog() {
-  let n = 0;
-  try { n = (await api('/api/judge/bulk_verify', { filters: S.filter, count_only: true })).n; } catch (e) { toast(e.message, 'error'); return; }
+  let n = 0, nUnboxed = 0;
+  try { const r = await api('/api/judge/bulk_verify', { filters: S.filter, count_only: true }); n = r.n; nUnboxed = r.n_unboxed || 0; } catch (e) { toast(e.message, 'error'); return; }
+  await spotRefresh(true);
+  const st = SPOT.st || {}, a = st.active, hist = st.history || [];
+  const last = hist.length ? hist[hist.length - 1] : null;
+  let spotHtml = '';
+  if (a) spotHtml = `<div class="callout warn"><b>${esc(t('sc_bar'))}</b>　${esc(t('sc_done'))} ${a.n_done} / ${a.n_sample}　<button type="button" class="small" id="bkSpotResult">${esc(t('sc_result'))}</button><div class="note">${esc(t('sc_active_note'))}</div></div>`;
+  else if (nUnboxed) spotHtml = `<div class="callout"><div><b>${esc(t('sc_title'))}</b>　${esc(scFmt('sc_offer', { n: nUnboxed }))}</div><div class="note">${esc(t('sc_offer_help'))}</div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:4px"><label>${esc(t('sc_n'))} <input type="number" id="bkSpotN" min="1" max="${nUnboxed}" value="${Math.min(st.default_n || 100, nUnboxed)}" style="width:80px"></label><button type="button" id="bkSpotStart">${esc(t('sc_start'))}</button></div></div>`;
+  const histHtml = last ? `<div class="note">${esc(t('sc_last'))}（${esc(String(last.finished_at || '').slice(0, 16).replace('T', ' '))}）: ${esc(scLine(last))}${hist.length > 1 ? `　<span class="info">${esc(scFmt('sc_hist_n', { n: hist.length }))}</span>` : ''}</div>` : '';
   const m = showModal(`<h3>${esc(t('bulk_title'))}</h3><div class="note">${esc(t('bulk_help'))}</div>
     <div class="dt-counts"><span>${esc(t('bulk_n'))} <b>${n}</b></span><span class="info">${esc(activeFilterNames().join(' · ') || t('all_status'))}</span></div>
-    <div class="modal-actions"><button id="mCancel">${esc(t('cancel'))}</button><button id="mOk" class="primary" ${n ? '' : 'disabled'}>${esc(t('ok'))}</button></div>`);
+    ${spotHtml}${histHtml}
+    <div class="modal-actions"><button id="mCancel">${esc(t('cancel'))}</button><button id="mOk" class="primary" ${n && !a ? '' : 'disabled'}>${esc(t(nUnboxed && !a && !last ? 'bulk_run_skip' : 'bulk_run'))}</button></div>`);
   m.querySelector('#mCancel').onclick = closeModal;
+  const br = m.querySelector('#bkSpotResult');
+  if (br) br.onclick = () => spotResultDialog();
+  const bs = m.querySelector('#bkSpotStart');
+  if (bs) bs.onclick = async () => {
+    const k = Math.max(1, parseInt(m.querySelector('#bkSpotN').value) || 100);
+    try {
+      SPOT.st = await api('/api/spot/start', { filters: S.filter, n: k }); SPOT.dir = S.project.dir;
+      closeModal(); renderSpotBar(); spotShow();
+      toast(scFmt('sc_started', { n: SPOT.st.active.n_sample }));
+    } catch (e) { toast(e.message, 'error'); }
+  };
   m.querySelector('#mOk').onclick = async () => {
     try { const r = await api('/api/judge/bulk_verify', { filters: S.filter }); closeModal(); toast(`${r.n} ${t('bulk_done')}`); await refreshFacets(); await reloadList(true); if (S.cur) refreshCurrent(); }
     catch (e) { toast(e.message, 'error'); }
@@ -755,6 +869,9 @@ function detectOnJobs(jobs) {
   if (!m || !document.body.contains(m) || !jobs || !jobs.ml) return;
   const cur = jobs.ml.current, rec = (jobs.ml.recent || [])[0];
   const st = m.querySelector('#dtStatus');
+  // m は窓の入れ物（#modalBody）で、ほかの窓と共用（いつも画面にある）。自動判定の窓を閉じた・ほかの窓に入れ替わったあとは #dtStatus がないので何もしない
+  // （以前はここで null に書き込んで失敗し、setSnapshot から呼ばれる「プロジェクトを開く」まで「開けませんでした」になっていた）
+  if (!st) return;
   if (cur) {
     const pct = cur.total ? Math.round(100 * (cur.done + cur.failed) / cur.total) : 0;
     const c = cur.counts || {};
@@ -914,15 +1031,23 @@ async function trainDialog(showName, preset) {
       <div class="form-row tr-b"><label>${esc(t('dt_device'))}</label><select id="trDevice"><option value="auto">${esc(t('dt_dev_auto'))}</option><option value="cuda">GPU (CUDA)</option><option value="mps">GPU (Apple)</option><option value="cpu">CPU</option></select></div>
     </details>
     <div class="form-row tr-b"><label>${esc(t('tr_init'))}</label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><select id="trInit"><option value="">${esc(t('tr_init_base'))}</option></select> <span class="info">${esc(t('tr_init_help'))}</span></span></div>
+    <div id="trNote"></div>
     <div id="trStatus"></div>
     <h4>${esc(t('tr_models'))}</h4>
     <div id="trModels"></div>
     <div class="note">${esc(t('tr_use_moved'))}</div>
-    <div class="modal-actions"><button id="mCancel">${esc(t('close'))}</button><button id="trStop" class="danger-outline hidden">${esc(t('ar_stop'))}</button><button id="mOk" class="primary">${esc(t('tr_start'))}</button></div>`);
+    <div class="modal-actions"><button id="mCancel">${esc(t('close'))}</button><button id="trStop" class="danger-outline hidden">${esc(t('ar_stop'))}</button><button id="mOk" class="primary" disabled>${esc(t('tr_start'))}</button></div>`);
   trainModalEl = m;
   wirePicks(m);
   const q = sel => m.querySelector(sel);
   histWire(q('#trSrcPath'), 'train_source');
+  // 設定（plan の答え）が欄に入るまで、方式・名前・閉じる・止める以外は触れないようにする（入る前に変えた値が、あとから入る設定で黙って消えないように）。
+  // 「学習を始める」は、設定と材料の数が入った印（data-ready）が付くまで押せない（trainOnJobs も印を見る）
+  const locked = [...m.querySelectorAll('input, select, button')].filter(el => !['trKind', 'trName', 'mCancel', 'trStop', 'mOk'].includes(el.id));
+  locked.forEach(el => { el.disabled = true; });
+  let filled = false;        // 設定を欄に入れたか（入れるのは 1 回だけ）
+  const planEl = q('#trPlan');
+  const alive = () => document.body.contains(planEl);      // この窓がまだ出ているか（窓の入れ物は共用。閉じた・入れ替わったあとは中身が別の窓になっている）
   let planData = null;
   let srcList = [];          // 材料に加える候補 [{path, name, checked, info}]
   let srcSeq = 0;
@@ -953,7 +1078,9 @@ async function trainDialog(showName, preset) {
   };
   q('#trStClear').onclick = () => { m.querySelectorAll('#trStations input').forEach(c => { c.checked = false; }); stationsN(); };
   const renderSources = () => {
-    q('#trSources').innerHTML = srcList.length ? srcList.map(x => `<label><input type="checkbox" data-src="${x.id}" ${x.checked ? 'checked' : ''}> <span>${esc(x.name)}</span> <span class="info" title="${esc(x.path)}">${esc(x.path)}</span></label>`).join('') : `<div class="note">${esc(t('tr_src_none'))}</div>`;
+    // いま開いているプロジェクトは、いつも材料に入る。一覧の先頭に、印つき・操作できない形（薄く）で出す（確認事項 131 回目）
+    const self = S.project ? `<label class="src-self" title="${esc(t('tr_src_self_tip'))}"><input type="checkbox" checked disabled> <span>${esc(S.project.name)}</span> <span class="info">${esc(t('tr_src_self'))}</span></label>` : '';
+    q('#trSources').innerHTML = self + (srcList.length ? srcList.map(x => `<label><input type="checkbox" data-src="${x.id}" ${x.checked ? 'checked' : ''}> <span>${esc(x.name)}</span> <span class="info" title="${esc(x.path)}">${esc(x.path)}</span></label>`).join('') : `<div class="note">${esc(t('tr_src_none'))}</div>`);
     m.querySelectorAll('#trSources input[data-src]').forEach(c => { c.onchange = () => { const x = srcList.find(y => String(y.id) === c.dataset.src); if (x) x.checked = c.checked; refreshSources(); }; });
     const sel = srcChecked();
     q('#trSrcN').textContent = sel.length ? `(${sel.length} ${t('tr_src_selected')})` : '';
@@ -1002,34 +1129,45 @@ async function trainDialog(showName, preset) {
   const plan = async () => {
     try {
       const r = await api('/api/train/plan');
+      if (!alive()) return;                            // 答えが来る前に窓が閉じた・入れ替わった
       planData = r;
       const env = r.env, chip = (ok, label) => `<span class="${ok ? 'ok' : 'ng'}">${esc(label)} ${ok ? '✓' : '✗'}</span>`;
       let envHtml = env.fake ? `<span class="ok">${esc(t('dt_fake'))}</span>` : chip(env.torch, 'torch') + chip(env.speciesnet, 'speciesnet');
       const ti = env.torch_info;
       if (ti && !ti.error) envHtml += ti.cuda ? `<span class="ok">CUDA ✓ ${esc(ti.gpu || '')}</span>` : (ti.mps ? `<span class="ok">Apple MPS ✓</span>` : `<span class="ng">CUDA ✗</span>`);
       q('#trEnv').innerHTML = envHtml;
-      q('#trPlan').innerHTML = `<span>${esc(t('st_verified'))} <b>${r.n_verified}</b></span><span>${esc(t('tr_n_ready'))} <b>${r.n_ready}</b> <span class="info">(${esc(t('tr_n_feat'))} ${r.n_features})</span></span><span>${esc(t('det_excluded'))} <b>${r.n_excluded}</b></span><span title="${esc(t('tr_w_hard_help'))}">${esc(t('tr_n_hard'))} <b>${r.n_hard}</b></span><span>${esc(t('tr_n_stations'))} <b>${r.stations.length}</b></span>`;
+      // 公開する版: 微調整（方式 B）は、GPU がある PC でだけ選べる（確認事項 125 回目）。GPU がなければ、選択肢から外して、そのことを書く。研究用は、どの PC でも選べる
+      if (!isResearch() && !(ti && !ti.error && (ti.cuda || ti.mps))) {
+        const ob = q('#trKind option[value="B"]');
+        if (ob) { if (q('#trKind').value === 'B') { q('#trKind').value = 'A'; kindUi(); } ob.remove(); q('#trEnv').innerHTML += ` <span class="info">${esc(t('tr_b_needs_gpu'))}</span>`; }
+      }
+      q('#trPlan').innerHTML =`<span>${esc(t('st_verified'))} <b>${r.n_verified}</b></span><span>${esc(t('tr_n_ready'))} <b>${r.n_ready}</b> <span class="info">(${esc(t('tr_n_feat'))} ${r.n_features})</span></span><span>${esc(t('det_excluded'))} <b>${r.n_excluded}</b></span><span title="${esc(t('tr_w_hard_help'))}">${esc(t('tr_n_hard'))} <b>${r.n_hard}</b></span><span>${esc(t('tr_n_stations'))} <b>${r.stations.length}</b></span>`;
       q('#trSpecies').innerHTML = r.species.length ? `${esc(t('tr_species_counts'))}: ` + r.species.map(x => `${esc(spLabel(x.code))} ${x.n}`).join(' · ') : '';
       if (!srcList.length) srcList = (r.recent || []).map(x => ({ id: ++srcSeq, path: x.path, name: x.name, checked: false }));
       renderSources();
       renderStations();
-      const firstTime = !q('#trName').value;
+      const firstTime = !filled;                       // 「名前の欄が空か」では見ない: 読み込みが終わる前に方式を変えると名前が入り、設定が入らないまま（数字は空、「動物なし」の印なし）学習を始められた
       if (firstTime) {
+        filled = true;
         const ps = r.settings;
         q('#trHold').value = ps.train_holdout_frac; q('#trMinConf').value = ps.train_min_conf; q('#trWHard').value = ps.train_weight_hard; q('#trMinPer').value = ps.train_min_per_class;
         q('#trEmpty').checked = ps.train_use_empty !== false; q('#trDropStatic').checked = !!ps.train_drop_static; q('#trCheckAgree').checked = !!ps.train_check_agree; q('#trFrames').value = ps.train_frames || 'one'; q('#trFinalHold').checked = !!ps.train_final_without_holdout; q('#trMix').value = ps.train_base_mix; q('#trEpochs').value = ps.train_epochs_b; q('#trBatch').value = ps.train_batch_b;
         q('#trUnfreeze').value = ps.train_unfreeze; q('#trLr').value = ps.train_lr_b; q('#trDevice').value = r.device || 'auto';
+        locked.forEach(el => { el.disabled = false; });      // 設定が入ったので触れるようにする（検証用の組があるときの「検証用の地点」は、下の renderBatches → batchUi が閉じ直す）
         kindUi();
       }
       renderBatches(firstTime ? ((preset && preset.holdout_batches) || r.eval_batches || []) : batchesChecked());      // 設定を入れた後に（検証用の組があれば「保存するモデルにも入れない」を付ける）
       renderModels(r);
       const ld = env.loaded || {};
       if (ld.classifier) q('#trEnv').innerHTML += ld.feat_dim ? `<span class="ok">${esc(t('tr_feat_layer'))} ${esc(ld.feat_layer || '')} (${ld.feat_dim})</span>` : `<span class="ng">${esc(t('tr_feat_none'))}</span>`;
-      q('#mOk').disabled = !r.n_ready || !r.n_features;
-      if (!r.n_ready) q('#trStatus').innerHTML = `<div class="note">${esc(t('tr_no_data'))}</div>`;
-      else if (!r.n_features) q('#trStatus').innerHTML = `<div class="note">${esc(t('tr_no_feat'))}</div>`;
-      else if (r.stations.length < 3) q('#trStatus').innerHTML = `<div class="note">${esc(t('tr_few_stations'))}</div>`;
-    } catch (e) { q('#trPlan').textContent = e.message; }
+      const ready = !!(r.n_ready && r.n_features);
+      q('#mOk').dataset.ready = ready ? '1' : '';
+      q('#mOk').disabled = !ready;
+      // 注意書きは #trNote に出す（#trStatus は進み具合の表示（trainOnJobs）が 2 秒ごとに書き換えるので、そこに書くとすぐ消えていた）
+      if (!r.n_ready) q('#trNote').innerHTML = `<div class="note">${esc(t('tr_no_data'))}</div>`;
+      else if (!r.n_features) q('#trNote').innerHTML = `<div class="note">${esc(t('tr_no_feat'))}</div>`;
+      else if (r.stations.length < 3) q('#trNote').innerHTML = `<div class="note">${esc(t('tr_few_stations'))}</div>`;
+    } catch (e) { if (alive()) planEl.textContent = e.message; }
   };
   q('#trKind').addEventListener('change', kindUi);
   q('#trName').addEventListener('input', () => { q('#trName').dataset.edited = '1'; });
@@ -1063,6 +1201,7 @@ function trainOnJobs(jobs) {
   if (!m || !document.body.contains(m) || !jobs || !jobs.ml) return;
   const cur = jobs.ml.current, rec = (jobs.ml.recent || [])[0];
   const st = m.querySelector('#trStatus');
+  if (!st) return;                                   // 窓の入れ物はほかの窓と共用。学習の窓が閉じた・入れ替わったあとは何もしない
   const isMine = j => j && (j.kind === 'train' || j.kind === 'reclassify');
   if (cur) {
     const pct = cur.total ? Math.round(100 * (cur.done + cur.failed) / cur.total) : 0;
@@ -1075,7 +1214,7 @@ function trainOnJobs(jobs) {
     m.querySelector('#mOk').disabled = true;
   } else {
     st.innerHTML = rec && isMine(rec) ? `<div><b>${esc(t('ar_result'))}</b> (${esc(t('jb_state_' + rec.state))}): ${esc(rec.message || rec.error || '')}</div>` : '';
-    m.querySelector('#trStop').classList.add('hidden'); m.querySelector('#mOk').disabled = false;
+    m.querySelector('#trStop').classList.add('hidden'); m.querySelector('#mOk').disabled = m.querySelector('#mOk').dataset.ready !== '1';      // 設定が入る前（読み込み中）と、材料がないときは押せないまま
     if (m._wasRunning) {
       const name = m._wasRunning; m._wasRunning = false;
       trainModalEl = null;
@@ -1173,18 +1312,21 @@ async function subsetDialog(ids, opts) {
   const filters = ids && ids.length ? null : (opts.filters || null);
   const n0 = ids && ids.length ? ids.length : (opts.n || 0);
   const name0 = opts.name || (S.filter && S.filter.batch) || '';
-  const m = showModal(`<h3>${esc(t('sub_title'))}</h3><div class="note">${esc(t('sub_help'))}</div>
+  const unified = !!(ids && ids.length);        // 一覧で選んだ動画から開いたとき: 「動画の書き出し」の窓の、もう 1 つの形として出す（横断の組を写すときは、もとの窓のまま）
+  const m = showModal(`<h3>${esc(t(unified ? 'vx_title' : 'sub_title'))}</h3><div class="note">${esc(t(unified ? 'vx_help' : 'sub_help'))}</div>
     <div class="dt-counts"><span>${esc(t('items'))} <b id="subN">${n0}</b></span>${filters && filters.batch ? `<span>${esc(t('cross_batch'))} <b>${esc(filters.batch)}</b></span>` : ''}</div>
-    ${pathRow('subDir', t('sub_dir'), 'folder', '', t('sub_dir_help'))}
-    <div class="form-row"><label>${esc(t('sub_name'))}</label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><input type="text" id="subName" spellcheck="false" style="width:220px" value="${esc(name0)}" placeholder="gold_station"> <span class="info">${esc(t('sub_name_help'))}</span></span></div>
+    ${unified ? vxModeRow('project') : ''}
+    ${pathRow('subDir', t(unified ? 'fo_dir' : 'sub_dir'), 'folder', '', t('sub_dir_help'))}
+    <div class="form-row"><label>${esc(t('sub_name'))}</label><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><input type="text" id="subName" spellcheck="false" style="width:220px" value="${esc(name0)}" placeholder="${isResearch() ? 'gold_station' : 'Site_A_2026'}"> <span class="info">${esc(t('sub_name_help'))}</span></span></div>
     <div class="form-row"><label></label><div id="subPlan" class="callout">${esc(t('sub_plan_wait'))}</div></div>
-    <div class="form-row"><label></label><span style="display:flex;flex-direction:column;gap:4px"><label class="chk"><input type="checkbox" id="subVideos" checked> ${esc(t('sub_videos'))}</label>
-      <label class="chk" title="${esc(t('sub_convert_help'))}"><input type="checkbox" id="subConvert" ${S.settings.copy_convert !== false ? 'checked' : ''}> ${esc(t('sub_convert'))}</label><span class="info">${esc(t('sub_convert_help'))}</span></span></div>
+    <div class="form-row"><label></label><span style="display:flex;flex-direction:column;gap:4px"><label class="chk"><input type="checkbox" id="subVideos" checked> ${esc(t('sub_videos'))}</label></span></div>
+    ${vxConvertRow('subConvert')}
     <div id="subStatus"></div>
-    <div class="modal-actions"><button id="mCancel">${esc(t('close'))}</button><button id="subStop" class="danger-outline hidden" title="${esc(t('sub_stop_tip'))}">${esc(t('jb_stop'))}</button><button id="mOk" class="primary">${esc(t('sub_run'))}</button></div>`);
+    <div class="modal-actions"><button id="mCancel">${esc(t('close'))}</button><button id="subStop" class="danger-outline hidden" title="${esc(t('sub_stop_tip'))}">${esc(t('jb_stop'))}</button><button id="mOk" class="primary">${esc(t(unified ? 'fo_run' : 'sub_run'))}</button></div>`);
   subsetModalEl = m;
   wirePicks(m);
   histWire(m.querySelector('#subDir'), 'subset_dir');
+  if (unified) vxWireMode(m, ids, 'project');
   const q = sel => m.querySelector(sel);
   // 写す先と名前を入れるたびに、できるフォルダ（<写す先>/<名前>/ に動画と TrapNote）・足す先・横断の名前の変更をサーバーに訊いて出す
   let planTimer = null, planOk = false;
@@ -1219,8 +1361,7 @@ async function subsetDialog(ids, opts) {
     const out = q('#subDir').value.trim();
     if (!out) { toast(t('cross_need_dir'), 'error'); return; }
     try {
-      const j = await api('/api/export/subset', { ids: ids && ids.length ? ids : undefined, filters: filters || undefined, out_dir: out, name: q('#subName').value.trim(), copy_videos: q('#subVideos').checked, convert: q('#subConvert').checked });
-      S.settings.copy_convert = q('#subConvert').checked;
+      const j = await api('/api/export/subset', { ids: ids && ids.length ? ids : undefined, filters: filters || undefined, out_dir: out, name: q('#subName').value.trim(), copy_videos: q('#subVideos').checked, convert: vxConvertValue(q('#subConvert')) });
       histRemember('subset_dir', out);
       S._bgWasRunning = true; m._running = true; m.querySelector('#mOk').disabled = true;
       subsetOnJobs(j);
@@ -1248,7 +1389,30 @@ function subsetOnJobs(jobs) {
   }
 }
 
-// ---------- 動画ファイルを書き出す（右クリック。判定は写さない） ----------
+// ---------- 動画の書き出しの窓（確認事項 125 回目） ----------
+// 右クリックの「動画を書き出す…」。「動画のファイルだけ」（filesOutDialog）と「TrapNote で開ける形」（subsetDialog）を 1 つの窓にまとめた。上の「書き出す形」で切り替わる。
+// どちらの形でも、MP4 に変換する範囲を選べて、書き出し先に一覧の CSV（video_list.csv）が必ず付く
+const VX = { convert: '' };       // 前に選んだ変換の範囲（'unplayable' / 'all'。窓を開き直しても覚えている）
+function vxModeRow(mode) {
+  return `<div class="form-row"><label>${esc(t('vx_mode'))}</label><span style="display:flex;flex-direction:column;gap:4px">
+    <label class="chk"><input type="radio" name="vxMode" value="files" ${mode === 'files' ? 'checked' : ''}> ${esc(t('vx_mode_files'))} <span class="info">${esc(t('vx_mode_files_help'))}</span></label>
+    <label class="chk"><input type="radio" name="vxMode" value="project" ${mode === 'project' ? 'checked' : ''}> ${esc(t('vx_mode_project'))} <span class="info">${esc(t('vx_mode_project_help'))}</span></label></span></div>`;
+}
+function vxConvertRow(id) {
+  const v = S.settings.copy_convert === false ? '' : (VX.convert === 'all' ? 'all' : 'unplayable');
+  const o = (val, key) => `<option value="${val}" ${v === val ? 'selected' : ''}>${esc(t(key))}</option>`;
+  return `<div class="form-row"><label>${esc(t('vx_convert'))}</label><span style="display:flex;flex-direction:column;gap:4px"><select id="${id}">${o('', 'vx_convert_no')}${o('unplayable', 'vx_convert_unplayable')}${o('all', 'vx_convert_all')}</select><span class="info">${esc(t('vx_convert_help'))}</span></span></div>
+    <div class="form-row"><label>${esc(t('vx_list'))}</label><span class="info">${esc(t('vx_list_note'))}</span></div>`;
+}
+function vxConvertValue(el) { VX.convert = el.value || VX.convert; S.settings.copy_convert = !!el.value; return el.value === 'all' ? 'all' : !!el.value; }
+function vxWireMode(m, ids, cur) {
+  m.querySelectorAll('input[name=vxMode]').forEach(r => { r.onchange = () => {
+    if (!r.checked || r.value === cur) return;
+    if (r.value === 'files') { subsetModalEl = null; filesOutDialog(ids); } else { filesOutModalEl = null; subsetDialog(ids, { unified: true }); }
+  }; });
+}
+function videoExportDialog(ids) { if (ids && ids.length) filesOutDialog(ids); }
+
 let filesOutModalEl = null;
 function filesOutDialog(ids, opts) {
   // ids = 対象の id（右クリック）。opts.catalog = {filters, params} なら横断の目録から選んだ動画（取り込まない。横断の 4 の段「動画ファイルを書き出す」）、opts.n はその本数
@@ -1256,19 +1420,20 @@ function filesOutDialog(ids, opts) {
   const cat = opts.catalog || null;
   if ((!ids || !ids.length) && !cat) return;
   const n0 = cat ? (opts.n || 0) : ids.length;
-  const m = showModal(`<h3>${esc(t('fo_title'))}</h3><div class="note">${esc(t('fo_help'))}${cat ? ' ' + esc(t('fo_catalog_note')) : ''}</div>
+  const m = showModal(`<h3>${esc(t(cat ? 'fo_title' : 'vx_title'))}</h3><div class="note">${esc(t(cat ? 'fo_help' : 'vx_help'))}${cat ? ' ' + esc(t('fo_catalog_note')) : ''}</div>
     <div class="dt-counts"><span>${esc(t('items'))} <b>${n0}</b></span></div>
+    ${cat ? '' : vxModeRow('files')}
     ${pathRow('foDir', t('fo_dir'), 'folder', '', t('fo_dir_help'))}
     <div class="form-row"><label>${esc(t('fo_layout'))}</label><span style="display:flex;flex-direction:column;gap:4px">
       <label class="chk"><input type="radio" name="foTree" value="1" checked> ${esc(t('fo_tree'))} <span class="info">${esc(t('fo_tree_help'))}</span></label>
       <label class="chk"><input type="radio" name="foTree" value="0"> ${esc(t('fo_flat'))} <span class="info">${esc(t('fo_flat_help'))}</span></label></span></div>
-    <div class="form-row"><label></label><span style="display:flex;flex-direction:column;gap:4px">
-      <label class="chk" title="${esc(t('sub_convert_help'))}"><input type="checkbox" id="foConvert" ${S.settings.copy_convert !== false ? 'checked' : ''}> ${esc(t('fo_convert'))}</label><span class="info">${esc(t('fo_convert_help'))}</span></span></div>
+    ${vxConvertRow('foConvert')}
     <div id="foStatus"></div>
     <div class="modal-actions"><button id="mCancel">${esc(t('close'))}</button><button id="foStop" class="danger-outline hidden" title="${esc(t('fo_stop_tip'))}">${esc(t('jb_stop'))}</button><button id="mOk" class="primary">${esc(t('fo_run'))}</button></div>`);
   filesOutModalEl = m;
   wirePicks(m);
   histWire(m.querySelector('#foDir'), 'files_out_dir');
+  if (!cat) vxWireMode(m, ids, 'files');
   m.querySelector('#mCancel').onclick = () => { filesOutModalEl = null; closeModal(); };
   m.querySelector('#foStop').onclick = async () => { try { const j = await api('/api/jobs/stop', { lane: 'bg' }); m.querySelector('#foStop').disabled = true; filesOutOnJobs(j); } catch (e) { toast(e.message, 'error'); } };
   m.querySelector('#mOk').onclick = async () => {
@@ -1276,9 +1441,8 @@ function filesOutDialog(ids, opts) {
     if (!out) { toast(t('cross_need_dir'), 'error'); return; }
     const keepTree = m.querySelector('input[name=foTree]:checked').value === '1';
     try {
-      const body = { out_dir: out, keep_tree: keepTree, convert: m.querySelector('#foConvert').checked };
+      const body = { out_dir: out, keep_tree: keepTree, convert: vxConvertValue(m.querySelector('#foConvert')) };
       const j = cat ? await api('/api/cross/catalog/files_out', Object.assign({ filters: cat.filters, params: cat.params, exclude_imported: false }, body)) : await api('/api/export/files', Object.assign({ ids }, body));
-      S.settings.copy_convert = m.querySelector('#foConvert').checked;
       histRemember('files_out_dir', out);
       // この窓が出した仕事の id を覚える（すぐ終わる仕事だと、最初の表示のときに前回の結果（recent）を拾ってしまうので）
       const nj = (j.bg && j.bg.current && j.bg.current.kind === 'files_out') ? j.bg.current : ((j.bg && j.bg.queued) || []).find(x => x.kind === 'files_out');

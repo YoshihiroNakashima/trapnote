@@ -3,12 +3,13 @@ rem 既にある conda（Miniconda / Anaconda）で、TrapNote の環境（env\trapnote-env.
 rem conda.exe を直接呼ぶと「OpenSSL appears to be unavailable」で失敗することがあるので、先に activate.bat で conda の PATH を通す
 setlocal
 set "ROOT="
-for %%p in ("%USERPROFILE%\miniconda3" "%USERPROFILE%\anaconda3" "%LOCALAPPDATA%\miniconda3" "%LOCALAPPDATA%\anaconda3" "C:\ProgramData\miniconda3" "C:\ProgramData\Anaconda3" "C:\trapnote\miniconda3" "C:\areacheck\miniconda3") do (
+for %%p in ("%~dp0miniforge3" "%USERPROFILE%\miniforge3" "%LOCALAPPDATA%\miniforge3" "C:\ProgramData\miniforge3" "C:\trapnote\miniforge3" "%USERPROFILE%\miniconda3" "%USERPROFILE%\anaconda3" "%LOCALAPPDATA%\miniconda3" "%LOCALAPPDATA%\anaconda3" "C:\ProgramData\miniconda3" "C:\ProgramData\Anaconda3" "C:\trapnote\miniconda3" "C:\areacheck\miniconda3") do (
   if not defined ROOT if exist "%%~p\Scripts\activate.bat" set "ROOT=%%~p"
 )
 if not defined ROOT if defined CONDA_PREFIX if exist "%CONDA_PREFIX%\Scripts\activate.bat" set "ROOT=%CONDA_PREFIX%"
 if not defined ROOT (
-  echo conda が見つかりません。Miniconda を入れるか（https://docs.conda.io/en/latest/miniconda.html）、areacheck のインストール.bat を先に実行してください。
+  echo conda が見つかりません。インストーラ（TrapNote-Setup-....exe）を使うと、conda がなくても入れられます（Miniforge を一緒に入れます）。
+  echo 手で入れるときは、Miniforge（https://conda-forge.org/download/）か Miniconda を入れてから、もう一度実行してください。
   pause
   exit /b 1
 )

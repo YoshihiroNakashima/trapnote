@@ -19,9 +19,9 @@
   </div>
   <div class="group">
     <button id="btnDetectOnly" data-t="detect_only" data-title="detect_only_tip">検出のみ</button>
-    <button id="btnDetect" data-t="detect" data-title="detect_tip">自動判定</button>
-    <button id="btnAgree" data-t="ag_title" data-title="ag_tip">一致率</button>
-    <button id="btnTrain" data-t="train" data-title="train_tip">追加学習</button>
+    <button id="btnDetect" class="not-lite" data-t="detect" data-title="detect_tip">自動判定</button>
+    <button id="btnAgree" class="not-lite" data-t="ag_title" data-title="ag_tip">一致率</button>
+    <button id="btnTrain" class="not-lite" data-t="train" data-title="train_tip">追加学習</button>
     <button id="btnArchive" data-t="archive" data-title="archive_tip">保存用の変換</button>
     <button id="btnExport" data-t="export" data-title="export_tip">書き出し</button>
     <button id="btnMerge" data-t="merge" data-title="merge_tip">統合</button>
@@ -53,13 +53,15 @@
       <select id="sortSel" data-title="sort"></select>
       <button id="sortDir" class="small" data-title="sort_dir">↓</button>
       <label class="chk" data-title="filter_fav"><input type="checkbox" id="fFav"> ★</label>
+      <button type="button" id="btnAdv" class="fsel" data-t="adv_open" data-title="adv_open_tip">高度な検索</button>
       <button id="btnAssign" class="small" data-t="assign" data-title="assign_title">担当</button>
       <button id="btnBulk" class="small" data-t="bulk" data-title="bulk_tip">一括確定</button>
     </div>
     <div id="counts" class="counts"></div>
+    <div id="spotBar" class="spotbar hidden"></div>
     <div id="selBar" class="selbar hidden"><span id="selInfo"></span>
       <button class="small" id="selFav" data-title="sel_fav_tip">★</button><button class="small" id="selUnfav" data-title="sel_unfav_tip">☆</button>
-      <button class="small" id="selExcl" data-t="sel_excl" data-title="sel_excl_tip">学習から外す</button><button class="small" id="selIncl" data-t="sel_incl" data-title="sel_incl_tip">外さない</button>
+      <button class="small not-lite" id="selExcl" data-t="sel_excl" data-title="sel_excl_tip">学習から外す</button><button class="small not-lite" id="selIncl" data-t="sel_incl" data-title="sel_incl_tip">外さない</button>
       <button class="small danger-outline" id="selDel" data-t="sel_del">削除</button><button class="small" id="selClear" data-t="sel_clear">解除</button></div>
     <ul id="itemList"></ul>
     <div id="ctxMenu" class="ctxmenu hidden"></div>
@@ -93,10 +95,10 @@
         <button class="small spd" data-v="0.5">½×</button><button class="small spd active" data-v="1">1×</button><button class="small spd" data-v="2">2×</button><button class="small spd" data-v="4">4×</button>
       </span>
       <label class="vb-opt"><input type="checkbox" id="vbLoop"> <span data-t="loop">ループ</span></label>
-      <label class="vb-opt" id="vbBoxesWrap" data-title="boxes_tip"><input type="checkbox" id="vbBoxes"> <span data-t="boxes">検出枠</span></label><select id="vbBoxMode" class="vb-opt" data-title="box_mode_tip"><option value="all" data-t="box_mode_all">全部</option><option value="conf" data-t="box_mode_conf">0.5 以上</option><option value="train" data-t="box_mode_train">学習に使う枠</option></select>
+      <label class="vb-opt" id="vbBoxesWrap" data-title="boxes_tip"><input type="checkbox" id="vbBoxes"> <span data-t="boxes">検出枠</span></label><select id="vbBoxMode" class="vb-opt" data-title="box_mode_tip"><option value="all" data-t="box_mode_all">全部</option><option value="conf" data-t="box_mode_conf">0.5 以上</option><option value="train" class="not-lite" data-t="box_mode_train">学習に使う枠</option></select>
       <select id="vbEnhance" class="vb-opt" data-title="enhance_tip"><option value="0" data-t="enhance_0">補正なし</option><option value="1" data-t="enhance_1">補正 弱</option><option value="2" data-t="enhance_2">補正 中</option><option value="3" data-t="enhance_3">補正 強</option><option value="4" data-t="enhance_4">補正 最強</option></select>
-      <select id="vbOpenMode" class="vb-opt" data-title="open_mode_tip"><option value="play" data-t="open_mode_play">開いたら再生</option><option value="pause" data-t="open_mode_pause">先頭で止める</option><option value="crop" data-t="open_mode_crop">学習枠で止める</option></select>
-      <button id="vbEdit" class="small" data-t="box_edit" data-title="box_edit_tip">枠を編集</button>
+      <select id="vbOpenMode" class="vb-opt" data-title="open_mode_tip"><option value="play" data-t="open_mode_play">開いたら再生</option><option value="pause" data-t="open_mode_pause">先頭で止める</option><option value="crop" class="not-lite" data-t="open_mode_crop">学習枠で止める</option></select>
+      <button id="vbEdit" class="small not-lite" data-t="box_edit" data-title="box_edit_tip">枠を編集</button>
       <span id="boxTools" class="vb-opt hidden"><select id="beCat" class="small"><option value="animal" data-t="det_animal">動物</option><option value="person" data-t="det_person">人</option><option value="vehicle" data-t="det_vehicle">車</option></select>
         <button id="beDel" class="small" data-t="box_del" data-title="box_del_tip">枠を消す</button><button id="beClear" class="small" data-t="box_clear" data-title="box_clear_tip">このフレームの枠を消す</button><button id="beClearAll" class="small danger-outline" data-t="box_clear_all" data-title="box_clear_all_tip">動画の枠を全部消す</button>
         <button id="beSave" class="small primary" data-t="box_save">保存</button><button id="beCancel" class="small" data-t="cancel">キャンセル</button><span class="info" data-t="box_edit_hint">ドラッグで新しい枠。枠をドラッグで移動、角で大きさ</span></span>
@@ -106,7 +108,7 @@
   <aside id="sidePane">
     <div id="itemHead">
       <div id="itemName" data-t="no_item">対象が選ばれていません</div>
-      <span class="headRight"><span id="itemPos" class="itempos hidden" data-title="item_pos_tip"></span><span id="headBtns" class="hidden"><button id="btnTime" class="fav" data-title="time_tip">🕓</button><button id="btnExcl" class="fav" data-title="excl_tip">🚫</button><button id="btnFav" class="fav" data-title="fav_tip">☆</button></span></span>
+      <span class="headRight"><span id="itemPos" class="itempos hidden" data-title="item_pos_tip"></span><span id="headBtns" class="hidden"><button id="btnTime" class="fav" data-title="time_tip">🕓</button><button id="btnExcl" class="fav not-lite" data-title="excl_tip">🚫</button><button id="btnFav" class="fav" data-title="fav_tip">☆</button></span></span>
       <div id="itemMeta"></div>
     </div>
     <div id="selNote" class="selnote hidden"></div>
@@ -121,7 +123,7 @@
       </div>
       <div id="spFields"></div>
       <div id="itemFields" class="box"></div>
-      <div id="cropsBox" class="box hidden"><details id="cropsDet"><summary class="box-head"><span data-t="crops_title">学習に使う枠</span> <span id="cropsCount" class="info"></span>
+      <div id="cropsBox" class="box hidden not-lite"><details id="cropsDet"><summary class="box-head"><span data-t="crops_title">学習に使う枠</span> <span id="cropsCount" class="info"></span>
           <span class="right"><button type="button" class="small" id="cropsAllOff" data-t="crops_all_off">全部外す</button> <button type="button" class="small" id="cropsAllOn" data-t="crops_all_on">全部戻す</button></span></summary>
         <div class="note" data-t="crops_help">クリックでそのフレームへ（↑ ↓ で前後の枠）。✕ で学習から外す（↺ で戻す）</div><div class="note hidden" id="cropsNone"></div><div id="cropsGrid" class="crops-grid"></div></details></div>
       <div class="box">
@@ -142,6 +144,7 @@
 <div id="modal" class="hidden"><div id="modalBody"></div></div>
 <div id="toast" class="hidden"></div>
 <script src="/static/i18n.js?v=__V__"></script>
+<script src="/static/i18n_public.js?v=__V__"></script>
 <script src="/static/app.js?v=__V__"></script>
 <script src="/static/avi.js?v=__V__"></script>
 <script src="/static/player.js?v=__V__"></script>
@@ -149,6 +152,10 @@
 <script src="/static/judge.js?v=__V__"></script>
 <script src="/static/dialogs.js?v=__V__"></script>
 <script src="/static/cross.js?v=__V__"></script>
+<script src="/static/station.js?v=__V__"></script>
+<script src="/static/i18n_search.js?v=__V__"></script>
+<script src="/static/search_shared.js?v=__V__"></script>
+<script src="/static/search_main.js?v=__V__"></script>
 <script>init();</script>
 </body>
 </html>

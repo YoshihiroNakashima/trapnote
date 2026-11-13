@@ -99,15 +99,28 @@ def _pattern_cols(db: Database) -> list[str]:
     return names
 
 
+def folder_cols(project) -> list[str]:
+    """地点のフォルダを選んでいないプロジェクト（パターンに {station} がない）では、フォルダの各階層を Folder1, Folder2 … の列で出す
+    （確認事項 125 回目: 選ばなくても使える。そのときは、どの階層が何かを、CSV を使う人が決められるように）。選んであれば、列は足さない"""
+    from .pattern import names_in
+    if project.is_cross or "station" in names_in(project.setting("pattern") or ""):
+        return []
+    depth = 0
+    for r in project.db.q("SELECT DISTINCT folder FROM items"):
+        depth = max(depth, len([s for s in (r["folder"] or "").split("/") if s]))
+    return [f"Folder{i + 1}" for i in range(depth)]
+
+
 def export_csv(project, path: str, f: dict, lang: str = "ja", include_unjudged: bool = True) -> dict:
     """長い形式の CSV。返り値は行数など"""
     db = project.db
+    fcols = folder_cols(project)
     sp = project.species.by_code()
     fields = project.fields.fields
     item_fields = [x for x in fields if x["scope"] == "item"]
     sp_fields = [x for x in fields if x["scope"] == "species"]
     extra = _pattern_cols(db)
-    header = BASE_COLS + extra + ITEM_COLS + SP_COLS + [x["key"] for x in item_fields] + [x["key"] for x in sp_fields]
+    header = BASE_COLS + extra + fcols + ITEM_COLS + SP_COLS + [x["key"] for x in item_fields] + [x["key"] for x in sp_fields]
     n_rows = n_items = 0
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     tmp = path + ".tmp"
@@ -123,6 +136,9 @@ def export_csv(project, path: str, f: dict, lang: str = "ja", include_unjudged: 
                 pass
             base = [it.get("season") or "", it.get("station") or "", it["name"], it.get("datetime") or "", it.get("datetime_corrected") or it.get("datetime") or ""]
             ex = [pat.get(k, "") for k in extra]
+            if fcols:
+                segs = [s for s in (it.get("folder") or "").split("/") if s]
+                ex += (segs + [""] * len(fcols))[:len(fcols)]
             icols = [it["rel_path"], os.path.basename(it["orig_rel_path"]) if it.get("orig_rel_path") else "", it["kind"], it.get("datetime_source") or "",
                      1 if it.get("datetime_corrected") else 0, it.get("time_offset_sec") if it.get("time_offset_sec") is not None else 0, it.get("time_note") or "",
                      f"{it['duration']:.2f}" if it.get("duration") is not None else "", it.get("width") or "", it.get("height") or "",

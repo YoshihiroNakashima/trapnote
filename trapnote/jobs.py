@@ -15,7 +15,7 @@ import traceback
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 
-from .paths import background_thread
+from .paths import background_thread, foreground_active
 
 from . import media
 from .db import now_iso
@@ -187,7 +187,16 @@ def ensure_meta(project, item_id: int, ffmpeg_path: str = "") -> dict | None:
 
 
 class MetaJob(Job):
-    """メタデータ（長さ、解像度、fps、日時）を未取得の対象について取る。ffprobe は別プロセスなので並列にする"""
+    """メタデータ（長さ、解像度、fps、日時）を未取得の対象について取る。ffprobe は別プロセスなので並列にする。
+    動画はまずヘッダを直接読む（fastprobe。プロセスを起こさないので桁違いに速い）。知らないカメラの形式で違う値を黙って書かないように、
+    署名（ファイルの「型」）ごとに最初の 2 本と、そのあと SPOT 本ごとに 1 本を ffprobe と突き合わせ、違えばその署名の動画を、この処理で既に書いた分も含めて ffprobe で取り直す。
+    ヘッダからは言い切れない動画（fastprobe が None）と画像は今までどおり。環境変数 TRAPNOTE_FAST_PROBE=0 なら、全部を今までどおり ffprobe で取る"""
+
+    CHUNK = 200          # 速い経路で一度に進める本数（「止める」と進捗の表示はこの単位）
+    SPOT = 500           # 信用した署名でも、この本数ごとに 1 本を ffprobe と突き合わせる
+    FAST_WORKERS = 8     # ヘッダを読むスレッドの数（まだ読んでいない HDD では 8 本同時がいちばん速い: 1 本 8 ms → 4 ms。SSD では CPU の 1 核ぶんで頭打ち）
+    FAST_LOW_IO = False  # True: ヘッダを読むスレッドのディスクの優先度を「とても低い」にする（ffprobe と同じ扱い）。HDD では同時に読めなくなり約 1.8 倍かかるので、
+    #                      既定は通常の優先度（読むのは 1 本あたり 8〜64 KB で、全体でも数十秒で終わる）
 
     def __init__(self, item_ids: list[int] | None = None, workers: int = 4):
         super().__init__("meta", dict(n=len(item_ids) if item_ids else None), "メタデータの取得")
@@ -228,20 +237,115 @@ class MetaJob(Job):
             pending = []
 
         step = max(1, self.workers) * 4                      # ex.map は全部を先に投げてしまい「止める」が効かないので、少しずつ投げる
-        with ThreadPoolExecutor(max(1, self.workers), thread_name_prefix="meta") as ex:
-            for i0 in range(0, len(rows), step):
-                if self.stop_flag.is_set():
-                    break
-                for iid, m, err in ex.map(one, rows[i0:i0 + step]):
-                    pending.append((iid, m, err))
-                    if err:
-                        self.failed += 1
-                    else:
-                        self.done += 1
-                    self.current = rows[i0]["rel_path"] if i0 < len(rows) else ""
-                if len(pending) >= 50 or time.time() - last_flush > 2.0:
+
+        def run_fast(ex):
+            """速い経路。ex は ffprobe 用のスレッド（今までと同じ本数）"""
+            from . import fastprobe
+            from .paths import kind_of
+            trust: dict = {}        # 署名 → ffprobe と一致した本数（2 本で信用する）
+            since: dict = {}        # 署名 → 最後に突き合わせてから、速い経路の値をそのまま使った本数
+            wrote: dict = {}        # 署名 → 速い経路の値をそのまま書いた行（rows の番号）。あとで違いが出たら取り直す
+            bad: set = set()        # ffprobe と違う値が出た署名（以後は ffprobe で取る）
+            n_fast = n_slow = 0
+
+            def fast_one(r):
+                p = project.abs_path(r["rel_path"])
+                return None if kind_of(p) == "image" else fastprobe.probe_fast(p, z)
+
+            def slow(idx):
+                """rows の番号の並びを今までどおり（media.probe）で取る。「止める」が来たら済んだところまで。返り値 {番号: 値（失敗は None）}"""
+                got = {}
+                for j0 in range(0, len(idx), step):
+                    if self.stop_flag.is_set():
+                        break
+                    part = idx[j0:j0 + step]
+                    for i, (iid, m, err) in zip(part, ex.map(one, [rows[i] for i in part])):
+                        got[i] = m
+                        pending.append((iid, m, err))
+                        if err:
+                            self.failed += 1
+                        else:
+                            self.done += 1
+                return got
+
+            with ThreadPoolExecutor(max(1, self.FAST_WORKERS), thread_name_prefix="metafast", initializer=fastprobe.low_io_thread if self.FAST_LOW_IO else None) as fx:
+                for i0 in range(0, len(rows), max(1, self.CHUNK)):
+                    if self.stop_flag.is_set():
+                        break
+                    idx = list(range(i0, min(i0 + max(1, self.CHUNK), len(rows))))
+                    self.current = rows[i0]["rel_path"]
+                    fast = dict(zip(idx, fx.map(fast_one, [rows[i] for i in idx])))
+                    # 先に ffprobe にかけるもの: 言い切れないもの・画像、違いが出た署名のもの、まだ信用していない署名の最初の 2 本、信用した署名の SPOT 本ごとの 1 本
+                    first, check, plan = [], {}, {}
+                    for i in idx:
+                        f = fast[i]
+                        sig = f["sig"] if f else None
+                        if f is None or sig in bad:
+                            first.append(i)
+                        elif trust.get(sig, 0) + plan.get(sig, 0) < 2:
+                            plan[sig] = plan.get(sig, 0) + 1
+                            check[i] = sig
+                            first.append(i)
+                        elif since.get(sig, 0) + 1 >= self.SPOT:
+                            since[sig] = 0
+                            check[i] = sig
+                            first.append(i)
+                        else:
+                            since[sig] = since.get(sig, 0) + 1
+                    got = slow(first)
+                    n_slow += len(got)
+                    redo = []
+                    for i, sig in check.items():
+                        m = got.get(i)
+                        if m is None:                        # 止めた、または ffprobe の失敗: 突き合わせられなかった
+                            continue
+                        diff = fastprobe.differences(fast[i], m)
+                        if not diff:
+                            trust[sig] = trust.get(sig, 0) + 1
+                        elif sig not in bad:
+                            bad.add(sig)
+                            redo += wrote.pop(sig, [])
+                            log.warning("メタデータ: ヘッダから読んだ値が ffprobe と違うので、この型の動画は ffprobe で取ります（違った項目: %s）。例 %s: %s、型 %s",
+                                        "、".join(diff), rows[i]["rel_path"], {k: (fast[i][k], m[k]) for k in diff}, sig)
+                    if redo:                                 # 既に書いた分は「未取得」に戻してから取り直す（途中で止まっても、次の回に取り直される）
+                        with db.tx() as c:
+                            c.executemany("UPDATE items SET meta_state=0 WHERE id=?", [(rows[i]["id"],) for i in redo])
+                        self.done -= len(redo)
+                        n_fast -= len(redo)
+                    done_first = set(first)
+                    rest = []
+                    for i in idx:
+                        if i in done_first:
+                            continue
+                        sig = fast[i]["sig"]
+                        if sig in bad or trust.get(sig, 0) < 2:
+                            rest.append(i)
+                        else:
+                            pending.append((rows[i]["id"], fast[i], None))
+                            wrote.setdefault(sig, []).append(i)
+                            self.done += 1
+                            n_fast += 1
+                    n_slow += len(slow(redo + rest))
                     flush()
-                    last_flush = time.time()
+            log.info("メタデータ: ヘッダから %d 件、ffprobe など今までの方法で %d 件（型 %d 種、うち ffprobe に回した型 %d 種）", n_fast, n_slow, len(trust) + len(bad - set(trust)), len(bad))
+
+        with ThreadPoolExecutor(max(1, self.workers), thread_name_prefix="meta") as ex:
+            if ffprobe and os.environ.get("TRAPNOTE_FAST_PROBE", "1").strip() != "0":
+                run_fast(ex)
+            else:
+                for i0 in range(0, len(rows), step):
+                    if self.stop_flag.is_set():
+                        break
+                    for iid, m, err in ex.map(one, rows[i0:i0 + step]):
+                        pending.append((iid, m, err))
+                        if err:
+                            self.failed += 1
+                        else:
+                            self.done += 1
+                        self.current = rows[i0]["rel_path"] if i0 < len(rows) else ""
+                    if len(pending) >= 50 or time.time() - last_flush > 2.0:
+                        flush()
+                        last_flush = time.time()
         flush()
         self.message = f"{self.done} 件取得、{self.failed} 件失敗"
 
@@ -429,15 +533,20 @@ class DetectJob(Job):
         self.message = f"{hub.device_name}（{detect.frame_interval(s, hub.device)} 秒ごと）"
         t_start = time.time()
         # 次の対象のフレームは、いまの対象をモデルに通している間に別スレッドで読んでおく（CPU の読み出しと GPU の推論を重ねる）
-        reader = ThreadPoolExecutor(1, thread_name_prefix="frames", initializer=background_thread)      # 動画の読み出しは低い優先度で（再生の読み出しを先に通す）
+        # 動画の読み出しは、人が画面で動画やサムネイルを見ている間だけ、ディスクの優先度を「とても低い」に下げる（再生の読み出しを先に通す）。
+        # いつも下げると、読み出しが 1 割ほど遅くなる（確認事項 133 回目に測った: 1 フレーム 14.8 → 16.5 ミリ秒）ので、見ていない間は、ふつうの優先度で読む
+        reader = ThreadPoolExecutor(1, thread_name_prefix="frames")
         nxt = None
 
         def prefetch(row):
+            background_thread(foreground_active())           # 動画 1 本ごとに決め直す
             times = None
             if use_existing:
                 ex = detect.existing_boxes(db, row["id"])
                 if ex:
                     times = detect.crop_times(ex, s)        # 種判別に入れる枠のフレームだけ
+                elif detect.detected_without_boxes(db, row["id"]):
+                    return None                             # 検出済みで枠がない対象は、そのままにする（process_item がすぐ返すので、フレームは読まない）
             item = dict(row)
             if row["kind"] == "video" and row["meta_state"] != 1:          # メタデータがまだ（横断で取り込んだ動画など）なら、ここで取る（長さが分からないとフレームを選べない）
                 got = ensure_meta(project, row["id"], ffmpeg_path)

@@ -5,6 +5,8 @@
   python app.py --port 8766      ポートを変える
   python app.py --data-dir DIR   設定・状態・ログの置き場所を変える（試験用）
   python app.py --make-shortcut  デスクトップに起動用のショートカットを作る（Windows）
+  python app.py --edition research   版を選ぶ: public（公開版。既定）/ lite（検出と目視の確認まで）/ research（研究用。全部の機能を出す）
+                                     版は画面に出す機能だけを変える。プログラムもプロジェクトの形も同じ（起動（研究用）.bat、起動（Lite）.bat）
 """
 from __future__ import annotations
 
@@ -84,15 +86,28 @@ def port_free(port: int) -> bool:
             return False
 
 
-def running_version(port: int) -> str | None:
+def running_info(port: int) -> dict | None:
+    """port で動いている TrapNote のこと: ver（版+プログラムの日時）、edition（公開版 / Lite / 研究用。版の切り替えより前のサーバーは None）、
+    busy（処理が走っているレーンの名前）。TrapNote でなければ None"""
     try:
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/ping", timeout=1.5) as r:
             d = json.loads(r.read().decode("utf-8"))
-            if d.get("app") != APP_ID:
-                return None
-            return f"{d.get('version') or '?'}+{d.get('build') or '0'}"
+        if d.get("app") != APP_ID:
+            return None
+        info = dict(ver=f"{d.get('version') or '?'}+{d.get('build') or '0'}", edition=d.get("edition"), busy=d.get("busy"))
     except Exception:
         return None
+    if info["busy"] is None:            # 前の版のサーバーは busy を返さない → 処理の一覧を見る
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/jobs", timeout=1.5) as r:
+                j = json.loads(r.read().decode("utf-8"))
+            info["busy"] = [k for k in ("bg", "archive", "ml", "cross") if (j.get(k) or {}).get("current") or (j.get(k) or {}).get("queued")]
+        except Exception:
+            info["busy"] = []
+    return info
+
+
+EDITION_NAMES = {"public": APP_NAME, "lite": APP_NAME + " Lite", "research": APP_NAME + "（研究用）"}
 
 
 def stop_instance(port: int, wait_sec: float = 15.0) -> bool:
@@ -133,10 +148,13 @@ def open_browser(url: str) -> str:
     return "default"
 
 
-def make_shortcut() -> int:
+def make_shortcut(ed: str = "public") -> int:
+    """デスクトップに起動用のショートカットを作る。版ごとに名前が違う（TrapNote / TrapNote Lite / TrapNote（研究用））。公開版は引数なし（既定）"""
     if not sys.platform.startswith("win"):
         print("ショートカットの作成は Windows だけです")
         return 1
+    name = EDITION_NAMES.get(ed, APP_NAME)
+    extra = "" if ed == "public" else f" --edition {ed}"
     pyw = sys.executable[:-len("python.exe")] + "pythonw.exe" if sys.executable.lower().endswith("python.exe") else sys.executable
     if not os.path.isfile(pyw):
         pyw = sys.executable
@@ -145,13 +163,13 @@ def make_shortcut() -> int:
         '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; '
         '$d = [Environment]::GetFolderPath("Desktop"); '
         '$ws = New-Object -ComObject WScript.Shell; '
-        f'$s = $ws.CreateShortcut((Join-Path $d "{APP_NAME}.lnk")); '
+        f'$s = $ws.CreateShortcut((Join-Path $d "{name}.lnk")); '
         f'$s.TargetPath = "{pyw}"; '
-        f'$s.Arguments = \'"{app}"\'; '
+        f'$s.Arguments = \'"{app}"{extra}\'; '
         f'$s.WorkingDirectory = "{APP_DIR}"; '
         f'$s.IconLocation = "{sys.executable},0"; '
-        f'$s.Description = "{APP_NAME}"; '
-        '$s.Save(); Write-Output (Join-Path $d "' + APP_NAME + '.lnk")'
+        f'$s.Description = "{name}"; '
+        '$s.Save(); Write-Output (Join-Path $d "' + name + '.lnk")'
     )
     r = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps],
                        capture_output=True, text=True, encoding="utf-8", errors="replace")
@@ -169,26 +187,39 @@ def main() -> int:
     ap.add_argument("--make-shortcut", action="store_true", help="デスクトップに起動用のショートカットを作る")
     ap.add_argument("--data-dir", help="設定・状態・ログを置くフォルダ（既定は TrapNote/data）")
     ap.add_argument("--project", help="起動時に開くプロジェクト（メディアのルートか TrapNote フォルダ）")
+    ap.add_argument("--edition", choices=["public", "lite", "research"],
+                    help="版: public（公開版。既定）/ lite（検出と目視の確認まで）/ research（研究用。全部の機能を出す）")
     a = ap.parse_args()
     if a.data_dir:
         os.environ["TRAPNOTE_DATA_DIR"] = os.path.abspath(a.data_dir)
+    if a.edition:
+        os.environ["TRAPNOTE_EDITION"] = a.edition
+    from trapnote.config import edition
+    ed = edition()
     setup_logging()
-    log.info("%s %s（%s 更新）を起動（%s）", APP_NAME, VERSION, BUILD_TIME, sys.executable)
+    log.info("%s %s（%s 更新）を起動（%s。版: %s）", APP_NAME, VERSION, BUILD_TIME, sys.executable, ed)
     if a.make_shortcut:
-        return make_shortcut()
+        return make_shortcut(ed)
 
     from trapnote.server import Session, serve
     session = Session()
     port = a.port or int(session.settings["port"])
     if not port_free(port):
-        ver = running_version(port)
-        if ver == f"{VERSION}+{BUILD}":
+        info = running_info(port)
+        if info and info["ver"] == f"{VERSION}+{BUILD}" and info["edition"] == ed:
             log.info("起動済みのサーバーがあるので、画面だけ開きます")
             if not a.no_browser:
                 open_browser(f"http://127.0.0.1:{port}/")
             return 0
-        if ver is not None:
-            log.info("起動済みのサーバーは古い版（%s）なので止めて、%s+%s で起動し直します", ver, VERSION, BUILD)
+        if info is not None:
+            # プログラムの日時か版が違うサーバーが動いている。処理が走っていれば止めない（止めると、その処理が途中で終わる）。画面だけ開いて知らせる
+            if info["busy"]:
+                log.warning("起動済みのサーバー（%s。版: %s）で処理が走っているので、止めません（%s）。画面だけ開きます",
+                            info["ver"], info["edition"] or "?", ", ".join(info["busy"]))
+                if not a.no_browser:
+                    open_browser(f"http://127.0.0.1:{port}/?wanted={ed}")
+                return 0
+            log.info("起動済みのサーバー（%s。版: %s）を止めて、%s+%s（版: %s）で起動し直します", info["ver"], info["edition"] or "?", VERSION, BUILD, ed)
             if not stop_instance(port):
                 port = find_port(port + 1)
         else:

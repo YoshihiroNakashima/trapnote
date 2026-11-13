@@ -661,10 +661,12 @@ def build_label_map(labels: list[str], species_rows: list[dict]) -> list[str]:
                     continue
             if best is None or score < best[0]:
                 best = (score, c)
-        if best is None and d["genus"] and not d["species"] and d["genus"] in only_in_genus:
+        # 属・科だけのラベルは、その属・科で使う種が 1 つだけならその種に寄せる。目・綱の行（齧歯目・哺乳類など）に当たっていても、
+        # こちらを優先する（哺乳類の行があると、哺乳類のラベルはどれも綱で当たるので、「best がないときだけ」では寄せられなかった）
+        if d["genus"] and not d["species"] and d["genus"] in only_in_genus and (best is None or best[0] > 1):
             best = (1, only_in_genus[d["genus"]])            # "muntiacus species" → キョン（その属で使う種が 1 つだけ）
-        if best is None and d["family"] and not d["genus"] and d["family"] in only_in_family:
-            best = (2, only_in_family[d["family"]])          # "cervidae family" → その科で使う種が 1 つだけならそれ
+        if d["family"] and not d["genus"] and d["family"] in only_in_family and (best is None or best[0] > 2):
+            best = (2, only_in_family[d["family"]])          # "suidae family" → イノシシ（その科で使う種が 1 つだけ）
         out.append(best[1] if best else "unknown")
     return out
 
@@ -797,9 +799,33 @@ def crop_times(rows: list, s: dict) -> list[float]:
     return sorted({float(r[0]) for _, r in cands}) or [float(rows[0][0])]
 
 
+def detected_without_boxes(db, item_id: int) -> bool:
+    """検出が済んでいて（det_state = 1）、枠が 1 つもない対象か。検出で何も見つからなかったもの、または人が枠を全部消したもの"""
+    r = db.q1("SELECT det_state FROM items WHERE id=?", (item_id,))
+    return bool(r) and r["det_state"] == 1 and db.q1("SELECT 1 FROM detections WHERE item_id=? LIMIT 1", (item_id,)) is None
+
+
+def kept_summary(db, item_id: int) -> dict:
+    """何も変えずにそのままにした対象の要約（処理の件数に数えるため。記録にある検出の要約と、いまの AI の判定から作る）"""
+    r = db.q1("SELECT det_json, auto_json FROM items WHERE id=?", (item_id,))
+    try:
+        summary = dict(json.loads((r["det_json"] if r else None) or "{}") or {})
+    except Exception:
+        summary = {}
+    try:
+        auto = json.loads((r["auto_json"] if r else None) or "{}") or {}
+    except Exception:
+        auto = {}
+    summary["results"] = [dict(species=x.get("species"), confidence=x.get("confidence")) for x in (auto.get("species") or []) if isinstance(x, dict)]
+    summary["flag"] = "low" if auto.get("low") else None
+    summary["kept"] = True
+    return summary
+
+
 def process_item(project, hub: ModelHub, item: dict, classify: bool = True, frames=None, use_existing: bool = False) -> dict:
     """検出（と判別）を 1 本について行い、DB に書く。返り値は要約。frames は load_frames() で先に読んだもの（省略可）。
-    use_existing なら detections 表にある枠（YOLO のラベルなど）をそのまま使い、検出はせずに種判別と特徴量だけ付ける（枠がなければ普通に検出）"""
+    use_existing なら detections 表にある枠（YOLO のラベルなど）をそのまま使い、検出はせずに種判別と特徴量だけ付ける。
+    枠がなければ: まだ検出していない対象は普通に検出する。検出が済んでいて枠が 1 つもない対象は、何も変えずにそのままにする"""
     db = project.db
     s = project_settings(project)
     a_th, a_min = float(s["animal_threshold"]), int(s["animal_min_frames"])
@@ -808,8 +834,15 @@ def process_item(project, hub: ModelHub, item: dict, classify: bool = True, fram
     max_crops = max(1, int(s["max_crops"]))
     t0 = time.time()
     rows = existing_boxes(db, item["id"]) if use_existing else []      # [t, category, conf, x, y, w, h]
+    if use_existing and not rows and detected_without_boxes(db, item["id"]):
+        # 検出が済んでいて枠がない: 種判別する枠がないので、そのままにする。以前はここで検出からやり直していたので、人が全部消した枠が戻り、
+        # 検出のあとで変換された動画には前になかった枠が付いた（確認事項 117 回目）
+        summary = kept_summary(db, item["id"])
+        summary["elapsed"] = round(time.time() - t0, 2)
+        return summary
     det_model = hub.detector_name
     n_frames_before = None
+    near: dict[float, float] = {}                       # 枠の秒 → 読んだフレームの秒（枠の秒にちょうどのフレームがないとき、いちばん近いもの）
     if rows:
         need = crop_times(rows, s)                      # 種判別に入れる枠のフレームだけ読む（検出はしないので、全フレームは要らない）
         if frames is None or not all(t in {ft for ft, _ in frames} for t in need):
@@ -817,12 +850,12 @@ def process_item(project, hub: ModelHub, item: dict, classify: bool = True, fram
         if not frames:
             raise RuntimeError("フレームを読めません")
         have = {ft for ft, _ in frames}
-        if not all(t in have for t in need):           # 近い時刻のフレームに寄せる（動画の秒がぴったり合わないとき。読んだフレームを使う枠だけ）
+        if not all(t in have for t in need):
+            # 動画の秒が枠の秒とぴったり合わない（検出のあとで動画を変換して fps が変わった、など）: いちばん近いフレームを使う。枠の秒は書き換えない。
+            # 以前は枠の秒を読めたフレームの秒に書き換えてから枠を選び直していたので、間隔の判定が変わって、読んでいないフレームの枠が選ばれ、
+            # KeyError（記録は「detect: 2.2」など）で失敗した。流し直すたびに選ばれる枠が変わる原因でもあった（確認事項 115 回目）
             ts = sorted(have)
-            need_set = set(need)
-            for r in rows:
-                if r[0] in need_set and r[0] not in have:
-                    r[0] = min(ts, key=lambda x: abs(x - r[0]))
+            near = {t: min(ts, key=lambda x: abs(x - t)) for t in need if t not in have}
         try:
             dj = json.loads(item.get("det_json") or "{}")
             det_model = dj.get("model") or "existing"
@@ -853,7 +886,12 @@ def process_item(project, hub: ModelHub, item: dict, classify: bool = True, fram
                    max_vehicle=round(max([r[2] for r in rows if r[1] == "vehicle"], default=0.0), 3),
                    max_area=round(max([r[5] * r[6] for r in rows if r[1] == "animal" and r[2] >= a_th], default=0.0), 4),
                    animal_threshold=a_th, person_threshold=p_th, model=det_model, at=now_iso())
-    nf = max(1, len({r[0] for r in rows} | {t for t, _ in frames}))
+    nf = max(1, len({near.get(r[0], r[0]) for r in rows} | {t for t, _ in frames}))      # 近いフレームを使った枠は、そのフレームと同じ 1 枚に数える
+    if n_frames_before:
+        # いまある枠を使うとき: 動物あり・人・車の判定は、検出のときに見たフレームの数（det_json の n_frames）で数える。検出のときと同じ判定になる。
+        # ここで読むのは種判別に入れる枠のフレームだけなので、読んだ数で数えると、枠が 1 フレームにしかない動画が「動物の枠は 2 フレーム以上」を満たしたことになり、
+        # 検出では動物なしだった動画が種の判別に進んでしまう（確認事項 117 回目）。YOLO のラベルは n_frames = 1 なので、1 フレームの枠でも動物ありのまま
+        nf = max(1, int(n_frames_before))
     summary.update(animal=summary["animal_frames"] >= min(a_min, nf), person=summary["person_frames"] >= min(p_min, nf), vehicle=summary["vehicle_frames"] >= min(p_min, nf))   # 静止画や短い動画はフレーム数で頭打ち
     # 種判別（動物の枠だけ）
     cls = None
@@ -871,7 +909,7 @@ def process_item(project, hub: ModelHub, item: dict, classify: bool = True, fram
     if classify and summary["animal"]:
         cands = pick_crops(rows, a_th, max_crops, float(s.get("crop_min_gap_sec", 0.6)), int(s.get("crop_per_frame", 2)))
         by_t = {t: im for t, im in frames}
-        probs, feats = hub.classify([(by_t[r[0]], r[3:7]) for _, r in cands])
+        probs, feats = hub.classify([(by_t[near.get(r[0], r[0])], r[3:7]) for _, r in cands])
         if hub.local and hub.local.get("kind") == "B":
             # 方式 B: 本体を学習し直したモデルは種コードを直接出す（geofence・ラベルの対応は要らない）
             codes, pc, mask = list(hub.local["classes"]), probs, None

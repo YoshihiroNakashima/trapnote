@@ -50,7 +50,7 @@ def test_export_files_tree_and_flat(tmp_path):
         out2 = str(tmp_path / "out_flat")
         r = files_out.export_files(p, list(ids.values()), out2, keep_tree=False)
         assert r["n"] == 4 and not r["keep_tree"]
-        assert sorted(os.listdir(out2)) == ["ROOT.MP4", "ST01_IMG_0001.AVI", "ST01_IMG_0002.AVI", "ST02_sub_IMG_0001.AVI"]
+        assert sorted(os.listdir(out2)) == ["ROOT.MP4", "ST01_IMG_0001.AVI", "ST01_IMG_0002.AVI", "ST02_sub_IMG_0001.AVI", "video_list.csv"]      # 一覧の CSV は必ず付く（確認事項 129 回目）
         assert open(os.path.join(out2, "ST02_sub_IMG_0001.AVI"), "rb").read() == b"c" * 500
         assert r["files"] == ["ROOT.MP4", "ST01_IMG_0001.AVI", "ST01_IMG_0002.AVI", "ST02_sub_IMG_0001.AVI"]
 
@@ -58,7 +58,7 @@ def test_export_files_tree_and_flat(tmp_path):
         os.remove(tmp_path / "season" / "ST01" / "IMG_0002.AVI")
         out3 = str(tmp_path / "out3")
         r = files_out.export_files(p, [ids["ST01/IMG_0002.AVI"], ids["ROOT.MP4"], 99999], out3, keep_tree=False)
-        assert r["n"] == 1 and r["n_missing"] == 1 and os.listdir(out3) == ["ROOT.MP4"]
+        assert r["n"] == 1 and r["n_missing"] == 1 and sorted(os.listdir(out3)) == ["ROOT.MP4", "video_list.csv"]
 
         # 止める: 最初から止まっていれば何も写さない
         out4 = str(tmp_path / "out4")

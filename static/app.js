@@ -25,7 +25,11 @@ const S = {
   cur: null, curIndex: -1, detail: null, busy: false, overlayTimer: null, playToken: 0,
   sel: [], spFields: {}, itemFields: {}, dirty: false,
   jobsTimer: null, transcoding: new Set(),
+  edition: '',   // 版: public（公開版）/ lite / research（研究用）。サーバーの起動のしかたで決まる（setSnapshot で入る）
 };
+// 版ごとに出す機能（確認事項 125 回目）。画面の要素は class（only-research / not-lite）と style.css で隠し、処理の分かれ目はこの 2 つで見る
+const isLite = () => S.edition === 'lite';
+const isResearch = () => S.edition === 'research';
 
 // ---------- 小道具 ----------
 function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
@@ -78,18 +82,25 @@ function hideOverlay() { clearTimeout(S.overlayTimer); S.overlayTimer = null; $(
 // ---------- 状態 ----------
 function setSnapshot(snap) {
   S.snap = snap; S.settings = snap.settings || {}; S.project = snap.project; S.facets = snap.facets || null;
+  S.edition = snap.edition || 'research';     // 版を返さないサーバー（版の切り替えより前のもの）は、全部の機能が出ていたので研究用として扱う
+  S.stationAsk = !!snap.station_ask;          // 作ったばかりのプロジェクトで、まだ地点のフォルダを訊いていない（station.js）
+  document.body.dataset.edition = S.edition;
+  if (isLite() && S.filter.species_src) S.filter.species_src = '';      // Lite には AI の種がない
   if (snap.species) S.species = snap.species;
   if (snap.fields) S.fields = snap.fields;
   rebuildSpMap();
   LANG = S.settings.language || 'ja';
   applyLang();
   if (typeof syncPlayerControls === 'function') syncPlayerControls();      // 再生バーの選択（開いたとき・枠の表示など）を読み直した設定に合わせる
-  $('#verInfo').textContent = 'v' + snap.version + (snap.build_time ? ' (' + String(snap.build_time).slice(5, 16).replace('T', ' ') + ')' : ''); $('#verInfo').title = snap.build_time ? 'build ' + snap.build_time : '';
+  const edName = t('ed_name_' + S.edition);
+  document.title = edName;
+  $('#verInfo').innerHTML = (S.edition === 'public' ? '' : `<span class="ed-chip" title="${esc(t('ed_tip_' + S.edition))}">${esc(t('ed_chip_' + S.edition))}</span>`) + esc('v' + snap.version + (snap.build_time ? ' (' + String(snap.build_time).slice(5, 16).replace('T', ' ') + ')' : ''));
+  $('#verInfo').title = edName + (snap.build_time ? ' · build ' + snap.build_time : '');
   renderTarget(); renderFilters(); renderJobs(snap.jobs);
   if (typeof renderSpeciesPanel === 'function') renderSpeciesPanel();
 }
 async function refreshState() { setSnapshot(await api('/api/state')); }
-async function refreshFacets() { if (!S.project) return; S.facets = await api('/api/project/facets'); renderFilters(); renderTarget(); renderCounts(); }
+async function refreshFacets() { if (!S.project) return; S.facets = await api('/api/project/facets'); renderFilters(); renderTarget(); renderCounts(); spotRefresh(); stnMaybeAsk(); }
 async function refreshCurrent() {   // 開いている対象の判定・検出だけ読み直す（再生はそのまま）
   if (!S.cur || S.busy) return;
   const id = S.cur.id;
@@ -150,13 +161,16 @@ function renderFilters() {
   $('#fFav').checked = !!S.filter.favorite;
   const low = f.low || 0, ag = f.agree || {};
   const cnt = n => n ? ` (${n})` : '';
-  fillSelect($('#fDet'), [['', t('all_det')], ['low', `${t('det_low')}${cnt(low)}`],
+  // Lite には種の AI と再学習がないので、それに関わる条件（要確認、AI との比較、学習から外した、学習枠）と並べ方（確信度、学習枠）は出さない
+  const aiOnly = new Set(['cmp:disagree', 'cmp:partial', 'cmp:agree', 'cmp:nohuman', 'cmp:any', 'cmp:rechecked', 'excl', 'crops', 'train', 'confidence']);
+  const forEd = opts => isLite() ? opts.filter(o => !aiOnly.has(o[0])) : opts;
+  fillSelect($('#fDet'), forEd([['', t('all_det')], ['low', `${t('det_low')}${cnt(low)}`],
       ['cmp:disagree', `${t('cmp_disagree')}${cnt(ag.mismatch)}`], ['cmp:partial', `${t('cmp_partial')}${cnt(ag.partial)}`], ['cmp:agree', `${t('cmp_agree')}${cnt(ag.match)}`], ['cmp:nohuman', t('cmp_nohuman')], ['cmp:any', `${t('cmp_any')}${cnt(ag.auto)}`], ['cmp:rechecked', `${t('cmp_rechecked')}${cnt(ag.rechecked)}`], ['excl', `${t('det_excluded')}${cnt(f.excluded)}`],
       ['box:0', t('det_box0')], ['box:1', t('det_box1')], ['box:2', t('det_box2')], ['box:3+', t('det_box3')],
       ['crops', t('det_crops')], ['train', t('det_train')],
-      ['todo', t('det_todo')], ['done', t('det_done')], ['animal', t('det_animal')], ['person', t('det_person')], ['vehicle', t('det_vehicle')], ['none', t('det_none')], ['failed', t('det_failed')]],
+      ['todo', t('det_todo')], ['done', t('det_done')], ['animal', t('det_animal')], ['person', t('det_person')], ['vehicle', t('det_vehicle')], ['none', t('det_none')], ['failed', t('det_failed')]]),
     S.filter.flag === 'low' ? 'low' : S.filter.exclude ? 'excl' : S.filter.boxes ? 'box:' + S.filter.boxes : (S.filter.agree ? 'cmp:' + S.filter.agree : (S.filter.det || '')));
-  fillSelect($('#sortSel'), [['station', t('sort_station')], ['datetime', t('sort_datetime')], ['name', t('sort_name')], ['path', t('sort_path')], ['status', t('sort_status')], ['updated', t('sort_updated')], ['confidence', t('sort_confidence')], ['boxes', t('sort_boxes')], ['crops', t('sort_crops')], ['id', t('sort_id')]], S.sort);
+  fillSelect($('#sortSel'), forEd([['station', t('sort_station')], ['datetime', t('sort_datetime')], ['name', t('sort_name')], ['path', t('sort_path')], ['status', t('sort_status')], ['updated', t('sort_updated')], ['confidence', t('sort_confidence')], ['boxes', t('sort_boxes')], ['crops', t('sort_crops')], ['id', t('sort_id')]]), S.sort);
   $('#sortDir').textContent = S.desc ? '↑' : '↓';
 }
 // ---------- フォルダの木（Picasa 風。クリックでその中に絞り込む） ----------
@@ -213,6 +227,7 @@ function saveUi() { api('/api/ui', { filter: S.filter, sort: S.sort, desc: S.des
 // ---------- 一覧（サーバー側ページングの仮想リスト） ----------
 const VLIST = { height: 68, first: -1, last: -1, wired: false, ticking: false };
 async function reloadList(keepScroll) {
+  if (typeof advOnReload === 'function') advOnReload();      // 高度な検索の別窓に、いまの絞り込みを知らせる（search_main.js）
   if (!S.project || !S.project.root) { S.total = 0; S.pages.clear(); renderWindow(true); renderCounts(); return; }
   const token = ++S.listToken;
   S.pages.clear(); S.pageLoading.clear();
@@ -264,7 +279,7 @@ function renderSpeciesFilter(sc) {
   const src = S.filter.species_src === 'ai' ? 'ai' : '';
   btn.textContent = spFilterLabel(S.filter.species, src) + ' ▾';
   const all = (S.species.species || []).concat(S.species.fixed || []).filter(s => s.enabled || sc[s.code] || s.fixed || cur.codes.includes(s.code));
-  pop.innerHTML = `<div class="msel-mode"><span class="info">${esc(t('sp_src'))}</span><label class="chk" title="${esc(t('sp_src_human_tip'))}"><input type="radio" name="fspSrc" value="" ${src ? '' : 'checked'}> ${esc(t('sp_src_human'))}</label><label class="chk" title="${esc(t('sp_src_ai_tip'))}"><input type="radio" name="fspSrc" value="ai" ${src ? 'checked' : ''}> ${esc(t('sp_src_ai'))}</label></div>
+  pop.innerHTML = `<div class="msel-mode not-lite"><span class="info">${esc(t('sp_src'))}</span><label class="chk" title="${esc(t('sp_src_human_tip'))}"><input type="radio" name="fspSrc" value="" ${src ? '' : 'checked'}> ${esc(t('sp_src_human'))}</label><label class="chk" title="${esc(t('sp_src_ai_tip'))}"><input type="radio" name="fspSrc" value="ai" ${src ? 'checked' : ''}> ${esc(t('sp_src_ai'))}</label></div>
     <div class="msel-head"><label class="chk"><input type="radio" name="fspKind" value="" ${!cur.kind ? 'checked' : ''}> ${esc(t('all_species'))}</label><label class="chk"><input type="radio" name="fspKind" value="none" ${cur.kind === 'none' ? 'checked' : ''}> ${esc(t('sp_none'))}</label><label class="chk"><input type="radio" name="fspKind" value="any" ${cur.kind === 'any' ? 'checked' : ''}> ${esc(t('sp_any'))}</label><label class="chk" title="${esc(t('sp_multi_tip'))}"><input type="radio" name="fspKind" value="multi" ${cur.kind === 'multi' ? 'checked' : ''}> ${esc(t('sp_multi'))}</label></div>
     <div class="msel-mode"><span class="info">${esc(t('sp_pick_help'))}</span><label class="chk" title="${esc(t('sp_mode_all_tip'))}"><input type="radio" name="fspMode" value="all" ${cur.mode === 'all' ? 'checked' : ''}> ${esc(t('sp_mode_all'))}</label><label class="chk" title="${esc(t('sp_mode_any_tip'))}"><input type="radio" name="fspMode" value="any" ${cur.mode === 'any' ? 'checked' : ''}> ${esc(t('sp_mode_any'))}</label></div>
     <div class="msel-mode"><button type="button" class="small" id="fspAllAnimals" title="${esc(t('sp_all_animals_tip'))}">${esc(t('sp_all_animals'))}</button><button type="button" class="small" id="fspClear">${esc(t('sp_clear_picks'))}</button></div>
@@ -309,6 +324,8 @@ function activeFilterNames() {
   if (f.boxes) out.push(`${t('boxes_n')} ${f.boxes}`);
   if (f.agree) out.push(t('cmp_' + f.agree) || f.agree);
   if (f.det) out.push(t('det_' + f.det) || f.det);
+  if (f.ids) out.push(t('sc_filter'));       // 抜き取りの確認: 一覧を、抜き取った動画だけにしている
+  if (typeof advFilterNames === 'function') out.push(...advFilterNames(f));      // 簡易の欄にない条件（高度な検索の別窓で付けたもの。search_main.js）
   return out;
 }
 // 開いた直後、前回から残っていた絞り込みで 0 件なら外す（「AI と不一致」が残って 0 件のまま、を防ぐ）。動画がそもそもないときは何もしない
@@ -321,6 +338,7 @@ async function autoClearIfEmpty() {
 }
 // 横断で取り込みが終わったら、その組だけを一覧に出す
 async function showBatch(batch) {
+  if (typeof advReset === 'function') advReset();      // 簡易の欄にない条件（高度な検索）も外す
   if (!S.project) return;
   await refreshFacets();
   Object.assign(S.filter, { station: '', season: '', batch: batch || '', status: '', species: '', assignee: '', text: '', favorite: '', det: '', flag: '', agree: '', exclude: '', boxes: '' });
@@ -329,7 +347,8 @@ async function showBatch(batch) {
   toast(batch ? `${t('filter_batch')} ${batch}: ${S.total} ${t('items')}` : `${S.total} ${t('items')}`);
 }
 function clearFilters() {   // フォルダの選択（木）はそのまま
-  Object.assign(S.filter, { station: '', season: '', batch: '', status: '', species: '', species_src: '', assignee: '', text: '', favorite: '', det: '', flag: '', agree: '', exclude: '', boxes: '' });
+  if (typeof advReset === 'function') advReset();      // 簡易の欄にない条件（高度な検索）も外す
+  Object.assign(S.filter, { station: '', season: '', batch: '', status: '', species: '', species_src: '', assignee: '', text: '', favorite: '', det: '', flag: '', agree: '', exclude: '', boxes: '', ids: '' });
   $('#fText').value = '';
   renderFilters(); saveUi(); reloadList();
 }
@@ -518,10 +537,10 @@ function showCtxMenu(x, y, id, i, rowObj) {
   const items = [
     !many && !rowObj && ['open', t('ctx_open')],
     [many || !row.favorite ? 'favorite' : 'unfavorite', many || !row.favorite ? t('ctx_fav') : t('ctx_unfav')],
-    [many || !row.train_exclude ? 'exclude' : 'include', many || !row.train_exclude ? t('ctx_excl') : t('ctx_incl')],
-    many && ['unfavorite', t('ctx_unfav')], many && ['include', t('ctx_incl')],
+    !isLite() && [many || !row.train_exclude ? 'exclude' : 'include', many || !row.train_exclude ? t('ctx_excl') : t('ctx_incl')],
+    many && ['unfavorite', t('ctx_unfav')], many && !isLite() && ['include', t('ctx_incl')],
     ['all', t('ctx_sel_all')], 'hr',
-    ['export', `${t('ctx_export')} (${ids.length})`], ['files', `${t('ctx_files')} (${ids.length})`], ['subset', `${t('ctx_subset')} (${ids.length})`],
+    ['export', `${t('ctx_export')} (${ids.length})`], ['videos', `${t('ctx_videos')} (${ids.length})`],
     !many && ['reveal', t('ctx_reveal')], 'hr',
     ['delete', `${t(S.project && S.project.kind === 'cross' ? 'ctx_del_cross' : 'ctx_del')}${many ? ` (${ids.length})` : ''}`, 'danger'],
   ].filter(Boolean);
@@ -537,9 +556,8 @@ function showCtxMenu(x, y, id, i, rowObj) {
     if (act === 'open') openItem(id, i >= 0 ? i : undefined);
     else if (act === 'all') selectAll();
     else if (act === 'export') exportDialog({ ids });
-    else if (act === 'files') filesOutDialog(ids);
+    else if (act === 'videos') videoExportDialog(ids);
     else if (act === 'reveal') revealItem(id);
-    else if (act === 'subset') subsetDialog(ids);
     else if (act === 'delete') deleteItems(ids);
     else bulkAction(act, ids);
   };
@@ -657,14 +675,16 @@ function renderJobs(jobs) {
     S._mlDone = jobs.ml.current.done;
     if (Date.now() - (S._mlRefresh || 0) > 5000) { S._mlRefresh = Date.now(); refreshFacets().then(() => reloadList(true)); }
   }
-  if (typeof archiveOnJobs === 'function') archiveOnJobs(jobs);
-  if (typeof detectOnJobs === 'function') detectOnJobs(jobs);
-  if (typeof trainOnJobs === 'function') trainOnJobs(jobs);
-  if (typeof yoloOnJobs === 'function') yoloOnJobs(jobs);
-  if (typeof yoloExportOnJobs === 'function') yoloExportOnJobs(jobs);
-  if (typeof subsetOnJobs === 'function') subsetOnJobs(jobs);
-  if (typeof filesOutOnJobs === 'function') filesOutOnJobs(jobs);
-  if (typeof crossOnJobs === 'function') crossOnJobs(jobs);
+  // 窓ごとの進み具合の表示。1 つの窓の表示で失敗しても、ほかの窓・2 秒ごとの状況・プロジェクトを開く処理（setSnapshot から呼ばれる）は止めない
+  const each = fn => { try { fn(jobs); } catch (e) { console.warn(fn.name, e); } };
+  if (typeof archiveOnJobs === 'function') each(archiveOnJobs);
+  if (typeof detectOnJobs === 'function') each(detectOnJobs);
+  if (typeof trainOnJobs === 'function') each(trainOnJobs);
+  if (typeof yoloOnJobs === 'function') each(yoloOnJobs);
+  if (typeof yoloExportOnJobs === 'function') each(yoloExportOnJobs);
+  if (typeof subsetOnJobs === 'function') each(subsetOnJobs);
+  if (typeof filesOutOnJobs === 'function') each(filesOutOnJobs);
+  if (typeof crossOnJobs === 'function') each(crossOnJobs);
 }
 async function pollJobs() {
   try {
@@ -828,5 +848,17 @@ async function init() {
       setTimeout(async () => { const s2 = await api('/api/state'); if (s2.project) { setSnapshot(s2); await reloadList(); await autoClearIfEmpty(); if (s2.last_item) openItem(s2.last_item).catch(() => {}); } else openProjectDialog(); }, 1200);
     }
     startJobsPolling();
+    edWantedNotice();
+    spotRefresh(true);                 // 前の起動から続いている抜き取りの確認があれば、帯を出す
+    setTimeout(stnMaybeAsk, 1500);
   } catch (e) { toast(e.message, 'error'); }
+}
+// 起動ファイルが、別の版（または新しいプログラム）で起動し直そうとしたが、処理が走っていて止めなかったとき（?wanted=…）: 画面で知らせる
+function edWantedNotice() {
+  let w = '';
+  try { w = new URLSearchParams(location.search).get('wanted') || ''; } catch (e) { return; }
+  if (!w) return;
+  try { history.replaceState(null, '', location.pathname); } catch (e) { /* そのまま */ }
+  const m = showModal(`<h3>${esc(t('ed_busy_title'))}</h3><div class="note">${esc(t('ed_busy_msg'))}</div><div class="form-row"><label>${esc(t('ed_busy_now'))}</label><span>${esc(t('ed_name_' + S.edition))}</span></div><div class="modal-actions"><button id="mCancel" class="primary">${esc(t('close'))}</button></div>`);
+  m.querySelector('#mCancel').onclick = closeModal;
 }

@@ -107,8 +107,15 @@ def copy_many(tasks, do_one, on_done, workers: int = 3, stop=None) -> bool:
     workers = max(1, int(workers or 1))
     stopped = False
     it = iter(tasks)
-    from .paths import background_thread
-    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="copy", initializer=background_thread) as ex:     # 写す読み書きは低い優先度で（画面の再生を先に通す）
+    from .paths import background_thread, foreground_active
+
+    def run_one(task):
+        # 人が画面で動画やサムネイルを見ている間だけ、写す読み書きのディスクの優先度を下げる（画面の再生を先に通す）。1 本ごとに決め直す。
+        # 見ていない間は、ふつうの優先度で写す（下げたままだと、写す速さが半分になる。paths.background_thread の説明）
+        background_thread(foreground_active())
+        return do_one(task)
+
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="copy") as ex:
         pending: dict = {}
         exhausted = False
         while True:
@@ -118,7 +125,7 @@ def copy_many(tasks, do_one, on_done, workers: int = 3, stop=None) -> bool:
                 except StopIteration:
                     exhausted = True
                     break
-                pending[ex.submit(do_one, task)] = task
+                pending[ex.submit(run_one, task)] = task
             if not pending:
                 break
             done, _ = wait(list(pending), return_when=FIRST_COMPLETED)

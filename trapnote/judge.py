@@ -149,6 +149,10 @@ def build_where(f: dict) -> tuple[str, list]:
     if f.get("ids"):
         ids = [int(i) for i in f["ids"]]
         w.append(f"items.id IN ({','.join('?' * len(ids))})"); p += ids
+    if f.get("adv"):                                 # 高度な検索（別窓）の条件: 地点・調査回・種の複数選択と除外、時刻、動画の長さ、枠の数の範囲、AI の信頼度、記録した項目（search.py）
+        from .search import where as adv_where
+        aw, ap = adv_where(f)
+        w += aw; p += ap
     return " AND ".join(w), p
 
 

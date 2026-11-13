@@ -1,8 +1,8 @@
 @echo off
-rem デスクトップに「TrapNote」のショートカットを作る
+rem デスクトップに「TrapNote」のショートカットを作る（公開版。研究用は「ショートカットを作る（研究用）.bat」）
 setlocal
 set "PY="
-for %%p in ("%USERPROFILE%\.conda\envs\trapnote\python.exe" "%USERPROFILE%\anaconda3\envs\trapnote\python.exe" "%USERPROFILE%\miniconda3\envs\trapnote\python.exe" "%LOCALAPPDATA%\anaconda3\envs\trapnote\python.exe" "%LOCALAPPDATA%\miniconda3\envs\trapnote\python.exe" "C:\ProgramData\Anaconda3\envs\trapnote\python.exe" "C:\ProgramData\miniconda3\envs\trapnote\python.exe" "C:\trapnote\miniconda3\envs\trapnote\python.exe" "C:\areacheck\miniconda3\envs\trapnote\python.exe") do (
+for %%p in ("%~dp0miniforge3\envs\trapnote\python.exe" "%USERPROFILE%\miniforge3\envs\trapnote\python.exe" "%LOCALAPPDATA%\miniforge3\envs\trapnote\python.exe" "C:\ProgramData\miniforge3\envs\trapnote\python.exe" "C:\trapnote\miniforge3\envs\trapnote\python.exe" "%USERPROFILE%\.conda\envs\trapnote\python.exe" "%USERPROFILE%\anaconda3\envs\trapnote\python.exe" "%USERPROFILE%\miniconda3\envs\trapnote\python.exe" "%LOCALAPPDATA%\anaconda3\envs\trapnote\python.exe" "%LOCALAPPDATA%\miniconda3\envs\trapnote\python.exe" "C:\ProgramData\Anaconda3\envs\trapnote\python.exe" "C:\ProgramData\miniconda3\envs\trapnote\python.exe" "C:\trapnote\miniconda3\envs\trapnote\python.exe" "C:\areacheck\miniconda3\envs\trapnote\python.exe") do (
   if not defined PY if exist %%p set "PY=%%~p"
 )
 for %%p in ("%USERPROFILE%\.conda\envs\rfdetr-env\python.exe" "%USERPROFILE%\anaconda3\envs\rfdetr-env\python.exe" "%USERPROFILE%\miniconda3\envs\rfdetr-env\python.exe" "%LOCALAPPDATA%\anaconda3\envs\rfdetr-env\python.exe" "%LOCALAPPDATA%\miniconda3\envs\rfdetr-env\python.exe" "C:\ProgramData\Anaconda3\envs\rfdetr-env\python.exe" "C:\ProgramData\miniconda3\envs\rfdetr-env\python.exe" "C:\trapnote\miniconda3\envs\rfdetr-env\python.exe" "C:\areacheck\miniconda3\envs\rfdetr-env\python.exe") do (
@@ -13,5 +13,5 @@ if not defined PY (
   pause
   exit /b 1
 )
-"%PY%" "%~dp0app.py" --make-shortcut
+"%PY%" "%~dp0app.py" --make-shortcut %*
 pause

@@ -2871,6 +2871,7 @@ def export_subset(project, ids: list[int], out_dir: str, copy_videos_too: bool =
         copy_cols = [c for c in cols if c in dcols and c not in ITEM_COPY_SKIP - {"batch"}]
         now = now_iso()
         counts = dict(n=0, miss=0, skip=0, conv=0, conv_fail=0)
+        pairs: list[tuple] = []          # 一覧の CSV 用: (もとの id, もとの行, 写した先での相対パス)
         tp = Throughput()
         ids = [int(x) for x in ids]
         total = len(ids)
@@ -2896,9 +2897,8 @@ def export_subset(project, ids: list[int], out_dir: str, copy_videos_too: bool =
 
         def want_convert(srow) -> bool:
             """変換して写すか: 動画で、ブラウザがそのまま再生できないもの（H.264 の MP4 はそのまま写す）"""
-            if not convert or srow.get("kind") != "video":
-                return False
-            return not media.direct_playable(srow.get("vcodec"), srow.get("acodec"), srow.get("container"))
+            from .files_out import wants_mp4          # convert = "all" なら、MP4 でない動画は全部（動画の書き出しの窓の「MP4 に変換」）
+            return wants_mp4(convert, srow.get("kind"), srow.get("vcodec"), srow.get("acodec"), srow.get("container"))
 
         def do_copy(task):
             """動画を <out_dir>/<相対パス> に写す（横断なら <参照先>/<参照先での相対パス>）。並列のスレッドで。
@@ -2997,12 +2997,20 @@ def export_subset(project, ids: list[int], out_dir: str, copy_videos_too: bool =
                     except OSError as e:
                         log.warning("枠の画像を写せません %s: %s", ca, e)
                 counts["n"] += 1
+                pairs.append((sid, dict(rel_path=rel), vals.get("rel_path") or rel))
             report(rel)
 
         # 動画は workers 本ずつ並列に写す（NAS からは 1 本ずつより速い）。「止める」は写している途中でも効く（.part を消す）。写し終えた分は残り、やり直せば続きから
         stopped = copy_many(tasks(), do_copy, record, workers=workers if copy_videos_too else 1, stop=stop)
         n, n_miss, n_skip = counts["n"], counts["miss"], counts["skip"]
-        return dict(n=n, n_missing=n_miss, n_skipped=n_skip, n_converted=counts["conv"], n_convert_failed=counts["conv_fail"], encoder=("nvenc" if use_nvenc else "libx264") if convert else "", out_dir=out_dir, dataset_dir=tg["dataset_dir"],
+        list_csv = ""
+        if pairs and copy_videos_too:                      # 動画の書き出しには、一覧の CSV を必ず付ける（確認事項 125 回目）。もとのフォルダとの対応が残る
+            try:
+                from .files_out import write_list_csv
+                list_csv = write_list_csv(project, out_dir, pairs)["path"]
+            except Exception as e:
+                log.warning("一覧の CSV を書けません %s: %s", out_dir, e)
+        return dict(n=n, n_missing=n_miss, n_skipped=n_skip, n_converted=counts["conv"], n_convert_failed=counts["conv_fail"], encoder=("nvenc" if use_nvenc else "libx264") if convert else "", out_dir=out_dir, list_csv=list_csv, dataset_dir=tg["dataset_dir"],
                     project_dir=dst.dir, fresh=fresh, stopped=stopped, n_left=len(ids) - n - n_miss - n_skip,
                     renamed_cross=tg["rename_cross"], bytes=tp.bytes, seconds=round(tp.seconds, 1), mb_s=round(tp.mb_s, 1), speed=tp.text() if tp.bytes else "")
     finally:

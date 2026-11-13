@@ -45,9 +45,10 @@ PROJECT_DEFAULTS = {
     "frame_interval_fixed": False,     # frame_interval_sec を人が数値で決めた（古い既定 0.5 を「自動」に直さない）
     # 第 3 段階（追加学習）の設定
     "train_min_conf": 0.5,             # 学習に使う枠の信頼度（MegaDetector）の下限
-    "train_weight_hard": 2.0,          # 人と AI が食い違った・見直し済みの動画の枠の重み
+    "train_weight_hard": 1.0,          # 人と AI が食い違った・見直し済みの動画の枠の重み。1 = 重みを付けない（既定。2026-11-13 に 2 から変えた。確認事項 127 回目）。保存してあるプロジェクトの値は、そのまま
     "train_holdout_frac": 0.2,         # 検証用に取り分ける地点の割合
-    "train_base_mix": 0.3,             # 方式 A: 元の SpeciesNet の確率を混ぜる割合
+    "train_base_mix": 0.0,             # 方式 A: 元の SpeciesNet の確率を混ぜる割合。0 = 混ぜない（既定。2026-11-13 に 0.3 から変えた。確認事項 121 回目）
+    "base_mix_fixed": False,           # train_base_mix を人が既定と違う数値に決めた（古い既定 0.3 を 0 に直さない）。名前を train_ で始めないのは、学習の記録（model.json の settings）に入れないため
     "train_min_per_class": 5,          # 学習に入れる種の最低の枠数
     "train_use_empty": True,           # 「動物なし」の動画の枠を「動物なし」として学習する
     "train_drop_static": False,        # 動画の間ずっと同じ位置にある枠（倒木・石の誤検出）を動画の種ではなく「動物なし」として学習する（動く枠が 1 つでもある動画で）。既定オフ: 学習フレームは人が確認する前提なので、自動の選別はしない
@@ -143,6 +144,10 @@ class Project:
         # 古い既定（0.5 秒ごと）のままのプロジェクトは「自動」（GPU なら 0.2 秒ごと）に
         if self.data["settings"].get("frame_interval_sec") == 0.5 and not self.data["settings"].get("frame_interval_fixed"):
             self.data["settings"]["frame_interval_sec"] = "auto"
+        # 古い既定（方式 A で元の SpeciesNet の確率を 0.3 の割合で混ぜる）のままのプロジェクトは、新しい既定（0 = 混ぜない）に（確認事項 121 回目）。
+        # 人が 0.3 と決めたもの（base_mix_fixed）は直さない。保存してあるモデルは、それぞれの記録（model.json の base_mix）の割合のまま
+        if self.data["settings"].get("train_base_mix") == 0.3 and not self.data["settings"].get("base_mix_fixed"):
+            self.data["settings"]["train_base_mix"] = PROJECT_DEFAULTS["train_base_mix"]
         if root:
             self.set_root(root, save=False)
         self.root = self.resolve_root()
@@ -301,6 +306,12 @@ class Project:
                 s[k] = v
         if isinstance(s.get("skip_names"), str):
             s["skip_names"] = [x.strip() for x in s["skip_names"].split(",") if x.strip()]
+        if "train_base_mix" in changes and "base_mix_fixed" not in changes:
+            # 混ぜる割合を既定と違う数値にしたら、「人が決めた」の印を付ける（開いたときに、古い既定 0.3 を 0 に直す対象から外す）。既定に戻したら印を外す
+            try:
+                s["base_mix_fixed"] = abs(float(s["train_base_mix"]) - float(PROJECT_DEFAULTS["train_base_mix"])) > 1e-9
+            except (TypeError, ValueError):
+                pass
         self.save()
         return dict(s)
 

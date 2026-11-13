@@ -107,9 +107,11 @@ function playSrc(id, token) {
   showOverlayLater(t('loading'), '', 600);
   v.preload = 'auto';
   v.src = `/api/items/${id}/video`;
+  // 再生速度: <video> は読み込み（load）のたびに playbackRate を defaultPlaybackRate に戻すので、両方に入れる（playbackRate だけだと、動画を開くたびに 1 倍に戻っていた）
+  v.defaultPlaybackRate = S.settings.play_speed || 1;
   v.playbackRate = S.settings.play_speed || 1;
   v.loop = !!$('#vbLoop').checked;
-  v.onloadedmetadata = () => { if (token !== S.playToken) return; P.duration = v.duration || P.duration; hideOverlay(); renderVideoBar(); mediaReady(id, token); };
+  v.onloadedmetadata = () => { if (token !== S.playToken) return; v.playbackRate = S.settings.play_speed || 1; P.duration = v.duration || P.duration; hideOverlay(); renderVideoBar(); mediaReady(id, token); };
   v.onerror = () => { if (token !== S.playToken) return; showOverlay(t('cannot_play'), v.error ? v.error.message : ''); };
   v.load();
 }
@@ -232,6 +234,7 @@ function seekEdge(end) {
 }
 function setSpeed(x) {
   S.settings.play_speed = x; player().playbackRate = x; renderVideoBar();
+  const v = $('#player'); if (v) v.defaultPlaybackRate = x;       // 次に読み込む動画も、この速度で始まるように
   api('/api/settings', { play_speed: x }).catch(() => {});
 }
 function cycleSpeed(dir) {
