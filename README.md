@@ -23,7 +23,7 @@
 - **うまく入らないとき**: 入れたフォルダの `install.log` に記録がある。前からあった環境を使っていて失敗するときは、「前に作った Python の環境（trapnote）があっても使わず、専用の Miniforge に作る」に印を付けて、やり直す。
 - **研究室などで配るとき**: 上の exe を 1 つ渡せばよい（1 MB 以下。Python やモデルは入っておらず、入れる先の PC が自分で取ってくる）。GitHub の Releases に置くか、共有フォルダに置く。
   NVIDIA の GPU がある PC では GPU を使い、ない PC では CPU で動く（遅い）。動画のフォルダは、PC ごとに自分のものを開く。
-- インストーラは `installer/build_installer.py` で作る（Windows に入っている C# のコンパイラを使う。中身は、プログラムを置いて、下の「起動」に書いた手順を自動でするだけ）。
+- インストーラは `installer/build_installer.py` で作る（Windows に入っている C# のコンパイラを使う）。することは、プログラムを置く、Miniforge を入れる、`env/trapnote-env.yml` に書いたものを入れる（Python は conda-forge から、モジュールは pip で）、MegaDetector を入れる、アイコンを作る、の 5 つ。入れる先のフォルダの `install.log` に、流した命令と出力が残る。
 
 ## 起動
 

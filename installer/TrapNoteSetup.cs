@@ -5,8 +5,10 @@
 //   2. conda を探す。使うのは、前にこのインストーラが入れた <フォルダ>\miniforge3 か、環境 trapnote がもうある conda（インストール.bat で入れた PC）だけ。
 //      どちらもなければ、Miniforge（conda-forge が配っている conda）を取ってきて、<フォルダ>\miniforge3 に入れる（PATH やレジストリには書かない）。
 //      環境のない Anaconda などに新しく作らないのは、PC ごとに conda の版や設定（配布元 defaults の利用規約の確認など）が違って、失敗のしかたが変わるため
-//   3. conda 環境 trapnote を env\trapnote-env.yml から作る。もうあるときは、足りないモジュールだけを pip で足す
-//      （conda env update は使わない。yml の pip の部分を pip install -U で流すので、入っている torch などが新しい版に変わってしまう）
+//   3. conda 環境 trapnote を作る。env\trapnote-env.yml を読んで、conda で Python を入れ（配布元は conda-forge だけ）、pip でモジュールを入れる。
+//      もうあるときは、足りないモジュールだけを pip で足す（入っていて条件に合うものの版は変えない）。
+//      conda env create / update -f を使わないのは、(a) pip の部分の出力が終わるまで出ないので、PyTorch を取ってくる十数分の間、止まって見える、
+//      (b) pip の部分を pip install -U で流すので、もうある環境の torch などが新しい版に変わってしまう、(c) 利用者の .condarc の配布元が混ざる、ため
 //   4. MegaDetector を依存なしで入れる。NVIDIA の GPU があるのに torch が CPU 版なら、CUDA 版に入れ直す
 //   5. デスクトップにアイコンを作る（TrapNote。選べば TrapNote Lite も）
 // 記録は <フォルダ>\install.log に残る。
@@ -152,6 +154,15 @@ namespace TrapNoteSetup
                 Head(Program.T("2/5 conda を探す", "2/5 Looking for conda"));
                 bool exists;
                 CondaRoot = FindConda(out exists);
+                if (!exists)
+                {
+                    // 新しく作るときは、空きを先に見る（Miniforge 0.4 GB + 環境 5〜6 GB + 取ってくる途中のファイル 3 GB ほど）
+                    double free = FreeGb(o.Dir);
+                    Log(Program.T("ディスクの空き: ", "free disk space: ") + free.ToString("0.0", CultureInfo.InvariantCulture) + " GB");
+                    if (!o.DryRun && free >= 0 && free < 9)
+                        throw new Exception(Program.T("ディスクの空きが足りません（新しく入れるには 10 GB ほど要ります。いまの空きは ", "Not enough free disk space (about 10 GB is needed; free now: ")
+                                            + free.ToString("0.0", CultureInfo.InvariantCulture) + " GB" + Program.T("）。", ")."));
+                }
                 if (CondaRoot == "")
                 {
                     Log(Program.T("専用の Miniforge を入れます。", "Installing a private Miniforge."));
@@ -159,23 +170,30 @@ namespace TrapNoteSetup
                 }
                 Log("conda: " + CondaRoot);
 
-                Head(Program.T("3/5 Python の環境（trapnote）を作る。数分〜十数分かかります", "3/5 Creating the Python environment (trapnote). This takes several minutes"));
+                Head(Program.T("3/5 Python の環境（trapnote）を作る。十数分かかります", "3/5 Creating the Python environment (trapnote). This takes 10-20 minutes"));
                 string act = "call \"" + Path.Combine(CondaRoot, "Scripts", "activate.bat") + "\" \"" + CondaRoot + "\"";
                 string yml = Path.Combine(o.Dir, "env", "trapnote-env.yml");
                 string env = act + " && conda activate " + Program.EnvName;
+                EnvSpec spec = ParseEnvYml(File.Exists(yml) ? File.ReadAllLines(yml, Encoding.UTF8) : new string[0]);
+                if (!spec.Ok) throw new Exception(Program.T("env\\trapnote-env.yml から、要るモジュールの一覧を読めませんでした。", "Could not read the module list from env\\trapnote-env.yml."));
+                string req = WriteRequirements(spec);
                 if (exists)
                 {
                     // もうある環境には、足りないモジュールだけを足す。pip install -r は、入っていて条件に合うものの版を変えない
                     Log(Program.T("環境 trapnote があるので、足りないモジュールだけを足します（入っているものの版は変えません）。",
                                   "The environment trapnote exists. Adding only the missing modules (installed versions are kept)."));
-                    string req = WriteRequirements(File.Exists(yml) ? File.ReadAllLines(yml, Encoding.UTF8) : new string[0]);
-                    if (req == "") throw new Exception(Program.T("env\\trapnote-env.yml から、要るモジュールの一覧を読めませんでした。", "Could not read the module list from env\\trapnote-env.yml."));
                     Must(env + " && python -m pip install -r \"" + req + "\"", Program.T("足りないモジュールを入れられませんでした。", "Could not install the missing modules."));
                 }
                 else
                 {
-                    Log(Program.T("環境 trapnote を作ります。", "Creating the environment trapnote."));
-                    Must(act + " && conda env create -f \"" + yml + "\"", Program.T("環境を作れませんでした。", "Could not create the environment."));
+                    Log(Program.T("環境 trapnote を作ります（まず Python。1〜2 分）。", "Creating the environment trapnote (Python first; 1-2 minutes)."));
+                    Must(act + " && " + CondaCreate(spec), Program.T("環境を作れませんでした。", "Could not create the environment."));
+                    Log(Program.T("モジュールを入れます。PyTorch（3 GB ほど）を取ってくる間は、数分〜十数分、表示が止まります。そのまま待ってください。",
+                                  "Installing the modules. While PyTorch (about 3 GB) is downloaded, nothing is printed for several minutes. Please wait."));
+                    // --no-cache-dir: 取ってきたファイルの控え（3 GB 以上）を、利用者のフォルダに残さない
+                    Must(env + " && python -m pip install --no-cache-dir -r \"" + req + "\"",
+                         Program.T("モジュールを入れられませんでした（ネットワークを確かめて、もう一度実行してください。入ったところの続きから始まります）。",
+                                   "Could not install the modules (check the network and run the installer again; it continues from where it stopped)."));
                 }
                 if (!o.DryRun)
                 {
@@ -243,10 +261,12 @@ namespace TrapNoteSetup
             if (!exists) return true;
             string env = act + " && conda activate " + Program.EnvName;
             // 足りないモジュールを足す命令を、入れずに流す（--dry-run）。何かを入れる・変えると出たら、本番でもそうなる。yml は、この exe の中のものを読む
-            string req = WriteRequirements(PayloadLines("env/trapnote-env.yml"));
-            Log("requirements: " + (req == "" ? "(could not read)" : req));
-            if (req != "")
+            EnvSpec spec = ParseEnvYml(PayloadLines("env/trapnote-env.yml"));
+            Log("yml: " + (spec.Ok ? "ok" : "(could not read)") + "   new env would be made by: " + CondaCreate(spec));
+            if (spec.Ok)
             {
+                string req = WriteRequirements(spec);
+                Log("requirements: " + req);
                 foreach (string line in File.ReadAllLines(req)) Log("    " + line);
                 Log("pip dry-run: exit " + Cmd(env + " && python -m pip install --dry-run -r \"" + req + "\"", null, true));
             }
@@ -355,30 +375,67 @@ namespace TrapNoteSetup
             return new string[0];
         }
 
-        /// <summary>env\trapnote-env.yml（の行）の pip の部分を、pip の requirements の形で <フォルダ>\install-requirements.txt に書く。返り値はそのパス（読めなければ ""）</summary>
-        string WriteRequirements(string[] lines)
+        /// <summary>env\trapnote-env.yml から読んだもの: conda の配布元、conda で入れるもの（python=3.11、pip）、pip で入れるもの</summary>
+        class EnvSpec
         {
-            List<string> outl = new List<string>();
-            try
+            public List<string> Channels = new List<string>(), Conda = new List<string>(), Pip = new List<string>();
+            public bool Ok { get { return Conda.Count > 0 && Pip.Count > 0; } }
+        }
+
+        /// <summary>env\trapnote-env.yml（の行）を読む。この yml の形（channels と dependencies の並び。dependencies の中に「- pip:」の並び）だけを相手にする、簡単な読み方</summary>
+        static EnvSpec ParseEnvYml(string[] lines)
+        {
+            EnvSpec s = new EnvSpec();
+            string section = "";
+            int pipIndent = -1;
+            foreach (string raw in lines)
             {
-                int start = -1, indent0 = 0;
-                for (int i = 0; i < lines.Length && start < 0; i++)
-                    if (lines[i].Trim() == "- pip:") { start = i; indent0 = lines[i].Length - lines[i].TrimStart().Length; }
-                for (int i = start + 1; start >= 0 && i < lines.Length; i++)
+                string t = raw.TrimStart();
+                if (t == "" || t.StartsWith("#")) continue;
+                int indent = raw.Length - t.Length;
+                string body = Regex.Replace(t, @"\s+#.*$", "").Trim();                 // 行の後ろの説明（# …）を落とす
+                if (!body.StartsWith("- "))
                 {
-                    string t = lines[i].TrimStart();
-                    if (t == "" || t.StartsWith("#")) continue;
-                    if (lines[i].Length - t.Length <= indent0) break;                  // pip の部分の終わり
-                    if (!t.StartsWith("- ")) continue;
-                    string item = Regex.Replace(t.Substring(2), @"\s+#.*$", "").Trim();    // 行の後ろの説明（# …）を落とす
-                    if (item != "") outl.Add(item);
+                    if (indent == 0) { section = body == "channels:" ? "channels" : body == "dependencies:" ? "dependencies" : ""; pipIndent = -1; }
+                    continue;
                 }
-                if (outl.Count == 0) return "";
-                string req = Path.Combine(o.Dir, "install-requirements.txt");
-                File.WriteAllLines(req, outl.ToArray(), new UTF8Encoding(false));
-                return req;
+                string item = body.Substring(2).Trim();
+                if (item == "") continue;
+                if (pipIndent >= 0 && indent > pipIndent) { s.Pip.Add(item); continue; }
+                pipIndent = -1;
+                if (section == "channels") { if (item != "defaults" && item != "nodefaults") s.Channels.Add(item); }
+                else if (section == "dependencies")
+                {
+                    if (item == "pip:") pipIndent = indent;
+                    else s.Conda.Add(item);
+                }
             }
-            catch (Exception) { return ""; }
+            if (s.Channels.Count == 0) s.Channels.Add("conda-forge");
+            return s;
+        }
+
+        /// <summary>環境を作る conda の命令。配布元は yml に書いたもの（conda-forge）だけにする（--override-channels。利用者の .condarc の配布元を混ぜない）</summary>
+        static string CondaCreate(EnvSpec s)
+        {
+            StringBuilder b = new StringBuilder("conda create -y -n " + Program.EnvName + " --override-channels");
+            foreach (string c in s.Channels) b.Append(" -c " + c);
+            foreach (string d in s.Conda) b.Append(" \"" + d + "\"");
+            return b.ToString();
+        }
+
+        /// <summary>pip で入れるものを、requirements の形で <フォルダ>\install-requirements.txt に書く。返り値はそのパス</summary>
+        string WriteRequirements(EnvSpec s)
+        {
+            string req = Path.Combine(o.Dir, "install-requirements.txt");
+            File.WriteAllLines(req, s.Pip.ToArray(), new UTF8Encoding(false));
+            return req;
+        }
+
+        /// <summary>フォルダのあるドライブの空き（GB）。分からなければ -1</summary>
+        static double FreeGb(string dir)
+        {
+            try { return new DriveInfo(Path.GetPathRoot(Path.GetFullPath(dir))).AvailableFreeSpace / 1073741824.0; }
+            catch (Exception) { return -1; }
         }
 
         string InstallMiniforge()
