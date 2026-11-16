@@ -1,37 +1,39 @@
+English | [日本語](README.ja.md)
+
 # TrapNote
 
-カメラトラップ（自動撮影カメラ）の動画と静止画を、手元の PC だけで整理し、種を判別するためのアプリです。
+TrapNote is an app for organising camera-trap videos and still images and identifying the species in them, entirely on your own PC.
 
-AI（MegaDetector と SpeciesNet）が付けた種の候補を人が確認し、確認した結果を使って、AI を自分の調査地に合わせて学習し直せます。結果は CSV に書き出します。
+The AI (MegaDetector and SpeciesNet) suggests a species for each video, a person checks the suggestion, and the checked results can be used to retrain the AI for your own study site. Results are exported as CSV.
 
-![TrapNote の画面の構成](docs/images/screen-layout.svg)
+![TrapNote screen layout](docs/images/screen-layout.svg)
 
-## 特徴
+## Features
 
-- **動画に対応**: カメラトラップに多い MJPEG の AVI も、変換を待たずに再生します。静止画も扱えます。
-- **手元の PC で完結**: 動画をクラウドに上げません。元の動画には手を加えません。
-- **プログラミング不要**: 操作はすべてブラウザの画面で行います。画面は日本語と英語を切り替えられます。
-- **AI を調査地に合わせられる**: 確認した判定から学習し、学習の前後の正答率を比べられます。
-- **これまでの記録を活かせる**: 既存の CSV や Timelapse2 の記録を取り込めます。
+- **Built for video**: plays the MJPEG AVI files common in camera traps without waiting for conversion. Still images work too.
+- **Runs on your own PC**: videos are never uploaded to the cloud, and the original files are left untouched.
+- **No programming**: everything is done in a browser window. The interface can be switched between English and Japanese.
+- **Adapts the AI to your study site**: retrain from your verified judgements and compare the accuracy before and after training.
+- **Reuses your existing records**: import existing CSV files and Timelapse2 records.
 
-## 必要なもの
+## Requirements
 
-| 項目 | 内容 |
+| Item | Details |
 |---|---|
-| OS | Windows（インストーラあり）。macOS はコマンドで入れます |
-| ブラウザ | Edge または Chrome |
-| ディスク | 約 10 GB（Python の環境と AI のモデル） |
-| ネットワーク | インストールのときと、はじめて AI を使うときだけ |
-| GPU | なくても動きます。NVIDIA の GPU（ドライバ 570 以降）があると、自動判定と学習が速くなります |
+| OS | Windows (installer available). On macOS, install from the command line |
+| Browser | Edge or Chrome |
+| Disk | About 10 GB (Python environment and AI models) |
+| Network | Only during installation and the first time the AI is used |
+| GPU | Not required. An NVIDIA GPU (driver 570 or later) makes Auto ID and training faster |
 
-## インストール
+## Installation
 
 ### Windows
 
-1. [Releases のページ](https://github.com/YoshihiroNakashima/trapnote/releases/latest) から `TrapNote-Setup-….exe` を取ってきて、実行します。
-   「Windows によって PC が保護されました」と出たら、「詳細情報」→「実行」を押します。
-2. 入れるフォルダ（既定は `C:\TrapNote`）を確かめて、「インストール」を押します。10〜30 分かかります。
-3. デスクトップにできた「TrapNote」のアイコンから起動します。
+1. Download `TrapNote-Setup-….exe` from the [Releases page](https://github.com/YoshihiroNakashima/trapnote/releases/latest) and run it.
+   If Windows shows "Windows protected your PC", click "More info" and then "Run anyway".
+2. Check the install folder (default `C:\TrapNote`) and click "Install". Installation takes 10–30 minutes.
+3. Start TrapNote from the "TrapNote" icon on the desktop.
 
 ### macOS
 
@@ -44,30 +46,30 @@ pip install --no-deps megadetector==10.0.28
 python app.py
 ```
 
-新しい版への入れ替え、アンインストール、うまく入らないときの対処は、[取扱説明書の 2 章](docs/manual.md#2-インストールと起動) にあります。
+Updating to a new version, uninstalling and fixing installation problems are covered in [chapter 2 of the user manual](docs/manual.md#2-installing-and-starting).
 
-## はじめての使い方
+## Getting started
 
-1. 「プロジェクトを開く」で、動画のフォルダ（地点ごとのフォルダが入っている親フォルダ）を選びます。
-2. 「地点のフォルダを選ぶ」の画面で、カメラを置いた地点にあたるフォルダを選びます。
-3. 「自動判定」を押して「始める」。AI が動画ごとに種の候補を付けます。
-4. 動画を見て、合っていれば Enter で確定します。違っていれば、種を選び直してから Enter。
-5. 「CSV の書き出し」で結果を保存します。
+1. Click "Open project" and choose your video folder (the parent folder that contains one folder per station).
+2. In the "Choose the station folder" window, select the folders that correspond to your camera stations.
+3. Click "Auto ID", then "Start". The AI suggests a species for each video.
+4. Watch each video. If the suggestion is right, press Enter to confirm it. If it is wrong, choose the correct species first, then press Enter.
+5. Save the results with "Export CSV".
 
-確認した動画がたまったら、「追加学習」で AI を調査地に合わせられます。くわしい手順は **[取扱説明書](docs/manual.md)** を見てください。
+Once you have verified enough videos, "Retrain" adapts the AI to your study site. See the **[user manual](docs/manual.md)** for the full procedure.
 
-## 文書
+## Documentation
 
-| 文書 | 内容 |
+| Document | Contents |
 |---|---|
-| [取扱説明書](docs/manual.md) | 使い方の全体（インストール、確認の作業、追加学習、書き出し）、キー操作、困ったとき |
-| [詳細仕様と開発メモ](docs/technical-notes.md) | 判定の規則の数値、研究用の版の手順、保存の形式、プログラムの構成、試験の方法 |
-| [確認事項.md](確認事項.md) | 変更の記録 |
+| [User manual](docs/manual.md) ([Japanese](docs/manual.ja.md)) | How to use the app: installation, verification, retraining, export, keyboard shortcuts and troubleshooting |
+| [Technical notes](docs/technical-notes.md) (in Japanese) | Thresholds of the judgement rules, procedures of the research edition, storage format, program structure and testing |
+| [確認事項.md](確認事項.md) (in Japanese) | Change log |
 
-## 引用
+## Citation
 
-論文を準備中です。公表までは、このリポジトリの URL と、使った版（v0.3.0 など）を記してください。
+A paper is in preparation. Until it is published, please cite the URL of this repository and the version you used (for example, v0.3.0).
 
-## ライセンス
+## License
 
-MIT License（[LICENSE](LICENSE)）。MegaDetector（MIT）と SpeciesNet（Apache 2.0）のモデルは、初回の実行時に各配布元から取ってくるもので、このリポジトリには含みません。
+MIT License ([LICENSE](LICENSE)). The MegaDetector (MIT) and SpeciesNet (Apache 2.0) models are downloaded from their distributors the first time they are used and are not included in this repository.

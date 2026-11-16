@@ -1,76 +1,78 @@
-# TrapNote 取扱説明書
+English | [日本語](manual.ja.md)
 
-この説明書は、TrapNote v0.3.0 の公開版（ふつうのアイコンから起動する版）の使い方をまとめたものです。
-はじめての方は 1〜4 章を順に読めば、動画を開いて CSV に書き出すところまで進めます。5 章からあとは、必要になったときに読んでください。
+# TrapNote User Manual
 
-## 目次
+This manual describes how to use the public edition of TrapNote v0.3.0 (the edition started from the normal desktop icon).
+If you are new to TrapNote, read chapters 1–4 in order; they take you from opening your videos to exporting a CSV. Read chapter 5 onward when you need it.
 
-1. [TrapNote でできること](#1-trapnote-でできること)
-2. [インストールと起動](#2-インストールと起動)
-3. [画面の見かた](#3-画面の見かた)
-4. [はじめての作業](#4-はじめての作業)
-5. [確認の作業を速くする](#5-確認の作業を速くする)
-6. [記録する内容を増やす](#6-記録する内容を増やす)
-7. [AI を調査地に合わせる](#7-ai-を調査地に合わせる)
-8. [既存の記録を取り込む](#8-既存の記録を取り込む)
-9. [複数の人や PC で分担する](#9-複数の人や-pc-で分担する)
-10. [複数の調査回をまとめる](#10-複数の調査回をまとめる)
-11. [動画を整理する](#11-動画を整理する)
-12. [データの置き場所と持ち運び](#12-データの置き場所と持ち運び)
-13. [キー操作の一覧](#13-キー操作の一覧)
-14. [3 つの版](#14-3-つの版)
-15. [困ったとき](#15-困ったとき)
-16. [用語](#16-用語)
+## Contents
 
----
-
-## 1. TrapNote でできること
-
-TrapNote は、カメラトラップの動画と静止画を読み込み、写っている動物の種を記録して、CSV に書き出すアプリです。作業は次の順に進みます。
-
-1. **開く**: 動画のフォルダを選ぶと、動画が一覧に並びます。
-2. **自動判定**: AI が動物・人・車を見つけ（MegaDetector）、動物には種の候補を付けます（SpeciesNet）。
-3. **確認**: 人が動画を見て、合っていればそのまま確定し、違っていれば直します。
-4. **書き出し**: 結果を CSV に書き出します。
-5. **追加学習**（必要なら）: 確認した結果で AI を学習し直し、残りの動画や次の調査の判定に使います。
-
-AI を使わずに、目視だけで記録することもできます。
-
-知っておくとよいこと:
-
-- 動画はどこにも送られません。処理はすべて手元の PC で行います。
-- 結果は、開いた動画のフォルダの中にできる `TrapNote` フォルダにまとまります。
-- 元の動画には手を加えません。例外は、自分で実行する「保存用の変換」と「削除」だけです（[11 章](#11-動画を整理する)）。
+1. [What TrapNote does](#1-what-trapnote-does)
+2. [Installing and starting](#2-installing-and-starting)
+3. [The screen](#3-the-screen)
+4. [Getting started](#4-getting-started)
+5. [Verifying faster](#5-verifying-faster)
+6. [Recording more information](#6-recording-more-information)
+7. [Adapting the AI to your study site](#7-adapting-the-ai-to-your-study-site)
+8. [Importing existing records](#8-importing-existing-records)
+9. [Sharing the work among people and PCs](#9-sharing-the-work-among-people-and-pcs)
+10. [Merging several survey rounds](#10-merging-several-survey-rounds)
+11. [Managing videos](#11-managing-videos)
+12. [Where the data is kept and how to move it](#12-where-the-data-is-kept-and-how-to-move-it)
+13. [Keyboard shortcuts](#13-keyboard-shortcuts)
+14. [The three editions](#14-the-three-editions)
+15. [Troubleshooting](#15-troubleshooting)
+16. [Glossary](#16-glossary)
 
 ---
 
-## 2. インストールと起動
+## 1. What TrapNote does
 
-### 2.1 必要なもの
+TrapNote reads camera-trap videos and still images, records the species of the animals in them, and exports the records as CSV. The work goes in this order:
 
-| 項目 | 内容 |
+1. **Open**: choose a video folder, and its videos appear in a list.
+2. **Auto ID**: the AI finds animals, people and vehicles (MegaDetector) and suggests a species for each animal (SpeciesNet).
+3. **Verify**: a person watches each video, confirms the suggestion if it is right and corrects it if it is wrong.
+4. **Export**: the results are written to a CSV file.
+5. **Retrain** (optional): the verified results are used to retrain the AI, which then judges the remaining videos and those of later surveys.
+
+You can also record everything by eye without using the AI.
+
+Good to know:
+
+- Videos are never sent anywhere. All processing happens on your own PC.
+- The results are kept together in a `TrapNote` folder created inside the video folder you open.
+- The original videos are never modified. The only exceptions are "Archive convert" and deleting, both of which you run yourself ([chapter 11](#11-managing-videos)).
+
+---
+
+## 2. Installing and starting
+
+### 2.1 Requirements
+
+| Item | Details |
 |---|---|
-| OS | Windows（インストーラあり）。macOS はコマンドで入れます |
-| ブラウザ | Edge または Chrome |
-| ディスク | 約 10 GB（Python の環境と AI のモデル） |
-| ネットワーク | インストールのときと、はじめて AI を使うときだけ |
-| GPU | なくても動きます。NVIDIA の GPU（ドライバ 570 以降）があると、自動判定と学習が速くなります |
+| OS | Windows (installer available). On macOS, install from the command line |
+| Browser | Edge or Chrome |
+| Disk | About 10 GB (Python environment and AI models) |
+| Network | Only during installation and the first time the AI is used |
+| GPU | Not required. An NVIDIA GPU (driver 570 or later) makes Auto ID and training faster |
 
-### 2.2 Windows に入れる
+### 2.2 Installing on Windows
 
-1. `TrapNote-Setup-….exe` を実行します（[Releases のページ](https://github.com/YoshihiroNakashima/trapnote/releases/latest) か、配られたファイル）。
-   「Windows によって PC が保護されました」と出たら、「詳細情報」→「実行」を押します。
-2. 入れるフォルダを確かめて、「インストール」を押します。
-   - 既定は `C:\TrapNote` です。フォルダ名は半角の英数字だけにしてください。
-   - 10〜30 分かかります。その間、インターネットにつないだままにします。
-   - PC に前からある Anaconda などには影響しません（専用の Python の環境を、入れるフォルダの中に作ります）。
-3. 終わると、デスクトップに「TrapNote」のアイコンができます。
+1. Run `TrapNote-Setup-….exe` (from the [Releases page](https://github.com/YoshihiroNakashima/trapnote/releases/latest), or the file you were given).
+   If Windows shows "Windows protected your PC", click "More info" and then "Run anyway".
+2. Check the install folder and click "Install".
+   - The default is `C:\TrapNote`. Use only ASCII letters and digits in the folder name.
+   - Installation takes 10–30 minutes. Stay connected to the internet during that time.
+   - An existing Anaconda or other Python installation on the PC is not affected (TrapNote creates its own Python environment inside the install folder).
+3. When installation finishes, a "TrapNote" icon appears on the desktop.
 
-はじめて「自動判定」か「検出のみ」を使うときに、AI のモデル（合わせて 300 MB ほど）を取ってきます。このときもインターネットが要ります。
+The first time you use "Auto ID" or "Detect only", TrapNote downloads the AI models (about 300 MB in total). This also needs an internet connection.
 
-### 2.3 macOS に入れる
+### 2.3 Installing on macOS
 
-conda（Miniforge など）が入っている状態で、ターミナルから次を実行します。
+With conda (Miniforge or similar) installed, run the following in Terminal:
 
 ```
 git clone https://github.com/YoshihiroNakashima/trapnote.git
@@ -81,462 +83,462 @@ pip install --no-deps megadetector==10.0.28
 python app.py
 ```
 
-2 回目からは `conda activate trapnote` のあと `python app.py` で起動します。
+From the second time on, start TrapNote with `conda activate trapnote` followed by `python app.py`.
 
-### 2.4 起動と終了
+### 2.4 Starting and quitting
 
-- **起動**: デスクトップの「TrapNote」のアイコンをダブルクリックします。専用の窓に画面が開きます。
-- **終了**: 画面の右上の「終了」を押します。窓を閉じるだけでは、プログラムは裏で動いたままです（もう一度アイコンを押せば、画面がまた開きます）。
-- 画面の言語は、右上の「EN」（英語の画面では「日本語」）か、「設定」の「言語」で切り替えます。
+- **Start**: double-click the "TrapNote" icon on the desktop. The screen opens in its own window.
+- **Quit**: click "Quit" at the top right of the screen. Closing the window alone leaves the program running in the background (clicking the icon again reopens the screen).
+- To switch the interface language, click "日本語" at the top right (it reads "EN" in the Japanese interface), or use "Language" in "Settings".
 
-### 2.5 新しい版にする、消す
+### 2.5 Updating and uninstalling
 
-- **新しい版にする**: 新しい `TrapNote-Setup-….exe` を実行して、同じフォルダを指定します。プログラムだけが入れ替わり、設定、モデル、これまでの判定はそのまま残ります。
-- **消す**: デスクトップのアイコンと、入れたフォルダ（`C:\TrapNote`）を消します。動画のフォルダの中の `TrapNote` フォルダ（判定の結果）は、自分で消さない限り残ります。
-- **うまく入らないとき**: [15 章](#15-困ったとき) を見てください。
+- **Update**: run the new `TrapNote-Setup-….exe` and choose the same folder. Only the program is replaced; your settings, models and existing judgements are kept.
+- **Uninstall**: delete the desktop icon and the install folder (`C:\TrapNote`). The `TrapNote` folders inside your video folders (the judgement results) remain unless you delete them yourself.
+- **If installation fails**: see [chapter 15](#15-troubleshooting).
 
 ---
 
-## 3. 画面の見かた
+## 3. The screen
 
-![TrapNote の画面の構成](images/screen-layout.svg)
+![TrapNote screen layout](images/screen-layout.svg)
 
-| 番号 | 名前 | 役割 |
+| No. | Name | What it does |
 |---|---|---|
-| 1 | ツールバー | 作業を始めるボタンが並びます。左から、プロジェクトを開く、更新、Timelapse を読む、CSV を読む、検出のみ、自動判定、一致率、追加学習、保存用の変換、CSV の書き出し、判定の持ち寄り |
-| 2 | 裏の処理、設定、終了 | 「裏の処理」は、走査や自動判定などの進み具合です。押すと詳しく見られ、止めることもできます |
-| 3 | フォルダの木 | フォルダを押すと、その中の動画だけが一覧に出ます。数字は「確認済みの数 / 全部の数」です |
-| 4 | 絞り込みと並べ替え | 地点、状態、種、検出の結果などで一覧を絞り込みます |
-| 5 | 一覧 | 動画 1 本が 1 行です。押すと再生されます。右上の札が状態です |
-| 6 | 再生画面 | 動画（静止画）が出ます。「検出枠」にチェックがあると、AI が見つけた場所に枠が重なります |
-| 7 | 再生の操作 | 前後の動画、コマ送り、再生の速さ、暗い動画の補正など |
-| 8 | AI の判定 | AI が付けた種の候補と確からしさ。青い箱です |
-| 9 | 人の判定 | 種のチェック、動物なしなどの固定項目、個体数などの項目、メモ、「確定して次へ」。ここに入れたものが記録になります |
+| 1 | Toolbar | Buttons that start tasks. From the left: Open project, Rescan, Read Timelapse, Read CSV, Detect only, Auto ID, Agreement, Retrain, Archive convert, Export CSV, Collect judgements |
+| 2 | Background jobs, Settings, Quit | "Background jobs" shows the progress of scanning, Auto ID and other tasks. Click it to see details or to stop a job |
+| 3 | Folder tree | Click a folder to list only the videos in it. The numbers are "verified / total" |
+| 4 | Filters and sorting | Narrow down the list by station, status, species, detection result and more |
+| 5 | List | One row per video. Click a row to play the video. The tag at the top right shows its status |
+| 6 | Player | Shows the video (or still image). When "Boxes" is ticked, boxes are drawn where the AI found something |
+| 7 | Playback controls | Previous and next video, frame stepping, playback speed, brightening dark videos and more |
+| 8 | AI judgement | The species suggested by the AI and its confidence (the blue box) |
+| 9 | Human judgement | Species checkboxes, fixed items such as Empty, fields such as group size, the note, and "Confirm and next". What you enter here is the record |
 
-欄の境目はドラッグで動かせます（ダブルクリックで元に戻ります）。
+You can drag the borders between the panes (double-click a border to reset it).
 
-一覧の札の意味:
+Tags in the list:
 
-| 札 | 意味 |
+| Tag | Meaning |
 |---|---|
-| 未処理 | まだ判定がない |
-| AI 判定 | AI の判定が入っているが、人はまだ確認していない |
-| 取り込み | CSV や Timelapse から取り込んだ判定が入っているが、まだ確認していない |
-| 確認済み | 人が確定した |
+| Unprocessed | No judgement yet |
+| AI | The AI has judged the video, but no person has verified it yet |
+| Imported | A judgement imported from a CSV file or Timelapse, not verified yet |
+| Verified | A person has confirmed the judgement |
 
 ---
 
-## 4. はじめての作業
+## 4. Getting started
 
-### 4.1 動画のフォルダを用意する
+### 4.1 Preparing the video folder
 
-地点（カメラを置いた所）ごとにフォルダを分けておくと、地点での絞り込みや、CSV の地点の列にそのまま使えます。
+If you keep one folder per station (a place where a camera was set), the folders can be used directly for filtering by station and for the station column of the CSV.
 
 ```
-Site_2026/          ← このフォルダを開く
-  St01/             ← 地点ごとのフォルダ
+Site_2026/          ← open this folder
+  St01/             ← one folder per station
     IMG_0001.AVI
     IMG_0002.AVI
   St02/
   St03/
 ```
 
-読める形式は、動画が AVI、MP4、MOV、MKV、M4V、MPG、WMV、MTS、3GP、WebM、静止画が JPG、PNG です。
+Supported formats are AVI, MP4, MOV, MKV, M4V, MPG, WMV, MTS, 3GP and WebM for videos, and JPG and PNG for still images.
 
-### 4.2 プロジェクトを開く
+### 4.2 Opening a project
 
-1. 左上の「プロジェクトを開く」を押します。
-2. 左のカード「調査回のプロジェクト（動画のフォルダ）」で「選ぶ…」を押し、動画のフォルダ（上の例では `Site_2026`）を選んで「開く」を押します。
-   フォルダのパスを、ツールバーの欄に貼り付けて Enter を押しても開けます。
-3. 動画が一覧に並びます。長さや撮影日時は、裏で順に読み取っていきます（右上の「裏の処理」に進み具合が出ます）。
+1. Click "Open project" at the top left.
+2. In the card "Season project (a folder of videos)" on the left, click "Choose…", select the video folder (`Site_2026` in the example above) and click "Open".
+   You can also paste the folder path into the box on the toolbar and press Enter.
+3. The videos appear in the list. Their length and recording time are read one by one in the background (progress is shown under "Background jobs" at the top right).
 
-このとき、開いたフォルダの中に `TrapNote` フォルダができます。判定などの結果は、すべてここに入ります。
-次回からは、「プロジェクトを開く」の「最近のプロジェクト」から選べます。動画を足したり減らしたりしたときは、「更新」を押すと一覧に反映されます。
+A `TrapNote` folder is created inside the folder you opened. All results, such as judgements, are stored there.
+Next time, you can choose the project from "Recent projects" under "Open project". After adding or removing videos, click "Rescan" to update the list.
 
-> **撮影日時について**: 撮影日時は、動画の中の情報、EXIF、ファイルの更新時刻の順に探します。AVI には撮影日時が入っていないことが多く、そのときはファイルの更新時刻を使います（一覧に `(mtime)` と出ます）。カメラの時計がずれていた場合は、あとで直せます（[6.4](#64-カメラの時計のずれを直す)）。
+> **About the recording time**: TrapNote looks for the recording time in the video's own metadata, then in the EXIF data, then in the file's modification time. AVI files often carry no recording time; the modification time is then used, and the list shows `(mtime)`. If the camera clock was wrong, you can correct it later ([6.4](#64-correcting-the-camera-clock)).
 
-### 4.3 地点のフォルダを選ぶ
+### 4.3 Choosing the station folders
 
-新しいプロジェクトでは、読み込みのあとに「地点のフォルダを選ぶ」の画面が出ます。
+For a new project, the window "Choose the station folder" opens after the folder has been read.
 
-1. フォルダの並びの中から、地点にあたるフォルダ（上の例では `St01`）を押します。同じ階層のフォルダが、すべて地点になります。
-2. 下の表で、地点の数と動画の数を確かめます。
-3. 「この階層を地点にする」を押します。
+1. In the folder tree, click a folder that corresponds to a station (`St01` in the example above). All folders on the same level become stations.
+2. Check the number of stations and videos in the table below.
+3. Click "Use this level as the station".
 
-- 同じ地点を時期を変えて何度も調査していて、その時期ごとのフォルダも中にあるときは、「調査回（あれば）」も選びます。ふつうは「なし」のままで構いません。
-- あとで変えるときは、「設定」の「地点のフォルダ」の「選び直す…」を押します。
-- 地点を選ばなくても使えます。その場合、CSV にはフォルダの各階層が `Folder1`、`Folder2` … の列で出ます。
+- If you surveyed the same stations several times and each period has its own folder inside, also choose "Survey round (if any)". Usually you can leave it at "none".
+- To change this later, click "Choose again…" next to "Station folder" in "Settings".
+- You can also work without stations. The CSV then lists each folder level in the columns `Folder1`, `Folder2` and so on.
 
-### 4.4 種リストを整える
+### 4.4 Setting up the species list
 
-右の欄に並ぶ種は、種リストで決まります。最初は、日本の哺乳類を中心にした約 30 項目が入っています。
+The species shown in the right-hand panel come from the species list. At first it holds about 30 entries, mainly Japanese mammals.
 
-1. 「設定」→「種リストを編集…」を押します。
-2. 調査地で写りうる種の「使う」にチェックを付けます。リストにない種は「＋ 種を足す」で足します。
-3. よく使う種には「キー」（1 文字）を決めておくと、キーボードで選べます。
+1. Click "Settings" → "Edit species list…".
+2. Tick "Use" for the species that may appear at your study site. Add species that are not in the list with "+ Add species".
+3. Give frequently used species a "Key" (one character) so that you can select them from the keyboard.
 
-「CSV 表記」は、書き出す CSV の Species の列に入る値です。これまでの CSV と同じ表記にしておくと、あとで合わせやすくなります。
+"CSV label" is the value written to the Species column of the exported CSV. Using the same labels as your existing CSV files makes the records easier to combine later.
 
-> **日本以外で使うとき**: 種リストをその地域の種に入れ替え、「自動判定」の窓の「細かい設定」にある「国（geofence）」を、調査地の国（ISO の 3 文字）に変えてください。既定は JPN で、日本にいない種の候補を除いています。空にすると制限しません。
+> **Using TrapNote outside Japan**: replace the species list with the species of your region, and change "Country (geofence)" under "Advanced" in the "Auto ID" window to the country of your study site (three-letter ISO code). The default is JPN, which removes suggestions of species that do not occur in Japan. Leave it empty for no restriction.
 
-### 4.5 自動判定をかける
+### 4.5 Running Auto ID
 
-1. ツールバーの「自動判定」を押します。
-2. 「範囲」（すべて、または、いまの絞り込み）を確かめます。ほかは、ふつうは既定のままで構いません。
-3. 「始める」を押します。進み具合は、右上の「裏の処理」に出ます。
+1. Click "Auto ID" on the toolbar.
+2. Check the "Range" (all videos, or the current filter). The other settings can usually stay at their defaults.
+3. Click "Start". Progress is shown under "Background jobs" at the top right.
 
-- 途中で止めても、済んだ動画は飛ばして、続きから再開できます。
-- 自動判定の間も、動画を見て確認の作業を進められます。
-- GPU がない PC でも動きますが、時間がかかります。
+- If you stop part way, finished videos are skipped and the run continues where it left off when you start it again.
+- You can keep verifying videos while Auto ID is running.
+- Auto ID also works on a PC without a GPU, but it takes longer.
 
-自動判定が済むと、動画ごとに次のどれかになります。
+After Auto ID, each video ends up in one of these states:
 
-| 結果 | 意味 |
+| Result | Meaning |
 |---|---|
-| 種の候補（AI 判定） | 動物が写っていて、種の候補が付いた |
-| 要確認 | 動物は写っているようだが、自信が低いので種を付けていない |
-| 動物なし | 動物も人も車も見つからなかった |
-| 人、車 | 人や車が写っている |
+| Species suggestion (tag "AI") | An animal was found and a species was suggested |
+| Check | An animal seems to be present, but the AI was not confident enough to suggest a species |
+| Empty | No animal, person or vehicle was found |
+| Human, Vehicle | A person or a vehicle was found |
 
-種は自分の目で付けたい場合は、「自動判定」の代わりに「検出のみ」を使います。動物・人・車の枠だけを付け、種の候補は付けません。
+If you want to identify the species yourself, use "Detect only" instead of "Auto ID". It only draws boxes around animals, people and vehicles and does not suggest species.
 
-### 4.6 動画を見て確定する
+### 4.6 Watching and confirming videos
 
-一覧の動画を押すと、再生が始まります。右の欄で判定を確かめて、確定します。
+Click a video in the list to play it. Check the judgement in the right-hand panel and confirm it.
 
-- **AI の判定が合っているとき**: Enter を押します。確定して、次の動画に進みます。
-- **違っているとき**: 種のチェックを付け替えてから Enter を押します。キーを決めた種は、そのキーでも切り替えられます。1 本に 2 種以上写っていれば、両方にチェックを付けます。
-- **動物が写っていないとき**: N（動物なし）を押して Enter。人は H、車は V、種が分からないものは U（不明）です。A（有効範囲）は、有効範囲の確認用に撮った動画に付ける項目です。
-- **間違えて確定したとき**: Ctrl+Z で、直前の確定を取り消せます。あとで直すときは、その動画を開いて付け直すか、「判定を消す」を押します。
+- **The AI judgement is right**: press Enter. The judgement is confirmed and the next video opens.
+- **The AI judgement is wrong**: change the species checkboxes, then press Enter. Species that have a key can also be toggled with that key. If a video shows two or more species, tick all of them.
+- **No animal in the video**: press N (Empty) and then Enter. Use H for a person, V for a vehicle and U (Unknown) when the species cannot be told. A (Area) is the item for videos taken to check a camera's detection area.
+- **Confirmed by mistake**: Ctrl+Z undoes the last confirmation. To fix it later, open the video and set the judgement again, or click "Clear".
 
-見やすくする機能:
+Viewing aids:
 
-- 再生の下の「検出枠」にチェックを付けると、AI が動物を見つけた場所が分かります。
-- 暗い動画は、B キーで明るさを補正できます（表示だけで、記録には影響しません）。
-- , と . でコマ送り、[ と ] で再生の速さを変えられます。キーの一覧は [13 章](#13-キー操作の一覧) にあります。
+- Tick "Boxes" below the player to see where the AI found animals.
+- Dark videos can be brightened with the B key (display only; the records are not affected).
+- Use , and . to step frame by frame, and [ and ] to change the playback speed. All keys are listed in [chapter 13](#13-keyboard-shortcuts).
 
-> **→ キーに注意**: → と ← は前後の動画に移るキーですが、種にチェックが入っていると、確定してから移ります。
+> **Careful with the → key**: → and ← move to the next and previous video, but if species are ticked, the judgement is confirmed before moving.
 
-### 4.7 CSV に書き出す
+### 4.7 Exporting to CSV
 
-1. ツールバーの「CSV の書き出し」を押します。
-2. 「保存先」と「範囲」（すべて、いまの絞り込み、確認済みだけ）を選びます。
-3. 「CSV を書き出す」を押します。
+1. Click "Export CSV" on the toolbar.
+2. Choose "Save to" and the "Range" (All, Current filter, Verified only).
+3. Click "Export CSV".
 
-CSV は、**動画 1 本 × 種 1 つで 1 行**です。1 本に 2 種が写っていれば、2 行になります。おもな列は次のとおりです。
+The CSV has **one row per video and species**. A video showing two species gives two rows. The main columns are:
 
-| 列 | 内容 |
+| Column | Contents |
 |---|---|
-| Season、Station、File | 調査回、地点、ファイル名 |
-| DateTime | 撮影日時（例 `2026/10/20 19:05:21`） |
-| DateTimeCorrected | 時計のずれを直したあとの日時。直していなければ DateTime と同じ |
-| Species | 種（種リストの「CSV 表記」。動物なしは Empty、人は Human、車は Vehicle、不明は Unknown） |
-| Species_ja、Species_sci | 和名と学名 |
-| Status、Verified、VerifiedBy | 確認の状態と、確認した人 |
-| Note、Favorite | メモ、お気に入り |
-| AutoJudgement、Agree | AI の判定と、人の判定との比較（match = 一致、partial = 部分一致、mismatch = 不一致） |
-| Flag、DetAnimal、DetPerson、DetVehicle、DetMaxConf | 要確認の印（low）と、検出の要約 |
-| 追加項目の列 | 個体数など、自分で足した項目（[6.1](#61-個体数や行動などの項目を足す)） |
+| Season, Station, File | Survey round, station and file name |
+| DateTime | Recording time (for example `2026/10/20 19:05:21`) |
+| DateTimeCorrected | The time after correcting the camera clock. The same as DateTime if no correction was made |
+| Species | Species ("CSV label" in the species list; Empty for no animal, Human, Vehicle, Unknown) |
+| Species_ja, Species_sci | Japanese name and scientific name |
+| Status, Verified, VerifiedBy | Verification status and who verified the video |
+| Note, Favorite | Note and favourite mark |
+| AutoJudgement, Agree | The AI judgement and how it compares with the human judgement (match, partial, mismatch) |
+| Flag, DetAnimal, DetPerson, DetVehicle, DetMaxConf | The "Check" flag (low) and a summary of the detections |
+| Columns of extra fields | Fields you added yourself, such as group size ([6.1](#61-adding-fields-such-as-group-size-or-behaviour)) |
 
 ---
 
-## 5. 確認の作業を速くする
+## 5. Verifying faster
 
-### 5.1 絞り込みと並べ替え
+### 5.1 Filtering and sorting
 
-一覧の上の欄で、見る動画を絞り込めます。
+The controls above the list narrow down which videos are shown.
 
-| 欄 | できること |
+| Control | What it does |
 |---|---|
-| 地点、調査回 | その地点、その調査回の動画だけにする |
-| 状態 | 未処理、未確認（判定あり）、確認済みで絞る |
-| 種 | 種で絞る。人の判定で絞るか、AI の判定で絞るかを選べます |
-| 検出 | 要確認、AI と不一致、AI と一致、検出で動物なし、枠の数など |
-| 名前・メモで検索 | ファイル名やメモの文字で探す |
-| 並べ替え | 地点・日時、日時、名前、状態、信頼度など |
-| ★ | お気に入りだけにする |
+| Station, survey round | Show only the videos of that station or survey round |
+| Status | Filter by Unprocessed, unverified (with a judgement) or Verified |
+| Species | Filter by species, based on either the human judgement or the AI judgement |
+| Detection | Check, disagrees with the AI, agrees with the AI, no animal detected, number of boxes and more |
+| Search name / note | Find videos by text in the file name or the note |
+| Sorting | Station and date, date, name, status, confidence and more |
+| ★ | Show favourites only |
 
-絞り込みは、フォルダの選択とは別に効き、次に起動したときも残ります。絞り込んでいる間は、件数の横に青い「絞り込み中 n ✕」が出ます。**一覧に何も出ないときは、まずこれを押して絞り込みを外してください。**
+Filters work independently of the folder selected in the tree, and they are kept the next time you start TrapNote. While a filter is active, a blue "Filters on n ✕" badge appears next to the count. **If the list is empty, click this badge first to clear the filters.**
 
-「高度な検索」を押すと、条件を細かく決める窓が別に開きます（複数の地点や種の指定と除外、時刻、動画の長さ、記録した項目）。よく使う条件は保存できます。
+"Advanced search" opens a separate window for detailed conditions (several stations or species to include or exclude, time of day, video length, recorded fields). Frequently used conditions can be saved.
 
-### 5.2 まとめて選ぶ
+### 5.2 Selecting several videos
 
-- Ctrl+A で、いまの一覧の全部を選びます。Shift+クリックで範囲、Ctrl+クリックで 1 本ずつ足せます。Esc で解除します。
-- 選んでいる間は、右の欄の操作が、選んだ全部に効きます。たとえば、種を入れて「確定して次へ」を押すと、選んだ全部に同じ判定が付きます。
-- 一覧の上に出る帯から、まとめてお気に入りにする、削除する、などができます。右クリックでも同じ操作ができます。
+- Ctrl+A selects everything in the current list. Shift+click selects a range, and Ctrl+click adds videos one by one. Esc clears the selection.
+- While videos are selected, the right-hand panel acts on all of them. For example, choosing a species and clicking "Confirm and next" gives all selected videos the same judgement.
+- The bar that appears above the list lets you mark the selected videos as favourites, delete them, and more. The same actions are available from the right-click menu.
 
-### 5.3 一括確定
+### 5.3 Bulk confirm
 
-「一括確定」は、いまの絞り込みに入っている未確認の判定を、まとめて確認済みにする機能です。たとえば、「検出で動物なし」で絞り込んでから使うと、動物が写っていない動画を 1 本ずつ見ずに済みます。
+"Bulk confirm" marks every unverified judgement in the current filter as verified. For example, if you first filter by "No animal (detector)", you do not have to watch the videos without animals one by one.
 
-- 一括確定は Ctrl+Z では戻せません。先に絞り込みを確かめてから使ってください。
-- 対象の中に、検出で枠が付かなかった動画があるときは、「抜き取りの確認」ができます。その中から無作為に選んだ動画を目で見て、動物の見落としがどれくらいあるかを見積もる機能です。たとえば 100 本を見て 1 本も動物がいなければ、見落としは約 3 % 以下（95 % の上限）と言えます。結果はプロジェクトに記録されます。
-
----
-
-## 6. 記録する内容を増やす
-
-### 6.1 個体数や行動などの項目を足す
-
-種のほかに記録したい項目（個体数、性別、行動など）は、自分で足せます。
-
-- 右の欄の「＋ 項目」を押すと、その場で項目を足せます。足した項目はすぐに欄に出て、CSV の列にもなります。
-- 項目には、種ごとに記録するもの（個体数など）と、動画ごとに記録するものがあります。型は、選択肢、チェック、数値、自由記述、時刻などから選べます。
-- 行動のように、1 本の動画に何件も記録したい項目は、「＋ で 1 本に何件でも記録する」にチェックを付けます。
-- 並べ替え、削除、細かい直しは、「設定」→「追加項目を編集…」で行います。
-
-### 6.2 種リストにない種が写っていたとき
-
-- 「その他…」を押すと、種リストにあるが「使う」にしていない種を選べます。
-- 「＋ 登録」を押すと、新しい種をその場で登録できます。和名、英名、学名のどれかがあれば登録できます。
-
-### 6.3 メモとお気に入り
-
-- 「メモ」の欄に、気づいたことを書けます。CSV の Note の列に出ます。
-- ☆（または F キー）で、お気に入りの印を付けられます。きれいに撮れた動画や、珍しい行動の動画を、あとで探すのに使えます。
-
-### 6.4 カメラの時計のずれを直す
-
-1. ずれが分かっている動画を開き、右の欄の上の 🕓 を押します。
-2. その動画の正しい日時を入れます。ずれの大きさが決まります。
-3. 同じずれを足す範囲（この動画だけ、このフォルダ、この地点、いまの絞り込み）を選びます。
-
-元の日時は消えません。CSV には、元の日時（DateTime）と直したあとの日時（DateTimeCorrected）の両方が出ます。
+- Bulk confirm cannot be undone with Ctrl+Z. Check the filter before you use it.
+- If the targets include videos on which detection put no box, you can run a "Spot check": you watch randomly chosen videos among them to estimate how many animals were missed. For example, if none of 100 checked videos shows an animal, the miss rate is at most about 3 % (95 % upper bound). The result is recorded in the project.
 
 ---
 
-## 7. AI を調査地に合わせる
+## 6. Recording more information
 
-自動判定の種の候補は、最初は世界共通のモデル（SpeciesNet）によるものです。確認した動画がたまったら、「追加学習」で、種の判別を自分の調査地とカメラに合わせ込めます。
+### 6.1 Adding fields such as group size or behaviour
 
-### 7.1 方式
+You can add your own fields for anything you want to record besides the species (group size, sex, behaviour and so on).
 
-| 方式 | 内容 | 向いている場合 |
+- Click "+ Field" in the right-hand panel to add a field on the spot. The new field appears in the panel immediately and becomes a column of the CSV.
+- A field is recorded either per species (group size, for example) or per video. Its type can be a choice, a checkbox, a number, free text, a time and more.
+- For fields that may need several records per video, such as behaviour, tick 'Any number of records per video with "+" (like behaviour)'.
+- To reorder, delete or fine-tune fields, use "Settings" → "Edit extra fields…".
+
+### 6.2 When a species is not in the list
+
+- "Other…" lets you choose species that are in the species list but not marked "Use".
+- "+ Add" registers a new species on the spot. A Japanese name, an English name or a scientific name is enough.
+
+### 6.3 Notes and favourites
+
+- Write anything you notice in the "Note" box. It goes to the Note column of the CSV.
+- ☆ (or the F key) marks a video as a favourite. Use it to find well-shot videos or unusual behaviour later.
+
+### 6.4 Correcting the camera clock
+
+1. Open a video whose correct time you know and click 🕓 at the top of the right-hand panel.
+2. Enter the correct date and time for that video. This sets the size of the offset.
+3. Choose where to apply the same offset ("This item only", "This folder", "This station", "Current filter").
+
+The original time is kept. The CSV has both the original time (DateTime) and the corrected time (DateTimeCorrected).
+
+---
+
+## 7. Adapting the AI to your study site
+
+At first, the species suggested by Auto ID come from a global model (SpeciesNet). Once you have verified enough videos, "Retrain" adapts the species identification to your own study site and cameras.
+
+### 7.1 Methods
+
+| Method | What it does | When to use it |
 |---|---|---|
-| 方式 A（軽い分類器） | 自動判定のときに保存した特徴量から、軽い分類器を学習します。CPU でも数分で済みます | まずはこちら |
-| 方式 B（本体の再学習） | SpeciesNet 本体の一部を学習し直します。GPU と時間が要ります | 方式 A で足りないとき |
+| Method A (light classifier) | Trains a light classifier on the features saved during Auto ID. Takes a few minutes, even on a CPU | Start with this one |
+| Method B (retraining the model) | Retrains part of SpeciesNet itself. Needs a GPU and time | When method A is not enough |
 
-### 7.2 手順
+### 7.2 Steps
 
-1. **自動判定をかける**（[4.5](#45-自動判定をかける)）。追加学習は、このとき保存した情報を使います。
-2. **動画を確認して確定する**（[4.6](#46-動画を見て確定する)）。確認済みの動画が、学習の材料になります。確認済みの動画が少ない種（学習に使える枠が 5 枚未満）は、学習に入りません。
-3. **「追加学習」を押す**。窓の上に、学習に使える動画の数が出ます。方式を選び、名前を付けて、「学習を始める」を押します。
-4. **結果を見る**。地点の一部（既定で 2 割）を検証用に取り分け、学習に使わなかったその地点の動画で、学習前と学習後の一致率を比べます。地点が 3 つ未満のときは、この評価はできません。
-5. **判定を付け直す**。「学習したモデル」の表の「付け直す」を押すと、学習したモデルで AI の判定を付け直します。確認済みの判定は変わりません。これ以後の自動判定も、そのモデルで行います。元の SpeciesNet に戻すこともできます。
-6. 確認を進めて材料が増えたら、3〜5 を繰り返します。
+1. **Run Auto ID** ([4.5](#45-running-auto-id)). Retraining uses information saved at that time.
+2. **Verify and confirm videos** ([4.6](#46-watching-and-confirming-videos)). Verified videos are the training material. Species with only a few verified videos (fewer than 5 boxes usable for training) are left out of the training.
+3. **Click "Retrain"**. The top of the window shows how many videos can be used for training. Choose a method, give the model a name and click "Start training".
+4. **Look at the results**. Some of the stations (20 % by default) are set aside as held-out stations; the agreement before and after training is compared on the videos of those stations, which were not used for training. This evaluation needs at least 3 stations.
+5. **Re-judge the videos**. Clicking "Re-judge" in the "Trained models" table replaces the AI judgements with those of the trained model. Verified judgements do not change. From then on, Auto ID also uses that model. You can switch back to the original SpeciesNet at any time.
+6. As you verify more videos and the material grows, repeat steps 3–5.
 
-### 7.3 学習の材料をよくする
+### 7.3 Better training material
 
-- **AI が種を間違えた動画**: 正しい種で確定するだけで構いません。
-- **何もない所に枠が付いた動画**: 枠を消さずに、「動物なし」で確定します。その枠が、誤検出の見本として学習に使われます。
-- **学習に使う枠を選ぶ**: 学習に使うのは、動画 1 本につき 1 枚の枠（学習フレーム）です。右の欄の「学習に使う枠」を開くと、候補の枠が並びます。枠を押すと動画がその場面で止まり、その状態で確定すると、その枠が学習フレームになります。選ばなければ、信頼度が最も高い枠が自動で使われます。石や倒木に付いた余計な枠は、枠の右上の ✕ で学習から外せます。
-- **学習に向かない動画**: 人の目でやっと分かるような動画は、右の欄の上の 🚫 で学習から外せます（評価には使われます）。
+- **Videos where the AI got the species wrong**: just confirm them with the correct species.
+- **Videos with a box on nothing**: do not delete the box; confirm the video as "Empty". The box is then used for training as an example of a false detection.
+- **Choosing the box used for training**: training uses one box per video (the training frame). Open "Training boxes" in the right-hand panel to see the candidate boxes. Clicking a box stops the video at that frame, and confirming the video in that state makes that box the training frame. If you choose none, the box with the highest confidence is used automatically. Extra boxes on rocks or fallen logs can be excluded from training with the ✕ at the box's top right.
+- **Videos that are not suitable for training**: videos that even a person can barely identify can be excluded from training with 🚫 at the top of the right-hand panel (they are still used for evaluation).
 
-### 7.4 AI の正確さを確かめる
+### 7.4 Checking how accurate the AI is
 
-ツールバーの「一致率」を押すと、人の判定と AI の判定がどれくらい合っているかを、全体と種ごとに見られます。どの種をどの種と間違えたかの表も出ます。「CSV に書き出す」で保存できます。
+Click "Agreement" on the toolbar to see how well the human judgements and the AI judgements agree, overall and per species. A table also shows which species were mistaken for which. "Export CSV" saves the results.
 
-一覧の「検出」の絞り込みで「AI と不一致」を選ぶと、食い違っている動画だけを見直せます。
+To review only the videos where the two disagree, choose "Disagrees with AI" in the "Detection" filter of the list.
 
-### 7.5 学習したモデルをほかのプロジェクトで使う
+### 7.5 Using a trained model in other projects
 
-- 「学習したモデル」の表の「共有にコピー」を押すと、ほかのプロジェクトの「自動判定」の窓でも、そのモデルを選べるようになります。
-- 追加学習の窓の「材料に加えるプロジェクト」で、ほかのプロジェクトの確認済みの動画も一緒に学習できます。
-
----
-
-## 8. 既存の記録を取り込む
-
-### 8.1 CSV を読む
-
-これまでに作った CSV の種名を、判定として取り込めます。
-
-1. プロジェクトを開いた状態で、ツールバーの「CSV を読む」を押します。
-2. CSV を選び、種の列などを確かめます。CSV の種の表記と TrapNote の種の対応が自動で付かないものは、表で選びます。
-3. 取り込みます。
-
-- 動画との照合は、Season、Station、File の列で行います。このプロジェクトにない行は飛ばされます。
-- 取り込んだ判定は、未確認の判定として入ります（一覧の札は「取り込み」）。目視の結果として信頼できる CSV なら、「確認済みとして取り込む」を選べます。
-- すでに確認済みの動画は変わりません。
-
-### 8.2 Timelapse を読む
-
-Timelapse2 のテンプレート（.tdb）と結果（.ddb）を取り込めます。「Timelapse を読む」を押すと、4 つの手順（ファイルを選ぶ、読み取った内容を確かめる、取り込み方を決める、取り込む）の窓が開きます。手順 2 の表で、Timelapse の種の記号が TrapNote のどの種にあたるかを選びます。
+- Clicking "Copy to shared" in the "Trained models" table makes the model available in the "Auto ID" window of other projects.
+- With "Add other projects as material" in the retraining window, you can include the verified videos of other projects in the training.
 
 ---
 
-## 9. 複数の人や PC で分担する
+## 8. Importing existing records
 
-> **同じプロジェクトを、2 台の PC から同時に開かないでください。** 判定が正しく保存されないおそれがあります。分担するときは、次の「判定の持ち寄り」を使います。
+### 8.1 Read CSV
 
-### 9.1 判定の持ち寄り
+You can import the species names of CSV files you made before as judgements.
 
-1. それぞれの PC に、同じ動画のフォルダを用意して、作業します。
-2. 作業が済んだら、それぞれの PC で「判定の持ち寄り」→「判定を書き出す」を押します。判定が 1 つのファイル（JSON）に書き出されます。
-3. まとめ役の PC で「判定の持ち寄り」→「判定を取り込む…」を押し、そのファイルを選びます。
+1. With a project open, click "Read CSV" on the toolbar.
+2. Choose the CSV file and check the species column and the other settings. Where a species name in the CSV is not matched to a TrapNote species automatically, choose the species in the table.
+3. Import the file.
 
-取り込みの規則は、「確認済み > 自動判定 > 未処理」です。両方が確認済みで内容が違う動画は、「衝突」として残ります。画面でどちらを採るかを選びます。
+- Videos are matched by the Season, Station and File columns. Rows that do not belong to this project are skipped.
+- Imported judgements come in as unverified (the list tag reads "Imported"). If the CSV holds visual identifications you trust, choose "Import as verified (trust the existing visual IDs)".
+- Videos that are already verified are not changed.
 
-### 9.2 分担の目印
+### 8.2 Read Timelapse
 
-- 「設定」の「確認者の名前」に名前を入れておくと、だれが確定したかが記録されます（CSV の VerifiedBy の列）。
-- 一覧の上の「担当」で、いまの絞り込みに当てはまる動画に、担当者の名前を付けられます。
-
-### 9.3 動画ごと渡す
-
-一覧で動画を選んで右クリックし、「動画を書き出す…」で「TrapNote で開ける形」を選ぶと、動画と判定をひとまとめにしたフォルダができます。渡した先で「プロジェクトを開く」から開けます（[11.2](#112-動画を書き出す)）。
+You can import a Timelapse2 template (.tdb) and its results (.ddb). "Read Timelapse" opens a window with four steps (choose the files, check what was read, decide how to import, import). In the table of step 2, choose which TrapNote species each Timelapse species code stands for.
 
 ---
 
-## 10. 複数の調査回をまとめる
+## 9. Sharing the work among people and PCs
 
-調査回ごとに別のプロジェクトで作業したあと、その結果を 1 つの CSV にまとめられます。動画はコピーしません。
+> **Do not open the same project from two PCs at the same time.** Judgements may not be saved correctly. To share the work, use "Collect judgements" as described below.
 
-1. 「プロジェクトを開く」を押し、右のカード「調査回の統合」で、まとめた結果を置くフォルダを指定して「作って開く」を押します。
-   ドライブの直下、アプリのフォルダ、動画の親フォルダは指定できません。
-2. ツールバーの「統合の手順」を押し、窓の手順に沿って進めます。
+### 9.1 Collect judgements
 
-| 手順 | すること |
+1. Prepare the same video folder on each PC and do the work there.
+2. When the work is done, click "Collect judgements" → "Export judgements" on each PC. The judgements are written to a single file (JSON).
+3. On the coordinating PC, click "Collect judgements" → "Import judgements…" and choose those files.
+
+The import rule is "verified > Auto ID > unprocessed". Videos that are verified on both sides with different contents are kept as conflicts, and you choose on the screen which one to keep.
+
+### 9.2 Marking who does what
+
+- Enter your name in "Your name (recorded as verifier)" in "Settings" to record who confirmed each judgement (the VerifiedBy column of the CSV).
+- "Assignee" above the list gives the videos in the current filter the name of the person in charge.
+
+### 9.3 Handing over videos
+
+Select videos in the list, right-click, choose "Export videos… (selected videos)" and pick "Openable in TrapNote". This creates a folder that holds the videos together with their judgements. The recipient can open it with "Open project" ([11.2](#112-exporting-videos)).
+
+---
+
+## 10. Merging several survey rounds
+
+After working on each survey round in its own project, you can merge the results into one CSV. No videos are copied.
+
+1. Click "Open project", give the folder for the merged results in the card "Merge survey rounds" on the right, and click "Create and open".
+   A drive root, the app folder and the parent folder of the videos cannot be used.
+2. Click "Merge steps" on the toolbar and follow the steps in the window.
+
+| Step | What to do |
 |---|---|
-| 1. 参照先を登録 | まとめたい調査回のプロジェクト（または、調査回のフォルダが並んでいる親フォルダ）を登録します |
-| 2. 種名の対応表 | 調査回によって種名の表記が違う場合に、どの表記をどの種と見なすかを決めます |
-| 3. 全動画の目録を作る | 登録した調査回の全動画の一覧を作ります |
-| 4. まとめて書き出す | 調査回の列が付いた 1 つの CSV に書き出します |
+| 1. Register sources | Register the projects of the survey rounds to merge (or a parent folder that holds the folders of the survey rounds) |
+| 2. Species name mapping | If species names are written differently in different survey rounds, decide which name stands for which species |
+| 3. Build the list of all videos | Make a list of every video in the registered survey rounds |
+| 4. Export merged CSV | Write one CSV with a survey-round column |
 
 ---
 
-## 11. 動画を整理する
+## 11. Managing videos
 
-### 11.1 保存用の変換
+### 11.1 Archive convert
 
-MJPEG の AVI などを H.264 の MP4 に変換して、保存の容量を減らします。解像度とコマ数は元のままです。
+"Archive convert" converts MJPEG AVI and similar files to H.264 MP4 to save storage. The resolution and the number of frames stay the same.
 
-> **元の動画を置き換える操作です。** 実行する前に、元のファイルをどうするか（残す、別のフォルダへ移す、検算に通ったら消す）を必ず確かめてください。「消す」を選ぶと、元には戻せません。
+> **This replaces the original videos.** Before you run it, always check what will happen to the original files (keep them, move them to another folder, or delete them once the check has passed). If you choose to delete them, they cannot be recovered.
 
-- 変換後のファイルは、同じフォルダに同じ名前（拡張子は .MP4）でできます。撮影日時と判定は引き継がれます。
-- 途中で止めても、済んだものは飛ばして再開できます。
-- NVIDIA の GPU があると速く変換できます。
+- The converted file is created in the same folder under the same name (with the extension .MP4). The recording time and the judgements are carried over.
+- If you stop part way, finished files are skipped when you start again.
+- Conversion is faster with an NVIDIA GPU.
 
-### 11.2 動画を書き出す
+### 11.2 Exporting videos
 
-一覧で動画を選んで右クリックし、「動画を書き出す…（選んだ動画）」を押すと、選んだ動画を別のフォルダへ書き出せます。
+Select videos in the list, right-click and choose "Export videos… (selected videos)" to export the selected videos to another folder.
 
-| 書き出す形 | できるもの |
+| Export as | What you get |
 |---|---|
-| 動画のファイルだけ | 動画と、一覧の CSV（`video_list.csv`） |
-| TrapNote で開ける形 | 動画と `TrapNote` フォルダ（判定、枠、メモなど）。書き出した先を「プロジェクトを開く」で開けます |
+| Video files only | The videos and a list in CSV (`video_list.csv`) |
+| Openable in TrapNote | The videos and a `TrapNote` folder (judgements, boxes, notes and so on). The exported folder can be opened with "Open project" |
 
-AVI などを MP4 に変換しながら書き出すこともできます。同じ書き出し先にもう一度書き出すと、すでにあるものは飛ばして続きから進みます。
+AVI and similar files can be converted to MP4 while exporting. If you export to the same destination again, files that are already there are skipped and the export continues from where it stopped.
 
-### 11.3 削除
+### 11.3 Deleting
 
-一覧で動画を選び、右クリックの「削除（ごみ箱へ）」か Delete キーで削除できます。
+Select videos in the list and delete them with "Delete (to recycle bin)" in the right-click menu or with the Delete key.
 
-> **動画のファイルそのものを、ごみ箱へ移します。** その動画の判定も消え、アプリの中では元に戻せません。ごみ箱に入れられないとき（ネットワーク上のドライブなど）は、そのまま消えます。
+> **This moves the video files themselves to the Recycle Bin.** Their judgements are deleted too and cannot be restored in the app. If the files cannot be moved to the Recycle Bin (on a network drive, for example), they are deleted permanently.
 
 ---
 
-## 12. データの置き場所と持ち運び
+## 12. Where the data is kept and how to move it
 
-### 12.1 プロジェクトのデータ
+### 12.1 Project data
 
-結果は、開いた動画のフォルダの中の `TrapNote` フォルダにあります。
+The results are in the `TrapNote` folder inside the video folder you opened.
 
-| ファイル、フォルダ | 内容 |
+| File or folder | Contents |
 |---|---|
-| `data.sqlite` | 判定、項目の値、履歴。いちばん大事なファイルです |
-| `project.json` | プロジェクトの設定 |
-| `species.csv`、`fields.json` | 種リスト、追加項目 |
-| `exports/` | 書き出した CSV など |
-| `models/` | 追加学習したモデル |
-| `cache/` | 再生用の動画、サムネイル、学習用の情報など。消しても、必要になればまた作られます |
+| `data.sqlite` | Judgements, field values and history. This is the most important file |
+| `project.json` | Project settings |
+| `species.csv`, `fields.json` | Species list and extra fields |
+| `exports/` | Exported CSV files and other exports |
+| `models/` | Models made by retraining |
+| `cache/` | Playback videos, thumbnails, information for training and so on. Rebuilt when needed if deleted |
 
-- **バックアップ**: `TrapNote` フォルダをコピーします。`cache/video` と `cache/crops` は省いて構いません。`cache/features` と `models/` は、作り直しに時間がかかるので一緒に残します。
-- **別のドライブや PC に移す**: 動画のフォルダを、中の `TrapNote` フォルダごとコピーします。移した先で「プロジェクトを開く」から、新しい場所のフォルダを一度開いてください。
-- **ディスクがいっぱいのとき**: 「設定」の下の「キャッシュ」で、再生用の動画などを消せます。元の動画と判定は減りません。
+- **Backup**: copy the `TrapNote` folder. You can leave out `cache/video` and `cache/crops`. Keep `cache/features` and `models/`, because they take a long time to rebuild.
+- **Moving to another drive or PC**: copy the video folder together with the `TrapNote` folder inside it. At the new location, open the folder once with "Open project".
+- **When the disk is full**: playback videos and other caches can be deleted under "Caches" at the bottom of "Settings". Your original videos and judgements are not affected.
 
-### 12.2 アプリのデータ
+### 12.2 App data
 
-アプリを入れたフォルダ（`C:\TrapNote`）の中の `data` フォルダに、アプリ全体の設定、取ってきた AI のモデル、ログ（`app.log`）があります。
+The `data` folder inside the install folder (`C:\TrapNote`) holds the app-wide settings, the downloaded AI models and the log (`app.log`).
 
 ---
 
-## 13. キー操作の一覧
+## 13. Keyboard shortcuts
 
-| キー | 動作 |
+| Key | Action |
 |---|---|
-| Enter | 確定して次へ（メモの欄の中では Ctrl+Enter） |
-| Ctrl+Z | 直前の確定を取り消す |
-| 数字、文字 | 種の切り替え（種リストの「キー」で決めたもの） |
-| N / H / V / A / U | 動物なし / 人 / 車 / 有効範囲 / 不明 |
-| → / ← | 次の動画 / 前の動画（種にチェックがあれば、確定してから移る）。PageDown / PageUp も同じ |
-| Space | 再生、停止 |
-| , / . | 1 コマ戻る / 進む（< と > で 10 コマ） |
-| Home / End | 動画の先頭へ / 最後へ |
-| [ / ] | 再生を遅く / 速く |
-| L | ループ再生 |
-| B | 暗い動画の補正を切り替える（- と + で弱く、強く） |
-| ↑ / ↓ | 「学習に使う枠」の前の枠 / 次の枠の場面へ |
-| F | お気に入り |
-| Ctrl+A | 一覧の全部を選ぶ |
-| Delete | 選んだ動画を削除（[11.3](#113-削除) の注意を読んでください） |
-| Esc | 窓を閉じる、選択を解除する |
+| Enter | Confirm and go to the next video (Ctrl+Enter inside the note box) |
+| Ctrl+Z | Undo the last confirmation |
+| Digits, letters | Toggle species (as set in the "Key" column of the species list) |
+| N / H / V / A / U | Empty / Human / Vehicle / Area / Unknown |
+| → / ← | Next / previous video (if species are ticked, the judgement is confirmed before moving). PageDown / PageUp do the same |
+| Space | Play or pause |
+| , / . | Back / forward one frame (< and > for 10 frames) |
+| Home / End | Go to the start / end of the video |
+| [ / ] | Slower / faster playback |
+| L | Loop playback |
+| B | Cycle the brightening of dark videos (- and + for weaker and stronger) |
+| ↑ / ↓ | Go to the frame of the previous / next box in "Training boxes" |
+| F | Favourite |
+| Ctrl+A | Select everything in the list |
+| Delete | Delete the selected videos (read the warning in [11.3](#113-deleting)) |
+| Esc | Close a window or clear the selection |
 
-右の欄の下の「キー操作」を開くと、画面でも確かめられます。
+You can also check the keys on the screen by opening "Keyboard" at the bottom of the right-hand panel.
 
 ---
 
-## 14. 3 つの版
+## 14. The three editions
 
-TrapNote には、同じプログラムを使う 3 つの版があります。プロジェクトの形は共通で、画面に出る機能だけが違います。
+TrapNote comes in three editions that run the same program. They share the same project format and differ only in which features appear on the screen.
 
-| 版 | 起動のしかた | 内容 |
+| Edition | How to start | Contents |
 |---|---|---|
-| 公開版 | 「TrapNote」のアイコン（`起動.bat`） | この説明書の内容 |
-| Lite | 「TrapNote Lite」のアイコン（`起動（Lite）.bat`） | 検出（MegaDetector）と目視の確認まで。種の AI、一致率、追加学習はありません |
-| 研究用 | `起動（研究用）.bat` | 公開版に加えて、大量の動画からの無作為の取り出し、評価用の組を使った正答率の測定など。手順は [詳細仕様と開発メモ](technical-notes.md) にあります |
+| Public | The "TrapNote" icon (`起動.bat`) | Everything in this manual |
+| Lite | The "TrapNote Lite" icon (`起動（Lite）.bat`) | Detection (MegaDetector) and verification by eye. No species AI, agreement or retraining |
+| Research | `起動（研究用）.bat` | The public edition plus random sampling from large video collections, accuracy measurement with evaluation batches and more. The procedures are in the [technical notes](technical-notes.md) (in Japanese) |
 
-Lite のアイコンは、インストールのときに「TrapNote Lite のアイコンも作る」にチェックを付けるとできます。
-別の版が動いているときに起動すると、処理が走っていなければ、止めてから起動し直します。処理が走っているときは止めずに、その旨を知らせます。
-
----
-
-## 15. 困ったとき
-
-| 起きたこと | 対処 |
-|---|---|
-| インストーラを実行すると「Windows によって PC が保護されました」と出る | 「詳細情報」→「実行」を押します（インストーラに署名を付けていないためです） |
-| インストールが途中で失敗する | 入れたフォルダの `install.log` に記録があります。前に作った Python の環境が原因と思われるときは、インストーラの「前に作った Python の環境（trapnote）があっても使わず、専用の Miniforge に作る」にチェックを付けて、やり直します |
-| 一覧に何も出ない | 件数の横の「絞り込み中 n ✕」を押して、絞り込みを外します。フォルダの木で別のフォルダを選んでいないかも確かめます |
-| 動画を足したのに一覧に出ない | 「更新」を押します |
-| 「自動判定」の窓に「torch / megadetector / speciesnet が入っていません」と出る | AI を動かす部品が入っていません。インストーラをもう一度実行してください |
-| モデルを取ってこられない | はじめての自動判定には、インターネットが要ります（GitHub と Kaggle から取ってきます）。職場のネットワークで止められていないかを確かめてください |
-| GPU があるのに、自動判定が CPU で動く | NVIDIA のドライバが古いと GPU を使えません。ドライバを 570 以降に更新してください |
-| 動画を開いてから再生までに時間がかかる | ブラウザがそのまま再生できない形式の動画は、再生用の動画を作ってから再生します。次の数本は先に作っておくので、続けて見るときは待ちません |
-| 撮影日時が実際と違う | 一覧に `(mtime)` と出ている動画は、ファイルの更新時刻を使っています。🕓 で直せます（[6.4](#64-カメラの時計のずれを直す)） |
-| 「高度な検索」の窓が開かない | ブラウザがポップアップを止めています。許可してください |
-| 「追加学習」で、学習に使える動画がないと出る | 先に自動判定をかけ、動画を確認して確定してください（[7.2](#72-手順)） |
-| ディスクの空きがない | 「設定」の下の「キャッシュ」で、再生用の動画などを消せます |
-| 「起動し直せませんでした」と出る | 別の版で処理が走っています。処理が終わってから、もう一度起動してください |
-
-解決しないときは、アプリを入れたフォルダの `data\app.log`（インストールの問題なら `install.log`）を添えて、GitHub の Issues か、配布元に知らせてください。
+The Lite icon is created when you tick "Also create an icon for TrapNote Lite (detection and manual verification only)" during installation.
+If you start one edition while another is running, the running one is stopped and the new one starts, provided no job is running. If a job is running, it is not stopped and TrapNote tells you so.
 
 ---
 
-## 16. 用語
+## 15. Troubleshooting
 
-| 用語 | 意味 |
+| Problem | What to do |
 |---|---|
-| プロジェクト | 1 つの動画のフォルダと、その結果（`TrapNote` フォルダ）のまとまり |
-| 調査回 | 1 回の調査（カメラを置いてから回収するまで）のまとまり。ふつうは 1 つのプロジェクトが 1 つの調査回 |
-| 地点 | カメラを置いた所。ふつうは地点ごとのフォルダ |
-| 判定 | 動画に付けた種などの記録。AI が付けたものと、人が付けたものがある |
-| 確認済み | 人が確定した判定。CSV や追加学習で、正しい記録として扱われる |
-| 要確認 | AI の自信が低く、種を付けなかった動画の印 |
-| 検出枠 | AI が動物、人、車を見つけた場所を示す四角 |
-| 固定項目 | 種とは別に、どのプロジェクトにもある項目（動物なし、人、車、有効範囲、不明） |
-| 追加項目 | 個体数や行動など、自分で足した記録の項目 |
-| 学習フレーム | 追加学習に使う、動画 1 本につき 1 枚の枠 |
-| 検証用の地点 | 追加学習のとき、学習に使わずに取り分けておき、正答率を測るのに使う地点 |
-| 一致率 | 人の判定と AI の判定が合っている割合 |
+| Running the installer shows "Windows protected your PC" | Click "More info" and then "Run anyway" (the installer is not signed) |
+| Installation fails part way | See `install.log` in the install folder. If an existing Python environment seems to be the cause, tick "Do not reuse an existing Python environment (trapnote); create it in a private Miniforge" in the installer and try again |
+| The list is empty | Click "Filters on n ✕" next to the count to clear the filters. Also check that a different folder is not selected in the folder tree |
+| Added videos do not appear in the list | Click "Rescan" |
+| The "Auto ID" window says "torch / megadetector / speciesnet are not installed" | The parts that run the AI are missing. Run the installer again |
+| The models cannot be downloaded | The first Auto ID needs an internet connection (the models come from GitHub and Kaggle). Check that your organisation's network does not block them |
+| Auto ID runs on the CPU although there is a GPU | An old NVIDIA driver prevents GPU use. Update the driver to version 570 or later |
+| It takes a while from opening a video until it plays | Videos in formats the browser cannot play directly are converted for playback first. The next few videos are prepared in advance, so you do not wait when watching them in a row |
+| The recording time is wrong | Videos marked `(mtime)` in the list use the file's modification time. Correct it with 🕓 ([6.4](#64-correcting-the-camera-clock)) |
+| The "Advanced search" window does not open | The browser is blocking pop-ups. Allow them |
+| "Retrain" says there are no videos to train on | Run Auto ID first, then verify and confirm videos ([7.2](#72-steps)) |
+| The disk is full | Playback videos and other caches can be deleted under "Caches" at the bottom of "Settings" |
+| "Could not restart" is shown | A job is running in another edition. Start TrapNote again after the job has finished |
+
+If the problem persists, report it on GitHub Issues or to the person who gave you TrapNote, and attach `data\app.log` from the install folder (or `install.log` for installation problems).
+
+---
+
+## 16. Glossary
+
+| Term | Meaning |
+|---|---|
+| Project | One video folder together with its results (the `TrapNote` folder) |
+| Survey round | One survey, from setting the cameras to collecting them. Usually one project is one survey round ("Season" in the CSV) |
+| Station | A place where a camera was set. Usually one folder per station |
+| Judgement | The record of the species and other items for a video. It is made either by the AI or by a person |
+| Verified | A judgement confirmed by a person. The CSV and retraining treat it as a correct record |
+| Check | The flag for videos on which the AI was not confident enough to suggest a species |
+| Detection box | A rectangle showing where the AI found an animal, a person or a vehicle |
+| Fixed items | Items that exist in every project besides the species (Empty, Human, Vehicle, Area, Unknown) |
+| Extra fields | Fields you added yourself, such as group size or behaviour |
+| Training frame | The one box per video that is used for retraining |
+| Held-out stations | Stations set aside during retraining; they are not used for training and serve to measure accuracy |
+| Agreement | The share of videos on which the human judgement and the AI judgement agree |

@@ -6,7 +6,7 @@
 
 すること:
   1. 配るファイルを zip にまとめる（build/payload.zip）。入れるのは、動かすのに要るものだけ:
-     app.py、trapnote/*.py、static/*、resources/*、env/*、docs/*（取扱説明書）、*.bat、README.md、LICENSE。
+     app.py、trapnote/*.py、static/*、resources/*、env/*、docs/*（取扱説明書。英語版と日本語版）、*.bat、README.md、README.ja.md、LICENSE。
      入れないもの: data（設定・ログ・モデル）、tests、bench、installer、確認事項.md、reports、research_notes、dist、build、__pycache__
   2. アイコン（installer/trapnote.ico）がなければ作る（Pillow）
   3. Windows に入っている C# のコンパイラ（.NET Framework 4 の csc.exe）で、installer/TrapNoteSetup.cs を exe にする。zip は exe の中に入る
@@ -25,7 +25,7 @@ import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CSC = r"C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
-TOP_FILES = ("app.py", "README.md", "LICENSE")
+TOP_FILES = ("app.py", "README.md", "README.ja.md", "LICENSE")
 DIRS = {"trapnote": (".py",), "static": None, "resources": None, "env": None, "docs": None}       # フォルダ → 入れる拡張子（None = 全部）
 SKIP_NAMES = {"__pycache__", ".pytest_cache"}
 
