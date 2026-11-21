@@ -98,8 +98,8 @@
       </span>
       <label class="vb-opt"><input type="checkbox" id="vbLoop"> <span data-t="loop">ループ</span></label>
       <label class="vb-opt" id="vbBoxesWrap" data-title="boxes_tip"><input type="checkbox" id="vbBoxes"> <span data-t="boxes">検出枠</span></label><select id="vbBoxMode" class="vb-opt" data-title="box_mode_tip"><option value="all" data-t="box_mode_all">全部</option><option value="conf" data-t="box_mode_conf">0.5 以上</option><option value="train" class="not-lite" data-t="box_mode_train">学習に使う枠</option></select>
-      <select id="vbEnhance" class="vb-opt" data-title="enhance_tip"><option value="0" data-t="enhance_0">補正なし</option><option value="1" data-t="enhance_1">補正 弱</option><option value="2" data-t="enhance_2">補正 中</option><option value="3" data-t="enhance_3">補正 強</option><option value="4" data-t="enhance_4">補正 最強</option></select>
       <select id="vbOpenMode" class="vb-opt" data-title="open_mode_tip"><option value="play" data-t="open_mode_play">開いたら再生</option><option value="pause" data-t="open_mode_pause">先頭で止める</option><option value="crop" class="not-lite" data-t="open_mode_crop">学習枠で止める</option></select>
+      <select id="vbEnhance" class="vb-opt" data-title="enhance_tip"><option value="0" data-t="enhance_0">補正なし</option><option value="1" data-t="enhance_1">補正 弱</option><option value="2" data-t="enhance_2">補正 中</option><option value="3" data-t="enhance_3">補正 強</option><option value="4" data-t="enhance_4">補正 最強</option></select>
       <button id="vbEdit" class="small not-lite" data-t="box_edit" data-title="box_edit_tip">枠を編集</button>
       <span id="boxTools" class="vb-opt hidden"><select id="beCat" class="small"><option value="animal" data-t="det_animal">動物</option><option value="person" data-t="det_person">人</option><option value="vehicle" data-t="det_vehicle">車</option></select>
         <button id="beDel" class="small" data-t="box_del" data-title="box_del_tip">枠を消す</button><button id="beClear" class="small" data-t="box_clear" data-title="box_clear_tip">このフレームの枠を消す</button><button id="beClearAll" class="small danger-outline" data-t="box_clear_all" data-title="box_clear_all_tip">動画の枠を全部消す</button>
@@ -119,7 +119,7 @@
       <div id="humanBox" class="box jbox human hidden"></div>
       <div class="box edit">
         <div class="box-head"><span class="jtag human">人</span><span data-t="species_edit">種（人の判定）</span> <span class="info" data-t="species_hint">（キーで切り替え）</span>
-          <button id="btnAddSpecies" class="small right" data-t="add_species" data-title="add_species_tip">＋ 登録</button><button id="btnOtherSpecies" class="small" data-t="other_species">その他…</button></div>
+          <span class="sp-head-btns"><button id="btnAddSpecies" class="small" data-t="add_species" data-title="add_species_tip">＋ 登録</button><button id="btnSpKeys" class="small" data-t="sp_keys_btn" data-title="sp_keys_tip">キー設定</button><button id="btnOtherSpecies" class="small" data-t="other_species">その他…</button></span></div>
         <div id="speciesGrid" class="sp-grid"></div>
         <div id="fixedRow" class="sp-fixed"></div>
       </div>

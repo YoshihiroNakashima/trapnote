@@ -914,6 +914,11 @@ def make_app(session: Session) -> web.Application:
             p.species.set_enabled([str(c) for c in b["enabled"]])
         if "rows" in b:
             p.species.update(b["rows"], await io(S.taxa))
+        if "keys" in b:                               # 種のショートカットキーだけを決める（右の欄の「キー設定」。確認事項 154 回目）
+            try:
+                p.species.set_keys(b["keys"] if isinstance(b["keys"], dict) else {})
+            except ValueError as e:
+                raise ApiError(str(e))
         return jr(p.species.to_dict())
 
     async def species_add(request):

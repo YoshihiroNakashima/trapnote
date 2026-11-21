@@ -270,7 +270,27 @@ li.item .excl { color: #b3261e; margin-right: 2px; }
 .jbox .jdet .info { font-size: 11px; }
 .box.edit { border-left: 4px solid #2e9e44; }
 .box.edit .box-head > span:not(.info) { white-space: nowrap; }
-.box.edit .box-head .info { font-weight: 400; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.box.edit .box-head .info { font-weight: 400; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 0; }
+/* 種の欄の見出しのボタン（＋ 登録・キー設定・その他…）: 欄が狭いときは、3 つまとめて次の行に回る（はみ出して押せなくならないように。確認事項 154 回目） */
+.box.edit .box-head { flex-wrap: wrap; row-gap: 4px; }
+.sp-head-btns { display: inline-flex; gap: 6px; margin-left: auto; flex: none; }
+/* 種のショートカットキーの窓（species.js の speciesKeysDialog） */
+.kd-wrap { width: 560px; max-width: 100%; }
+.kd-tools { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.kd-list { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 14px; max-height: 44vh; overflow: auto; margin: 8px 0 4px; padding: 2px; }
+.kd-list.fixed { grid-template-columns: repeat(3, 1fr); max-height: none; margin-top: 4px; }
+.kd-row { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 3px 6px; border: 1px solid transparent; border-radius: 5px; cursor: pointer; font-size: 13px; outline: none; }
+.kd-row:hover { background: #eef0f6; }
+.kd-row:focus { border-color: var(--accent); background: #e4e9ff; }
+.kd-key { flex: none; width: 26px; height: 24px; display: inline-flex; align-items: center; justify-content: center; font: 600 13px Consolas, monospace; border: 1px solid #b9bfd6; border-radius: 4px; background: #fff; color: #223; }
+.kd-key.none { border-style: dashed; }
+.kd-row:focus .kd-key { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(59,91,219,.22); }
+.kd-row.fixed { cursor: default; color: var(--muted); }
+.kd-row.fixed:hover { background: none; }
+.kd-row.fixed .kd-key { background: #f1f2f6; color: #667; }
+.kd-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kd-msg { min-height: 18px; font-size: 12px; color: #a15c00; }
+.kd-sec { font-size: 12px; font-weight: 600; margin-top: 6px; }
 /* 追加学習 */
 table.tbl tr.cur td { background: #eef2ff; }
 /* 右の欄の「＋ 項目」 */

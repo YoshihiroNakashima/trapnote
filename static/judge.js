@@ -318,6 +318,7 @@ function wireJudge() {
   $('#btnClear').onclick = clearJudgement;
   $('#btnUndo').onclick = undoLast;
   $('#btnOtherSpecies').onclick = () => otherSpeciesDialog();
+  $('#btnSpKeys').onclick = () => S.project && speciesKeysDialog();      // 種を選ぶショートカットキーを決める（species.js。確認事項 154 回目）
   let noteTimer = null;
   $('#noteInput').addEventListener('input', () => { S.dirty = true; clearTimeout(noteTimer); noteTimer = setTimeout(() => { if (S.cur) api(`/api/items/${S.cur.id}/note`, { note: $('#noteInput').value }).then(() => patchRow({ id: S.cur.id, note: $('#noteInput').value })).catch(() => {}); }, 600); });
 }

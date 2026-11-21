@@ -1,4 +1,4 @@
-// 種リストと、種の登録（確認事項 149・150 回目）
+// 種リストと、種の登録（確認事項 149・150 回目）、種のショートカットキー（154 回目。speciesKeysDialog。このファイルの最後）
 //   speciesDialog(opts)          種リストの窓。ツールバーの「種の登録」、設定の窓、自動判定の窓から開く。opts.onClose = 閉じたあとに戻る先
 //                                上から、調査地の国 → 登録した種の表 → その国の候補（SpeciesNet が知っている種。国を入れると、すぐ下に出る）
 //   speciesRegisterDialog(opts)  「種を登録」。登録のしかたを選ぶ: 1 種ずつ入れる / CSV からまとめて / SpeciesNet の候補から / 日本の哺乳類の一覧。
@@ -418,4 +418,97 @@ async function speciesBlockForDetect(el, onOpen) {
   const b = el.querySelector('#dtSpOpen');
   if (b) b.onclick = onOpen;
   return n;
+}
+
+// ---------- 種のショートカットキー（確認事項 154 回目）: 右の欄の「キー設定」から開く ----------
+// 種の行を選んで（押すか、矢印キー）、付けたいキーを押す。付けると、次の種に進む。Backspace で外す。Enter で保存。保存は POST /api/species { keys: { 種のコード: キー } }
+// SP_KEYS_RESERVED = 判定の画面（app.js の onKey）が、種のキーより先に使うキー。種に付けても届かないので、付けさせない
+//                    （サーバーの species.KEYS_RESERVED と同じ集まり。tests/test_species_keys.py が見る）
+// SP_KEYS_SHARED   = 種に付いていなければ、ほかの操作に使うキー。種に付けられる（付けている間、その操作はキーではできない）
+const SP_KEYS_RESERVED = { ' ': 'play', ',': 'frame', '.': 'frame', '<': 'frame', '>': 'frame', '[': 'speed', ']': 'speed' };
+const SP_KEYS_SHARED = { F: 'fav', B: 'enh', L: 'loop', '-': 'enh', '+': 'enh', '=': 'enh' };
+function spKeyChar(e) {                    // 押したキー → 種のキーにする 1 文字（英字は大文字）。文字のキーでなければ ''
+  let k = e.key || '';
+  if (k === 'Process' || k === 'Unidentified') {          // 日本語入力が入っているとき: 押した場所（code）から、英字・数字を取る
+    const c = e.code || '';
+    k = /^Key[A-Z]$/.test(c) ? c.slice(3) : (/^(Digit|Numpad)\d$/.test(c) ? c.slice(-1) : '');
+  }
+  if (k.length !== 1) return '';
+  const u = k.toUpperCase();
+  return u.length === 1 ? u : k;
+}
+function speciesKeysDialog() {
+  const all = (S.species && S.species.species) || [], fixed = (S.species && S.species.fixed) || [];
+  const rows = all.filter(s => s.enabled);                // 右の欄に並んでいる種（同じ順）
+  const keys = {};                         // 種のコード → キー。「使う」でない種のぶんも持つ（同じキーを、そこから移すため）
+  all.forEach(s => { keys[s.code] = (s.key || '').toUpperCase(); });
+  const fixedBy = {};
+  fixed.forEach(s => { if (s.key) fixedBy[s.key.toUpperCase()] = s; });
+  const fmt = (key, o) => t(key).replace(/\{(\w+)\}/g, (_, k) => (o[k] != null ? o[k] : ''));
+  const nameOf = code => { const s = all.find(x => x.code === code); return s ? spName(s) : code; };
+  const rowHtml = (s, fx) => `<div class="kd-row${fx ? ' fixed' : ''}"${fx ? '' : ` tabindex="0" data-code="${esc(s.code)}"`}><span class="kd-key">${fx ? esc(s.key || '') : ''}</span><span class="kd-name">${esc(spName(s))}</span></div>`;
+  const m = showModal(`<div class="kd-wrap"><h3>${esc(t('kd_title'))}</h3><div class="note">${esc(t('kd_help'))}</div>
+    ${rows.length ? `<div class="kd-tools"><button type="button" class="small" id="kdAuto" title="${esc(t('kd_auto_tip'))}">${esc(t('kd_auto'))}</button><button type="button" class="small" id="kdClear">${esc(t('kd_clear'))}</button></div>
+    <div class="kd-list" id="kdList">${rows.map(s => rowHtml(s, false)).join('')}</div>` : `<div class="sp-empty">${esc(t('kd_none'))}</div>`}
+    <div class="kd-msg" id="kdMsg"></div>
+    <div class="kd-sec">${esc(t('kd_fixed'))}</div><div class="kd-list fixed">${fixed.map(s => rowHtml(s, true)).join('')}</div>
+    <div class="note">${esc(t('kd_used'))}</div>
+    <div class="modal-actions"><button id="mCancel">${esc(t('cancel'))}</button><button id="mOk" class="primary">${esc(t('save'))}</button></div></div>`);
+  const q = sel => m.querySelector(sel);
+  const els = Array.from(m.querySelectorAll('.kd-row[data-code]'));
+  let cur = 0;                             // いま選んでいる行（ボタンを押したあと、ここへ戻す）
+  const msg = text => { q('#kdMsg').textContent = text || ''; };
+  const paint = () => els.forEach(el => { const k = keys[el.dataset.code] || '', box = el.querySelector('.kd-key'); box.textContent = k; box.classList.toggle('none', !k); });
+  const focusRow = i => { if (!els.length) return; cur = Math.max(0, Math.min(els.length - 1, i)); els[cur].focus(); };
+  const assign = (code, ch) => {
+    if (SP_KEYS_RESERVED[ch]) { msg(fmt('kd_msg_reserved', { k: ch === ' ' ? 'Space' : ch, what: t('kd_w_' + SP_KEYS_RESERVED[ch]) })); return false; }
+    if (fixedBy[ch]) { msg(fmt('kd_msg_fixed', { k: ch, name: spName(fixedBy[ch]) })); return false; }
+    const from = all.find(s => s.code !== code && keys[s.code] === ch);       // 同じキーは、前の種から外して移す
+    if (from) keys[from.code] = '';
+    keys[code] = ch;
+    msg([from ? fmt('kd_msg_moved', { k: ch, from: spName(from), to: nameOf(code) }) : '', SP_KEYS_SHARED[ch] ? fmt('kd_msg_shared', { k: ch, what: t('kd_w_' + SP_KEYS_SHARED[ch]) }) : ''].filter(Boolean).join(' '));
+    paint();
+    return true;
+  };
+  const save = async () => {
+    const changed = {};
+    all.forEach(s => { if ((s.key || '').toUpperCase() !== keys[s.code]) changed[s.code] = keys[s.code]; });
+    try {
+      if (Object.keys(changed).length) { S.species = await api('/api/species', { keys: changed }); spRefreshMain(); toast(t('kd_saved')); }
+      closeModal();
+    } catch (e) { toast(e.message, 'error'); }
+  };
+  els.forEach((el, i) => { el.addEventListener('focus', () => { cur = i; }); });
+  if (els.length) {
+    q('#kdList').addEventListener('keydown', e => {
+      const el = e.target && e.target.closest ? e.target.closest('.kd-row[data-code]') : null;
+      if (!el || e.ctrlKey || e.metaKey || e.altKey) return;
+      const i = els.indexOf(el), code = el.dataset.code, k = e.key;
+      const step = { ArrowRight: 1, ArrowLeft: -1, ArrowDown: 2, ArrowUp: -2 }[k];        // 2 列に並んでいる（右の欄と同じ並び）
+      if (step) { e.preventDefault(); if (i + step >= 0 && i + step < els.length) focusRow(i + step); return; }
+      if (k === 'Backspace' || k === 'Delete') { e.preventDefault(); keys[code] = ''; msg(''); paint(); return; }
+      if (k === 'Enter') { e.preventDefault(); save(); return; }
+      const ch = spKeyChar(e);
+      if (!ch) return;                     // Tab、F1 など: そのまま
+      e.preventDefault();
+      if (assign(code, ch) && i + 1 < els.length) focusRow(i + 1);
+    });
+    q('#kdAuto').onclick = () => {          // キーのない種に、上から順に、空いている数字を付ける
+      const free = '1234567890'.split('').filter(d => !rows.some(s => keys[s.code] === d));
+      let n = 0;
+      rows.forEach(s => {
+        if (keys[s.code] || !free.length) return;
+        const d = free.shift();
+        all.forEach(o => { if (keys[o.code] === d) keys[o.code] = ''; });      // 「使う」でない種が持っていた数字は、そこから外す
+        keys[s.code] = d; n++;
+      });
+      msg(n ? fmt('kd_auto_done', { n }) : t('kd_auto_none'));
+      paint(); focusRow(cur);
+    };
+    q('#kdClear').onclick = () => { rows.forEach(s => { keys[s.code] = ''; }); msg(''); paint(); focusRow(cur); };
+  }
+  q('#mCancel').onclick = closeModal;
+  q('#mOk').onclick = save;
+  paint();
+  focusRow(0);
 }

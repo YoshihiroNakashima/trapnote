@@ -19,6 +19,9 @@ FIXED = [
     dict(code="unknown", name_ja="不明", name_en="Unknown", csv_label="Unknown", speciesnet="", key="U"),
 ]
 FIXED_CODES = {f["code"] for f in FIXED}
+# 判定の画面が、種のキーより先に使うキー（Space 再生・停止 / , . < > コマ送り / [ ] 再生の速さ。static/app.js の onKey）。種のキーにしても届かないので、set_keys では付けさせない
+# （画面の側は static/species.js の SP_KEYS_RESERVED。同じ集まりであることを tests/test_species_keys.py が見る）
+KEYS_RESERVED = " ,.<>[]"
 ENCODINGS = ("utf-8-sig", "cp932", "latin-1")
 
 
@@ -553,6 +556,49 @@ class SpeciesList:
         for r in self.rows:
             r["enabled"] = 1 if r["code"] in s else 0
         save_csv(self.path, self.rows)
+
+    def set_keys(self, keys: dict) -> dict:
+        """種のキー（判定の画面で、その種のチェックを切り替えるキー）を決める（右の欄の「キー設定」。確認事項 154 回目）。
+        keys = {種のコード: キー（1 文字。空なら外す）}。渡さなかった種は、そのまま。英字は大文字にそろえる。
+        固定項目のキー（N・H・V・A・U）と、画面がほかの操作に使うキー（KEYS_RESERVED）は付けられない（ValueError。そのときは、何も変えない）。
+        同じキーを 2 つの種には付けない: ここで付けたキーを前から持っていた、ほかの種（「使う」でない種も）からは外す。
+        返り値 dict(changed = キーが変わった種のコード, moved = そのうち、キーをほかの種に取られて外れた種のコード)"""
+        fixed = {f["key"].upper(): f for f in FIXED if f.get("key")}
+        want: dict[str, str] = {}
+        for code, v in (keys or {}).items():
+            code = str(code)
+            if code in FIXED_CODES:
+                raise ValueError("固定項目（動物なし・人・車・有効範囲・不明）のキーは変えられません")
+            raw = "" if v is None else str(v)
+            k = raw.strip()[:1]
+            k = k.upper() if len(k.upper()) == 1 else k
+            if (raw and not k) or (k and k in KEYS_RESERVED):          # 空白だけ = Space
+                raise ValueError(f"「{k or 'Space'}」は、再生・コマ送り・再生の速さに使うキーなので、種には付けられません")
+            if k in fixed:
+                raise ValueError(f"「{k}」は「{fixed[k]['name_ja']}」のキーです（変えられません）")
+            want[code] = k
+        used = [k for k in want.values() if k]
+        dup = sorted({k for k in used if used.count(k) > 1})
+        if dup:
+            raise ValueError("同じキーを 2 つの種に付けています: " + "、".join(dup))
+        have = {r["code"] for r in self.rows}
+        taken = {k for c, k in want.items() if k and c in have}
+        changed, moved = [], []
+        for r in self.rows:
+            old = (r.get("key") or "").upper()
+            if r["code"] in want:
+                new = want[r["code"]]
+            elif old and old in taken:
+                new = ""
+                moved.append(r["code"])
+            else:
+                continue
+            if new != (r.get("key") or ""):
+                r["key"] = new
+                changed.append(r["code"])
+        if changed:
+            save_csv(self.path, self.rows)
+        return dict(changed=changed, moved=moved)
 
     def to_dict(self) -> dict:
         return dict(species=self.rows, fixed=[dict(f, fixed=True) for f in FIXED])
