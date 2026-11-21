@@ -1095,10 +1095,10 @@ class YoloExportJob(Job):
             self.done, self.total = a, b
         self.message = "書き出し中"
         r = yolo.export_yolo(project, o.get("out_dir") or "", o.get("filters") or {}, bool(o.get("per_species", True)), o.get("class_mode") or "animal0",
-                             bool(o.get("write_images", True)), bool(o.get("in_place")), prog, self.stop_flag.is_set)
+                             bool(o.get("write_images", True)), bool(o.get("in_place")), prog, self.stop_flag.is_set, o.get("frames") or "anchor")
         self.result = r
         self.done = self.total = r["items"]
-        self.message = f"{r['items']} 件（ラベル {r['labels']}、枠 {r['boxes']}、画像 {r['images']}、飛ばした {r['skipped']}）→ {r['out_dir']}"
+        self.message = f"{r['items']} 件（画像 {r['images']}、ラベル {r['labels']}、枠 {r['boxes']}、飛ばした {r['skipped']}）→ {r['out_dir']}"
 
     def status(self) -> dict:
         d = super().status()

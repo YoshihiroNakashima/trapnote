@@ -13,7 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from aiohttp import web
 
-from . import APP_ID, APP_NAME, BUILD, BUILD_TIME, VERSION, cross, detect, dialogs, export as export_mod, judge, media, merge as merge_mod, scan as scan_mod, spot, station, timelapse, train, yolo
+from . import APP_ID, APP_NAME, BUILD, BUILD_TIME, VERSION, camtrapdp, cross, detect, dialogs, export as export_mod, judge, media, merge as merge_mod, scan as scan_mod, spot, station, timelapse, train, yolo
 from .config import APP_DIR, DATA_DIR, STATIC_DIR, Settings, State, edition
 from .jobs import ArchiveJob, CatalogBuildJob, CatalogImportJob, CrossCopyJob, CrossImportJob, CrossRemoveJob, CrossSyncJob, DetectJob, FilesOutJob, LabelsJob, Lane, MetaJob, ReclassifyJob, ScanJob, SubsetExportJob, TrainJob, TranscodeJob, YoloExportJob, YoloImportJob
 from .paths import is_foreground_path, key, norm, note_foreground_read
@@ -1386,6 +1386,38 @@ def make_app(session: Session) -> web.Application:
         p = S.need()
         return jr(await io(export_mod.write_index_csv, p))
 
+    # ---- Camtrap DP 形式の書き出し（確認事項 140 回目） ----
+    async def camtrapdp_info(request):
+        p = S.need()
+        return jr(await io(camtrapdp.info, p, user()))
+
+    async def camtrapdp_template(request):
+        p = S.need()
+        b = await _body(request)
+        path = norm(str(b.get("path") or "").strip() or os.path.join(p.dir, "exports", "stations_template.csv"))
+        return jr(await io(camtrapdp.write_template, p, path))
+
+    async def camtrapdp_stations(request):
+        p = S.need()
+        b = await _body(request)
+        path = norm(str(b.get("path") or "").strip())
+        if not os.path.isfile(path):
+            raise ApiError(f"ファイルがありません: {path}")
+        try:
+            return jr(await io(camtrapdp.import_stations, p, path))
+        except ValueError as e:
+            raise ApiError(str(e))
+
+    async def export_camtrapdp(request):
+        p = S.need()
+        b = await _body(request)
+        out = norm(str(b.get("out_dir") or "").strip() or os.path.join(p.dir, "exports", "camtrap-dp"))
+        f = _filters(b.get("filters") or {})
+        try:
+            return jr(await io(lambda: camtrapdp.export_camtrapdp(p, out, f, b.get("meta") or {}, user())))
+        except ValueError as e:
+            raise ApiError(str(e))
+
     async def import_preview(request):
         b = await _body(request)
         path = norm(b.get("path", ""))
@@ -1714,7 +1746,8 @@ def make_app(session: Session) -> web.Application:
         p = S.need()
         b = await _body(request)
         opts = dict(out_dir=norm(b.get("out_dir") or os.path.join(p.dir, "exports", "yolo")), filters=_filters(b.get("filters") or {}),
-                    per_species=b.get("per_species", True), class_mode=b.get("class_mode") or "animal0", write_images=b.get("write_images", True), in_place=bool(b.get("in_place")))
+                    per_species=b.get("per_species", True), class_mode=b.get("class_mode") or "animal0", write_images=b.get("write_images", True), in_place=bool(b.get("in_place")),
+                    frames="all" if b.get("frames") == "all" else "anchor")      # 動画から書くフレーム: anchor = 学習フレームだけ（既定）/ all = 枠のあるフレームを全部
         S.bg.submit(YoloExportJob(opts), front=True)
         return jr(S.jobs_status())
 
@@ -1864,6 +1897,10 @@ def make_app(session: Session) -> web.Application:
     r.add_post("/api/export/csv", export_csv)
     r.add_post("/api/export/index", export_index)
     r.add_post("/api/export/timelapse", export_timelapse)
+    r.add_get("/api/camtrapdp/info", camtrapdp_info)
+    r.add_post("/api/camtrapdp/template", camtrapdp_template)
+    r.add_post("/api/camtrapdp/stations", camtrapdp_stations)
+    r.add_post("/api/export/camtrapdp", export_camtrapdp)
     r.add_get("/api/yolo/preview", yolo_preview)
     r.add_post("/api/yolo/import", yolo_import)
     r.add_post("/api/yolo/export", yolo_export)

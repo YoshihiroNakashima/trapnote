@@ -406,3 +406,10 @@ body[data-edition="research"] .ed-chip { background: #fff1d6; color: #8a5a00; }
 .stn-seg.on2 { border-color: #c98a00; background: #fff5db; }
 .stn-seg .stn-tag { font-size: 11px; font-weight: bold; color: #2b46b5; min-height: 14px; }
 .stn-seg.on2 .stn-tag { color: #8a5a00; }
+
+/* Camtrap DP の書き出し（確認事項 140 回目）: 作成者の名前・所属・メールを 1 行に並べる */
+.ex-dp-who { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
+/* 説明とライセンス（確認事項 141 回目）: ライセンスの 2 つの選択を 1 行に並べる */
+.ex-dp-lic { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.form-row .ex-dp-lic select { width: auto; }
+#exDpDesc { resize: vertical; min-height: 2.6em; }

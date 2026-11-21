@@ -255,6 +255,25 @@ async function exportDialog(preset) {
     <div class="btn-row"><button id="mOk" class="primary">${esc(t('ex_run_csv'))}</button></div>
     <div id="exResult" class="note"></div>
     <h3 class="ex-other">${esc(t('ex_other'))}</h3><div class="note">${esc(t('ex_other_help'))}</div>
+    <h4>${esc(t('ex_dp'))}</h4><div class="note">${esc(t('ex_dp_help'))}</div>
+    ${pathRow('exDpDir', t('ex_dp_dir'), 'folder', `${S.project.dir}/exports/camtrap-dp`, '')}
+    <div class="form-row"><label>${esc(t('ex_dp_title'))}</label><input type="text" id="exDpTitle" spellcheck="false"></div>
+    <div class="form-row"><label>${esc(t('ex_dp_contributor'))}</label><span class="ex-dp-who"><input type="text" id="exDpContributor" spellcheck="false" placeholder="${esc(t('ex_dp_contributor_ph'))}"><input type="text" id="exDpOrg" spellcheck="false" placeholder="${esc(t('ex_dp_org_ph'))}"><input type="text" id="exDpEmail" spellcheck="false" placeholder="${esc(t('ex_dp_email_ph'))}"></span></div>
+    <div class="form-row"><label>${esc(t('ex_dp_sampling'))}</label><select id="exDpSampling"><option value="">${esc(t('ex_dp_sampling_none'))}</option>${['simpleRandom', 'systematicRandom', 'clusteredRandom', 'experimental', 'targeted', 'opportunistic'].map(x => `<option value="${x}">${esc(t('ex_dp_s_' + x))}</option>`).join('')}</select></div>
+    <div class="form-row"><label>${esc(t('ex_dp_capture'))}</label><span><label class="chk"><input type="checkbox" id="exDpCapAct" checked> ${esc(t('ex_dp_cap_act'))}</label>　<label class="chk"><input type="checkbox" id="exDpCapTl"> ${esc(t('ex_dp_cap_tl'))}</label></span></div>
+    <div class="form-row"><label></label><span><label class="chk"><input type="checkbox" id="exDpIndiv"> ${esc(t('ex_dp_indiv'))}</label></span></div>
+    <div class="form-row"><label>${esc(t('ex_dp_tz'))}</label><input type="text" id="exDpTz" spellcheck="false" style="width:90px"><div class="help">${esc(t('ex_dp_tz_help'))}</div></div>
+    <div class="form-row"><label>${esc(t('ex_dp_desc'))}</label><textarea id="exDpDesc" rows="2" spellcheck="false" placeholder="${esc(t('ex_dp_desc_ph'))}"></textarea></div>
+    <div class="form-row"><label>${esc(t('ex_dp_lic'))}</label><span class="ex-dp-lic"><label class="inline">${esc(t('ex_dp_lic_data'))} <select id="exDpLicData"><option value="">${esc(t('ex_dp_lic_none'))}</option>${[['CC0-1.0', 'cc0'], ['CC-BY-4.0', 'ccby'], ['CC-BY-NC-4.0', 'ccbync']].map(x => `<option value="${x[0]}">${esc(t('ex_dp_l_' + x[1]))}</option>`).join('')}</select></label><label class="inline">${esc(t('ex_dp_lic_media'))} <select id="exDpLicMedia"><option value="">${esc(t('ex_dp_lic_none'))}</option>${[['CC0-1.0', 'cc0'], ['CC-BY-4.0', 'ccby'], ['CC-BY-NC-4.0', 'ccbync']].map(x => `<option value="${x[0]}">${esc(t('ex_dp_l_' + x[1]))}</option>`).join('')}</select></label></span><div class="help">${esc(t('ex_dp_pub_help'))}</div></div>
+    <div class="form-row"><label>${esc(t('ex_dp_stations'))}</label><span><span id="exDpStations" class="info"></span><br><button type="button" class="small" id="exDpTemplate">${esc(t('ex_dp_template'))}</button> <button type="button" class="small" id="exDpImport">${esc(t('ex_dp_import'))}</button></span></div>
+    <button type="button" id="exDp">${esc(t('ex_dp_run'))}</button><div id="exDpStatus" class="note"></div>
+    <h4>${esc(t('ex_yolo'))}</h4><div class="note">${esc(t('ex_yolo_help'))}</div>
+    <div class="form-row only-research"><label>${esc(t('ex_yolo_where'))}</label><select id="exYoloWhere"><option value="new">${esc(t('ex_yolo_new'))}</option><option value="in_place">${esc(t('ex_yolo_in_place'))}</option></select></div>
+    <div id="exYoloNewRows">${pathRow('exYoloDir', t('ex_yolo_dir'), 'folder', `${S.project.dir}/exports/yolo`, '')}
+    <div class="form-row"><label>${esc(t('ex_yolo_frames'))}</label><select id="exYoloFrames"><option value="anchor">${esc(t('ex_yolo_frames_anchor'))}</option><option value="all">${esc(t('ex_yolo_frames_all'))}</option></select>${t('ex_yolo_frames_help') ? `<div class="help">${esc(t('ex_yolo_frames_help'))}</div>` : ''}</div>
+    <div class="form-row"><label>${esc(t('ex_yolo_class'))}</label><select id="exYoloClass"><option value="animal0">${esc(t('ex_yolo_class0'))}</option><option value="species">${esc(t('ex_yolo_class_sp'))}</option></select></div>
+    <div class="form-row"><label></label><span><label class="chk"><input type="checkbox" id="exYoloPer" checked> ${esc(t('ex_yolo_per'))}</label>　<label class="chk"><input type="checkbox" id="exYoloImg" checked> ${esc(t('ex_yolo_img'))}</label></span></div></div>
+    <button type="button" id="exYolo">${esc(t('ex_yolo_run'))}</button><div id="exYoloStatus" class="note"></div>
     <h4>${esc(t('ex_index'))}</h4><div class="note">${esc(t('ex_index_help'))}</div><button type="button" id="exIndex">${esc(t('ex_index'))}</button>
     <h4>${esc(t('ex_md'))}</h4><div class="note">${esc(t('ex_md_help'))}</div><button type="button" id="exMd">${esc(t('ex_md'))}</button>
     <h4>${esc(t('ex_tl'))}</h4><div class="note">${esc(t('ex_tl_help'))}</div>
@@ -262,12 +281,6 @@ async function exportDialog(preset) {
     <div class="form-row"><label>${esc(t('ex_tl_style'))}</label><select id="exTlStyle"><option value="choice">${esc(t('ex_tl_choice'))}</option><option value="flags">${esc(t('ex_tl_flags'))}</option></select></div>
     <div class="form-row"><label></label><span><label class="chk"><input type="checkbox" id="exTlFields" checked> ${esc(t('ex_tl_fields'))}</label>　<label class="chk"><input type="checkbox" id="exTlCorrected" checked> ${esc(t('ex_tl_corrected'))}</label></span></div>
     <button type="button" id="exTl">${esc(t('ex_tl_run'))}</button>
-    <div class="only-research"><h4>${esc(t('ex_yolo'))}</h4><div class="note">${esc(t('ex_yolo_help'))}</div>
-    <div class="form-row"><label>${esc(t('ex_yolo_where'))}</label><select id="exYoloWhere"><option value="new">${esc(t('ex_yolo_new'))}</option><option value="in_place">${esc(t('ex_yolo_in_place'))}</option></select></div>
-    <div id="exYoloNewRows">${pathRow('exYoloDir', t('ex_yolo_dir'), 'folder', `${S.project.dir}/exports/yolo`, '')}
-    <div class="form-row"><label>${esc(t('ex_yolo_class'))}</label><select id="exYoloClass"><option value="animal0">${esc(t('ex_yolo_class0'))}</option><option value="species">${esc(t('ex_yolo_class_sp'))}</option></select></div>
-    <div class="form-row"><label></label><span><label class="chk"><input type="checkbox" id="exYoloPer" checked> ${esc(t('ex_yolo_per'))}</label>　<label class="chk"><input type="checkbox" id="exYoloImg" checked> ${esc(t('ex_yolo_img'))}</label></span></div></div>
-    <button type="button" id="exYolo">${esc(t('ex_yolo_run'))}</button><div id="exYoloStatus" class="note"></div></div>
     <div class="modal-actions"><button id="mCancel">${esc(t('close'))}</button></div>`);
   exportModalEl = m;
   m.querySelector('#exYoloWhere').addEventListener('change', () => { m.querySelector('#exYoloNewRows').classList.toggle('hidden', m.querySelector('#exYoloWhere').value === 'in_place'); });
@@ -278,9 +291,57 @@ async function exportDialog(preset) {
     if (inPlace) { exportModalEl = null; if (!await confirmModal(t('ex_yolo'), esc(t('ex_yolo_in_place_q')), t('run'), true)) { exportDialog(); return; } await exportDialog(); }
     const mm = exportModalEl || m;
     try {
-      const j = await api('/api/yolo/export', { out_dir: mm.querySelector('#exYoloDir').value.trim(), filters, per_species: mm.querySelector('#exYoloPer').checked, class_mode: mm.querySelector('#exYoloClass').value, write_images: mm.querySelector('#exYoloImg').checked, in_place: inPlace });
+      const j = await api('/api/yolo/export', { out_dir: mm.querySelector('#exYoloDir').value.trim(), filters, per_species: mm.querySelector('#exYoloPer').checked, class_mode: mm.querySelector('#exYoloClass').value, write_images: mm.querySelector('#exYoloImg').checked, in_place: inPlace, frames: mm.querySelector('#exYoloFrames').value });
       mm._yoloRunning = true; yoloExportOnJobs(j);
     } catch (e) { toast(e.message, 'error'); }
+  };
+  // ---- Camtrap DP 形式の書き出し（確認事項 140 回目）: 覚えている説明（題名・作成者など）と、地点の座標の様子を入れてから、書き出す ----
+  const dpQ = sel => m.querySelector(sel);
+  const dpStations = i => { const el = dpQ('#exDpStations'); if (el) el.textContent = t('ex_dp_st_status').replace('{n}', i.n_deployments).replace('{m}', i.n_with_coords) + (i.n_with_coords < i.n_deployments ? ' ' + t('ex_dp_st_need') : ''); };
+  api('/api/camtrapdp/info').then(i => {
+    if (!dpQ('#exDpTitle')) return;            // 窓がもう閉じている
+    const mt = i.meta || {};
+    dpQ('#exDpTitle').value = mt.title || ''; dpQ('#exDpContributor').value = mt.contributor || ''; dpQ('#exDpOrg').value = mt.organization || ''; dpQ('#exDpEmail').value = mt.email || '';
+    dpQ('#exDpSampling').value = mt.sampling || ''; dpQ('#exDpCapAct').checked = (mt.capture || []).includes('activityDetection'); dpQ('#exDpCapTl').checked = (mt.capture || []).includes('timeLapse');
+    dpQ('#exDpIndiv').checked = !!mt.individuals; dpQ('#exDpTz').value = mt.tz || '';
+    dpQ('#exDpDesc').value = mt.description || ''; dpQ('#exDpLicData').value = mt.license_data || ''; dpQ('#exDpLicMedia').value = mt.license_media || '';      // 説明とライセンス（任意。確認事項 141 回目）
+    dpStations(i);
+  }).catch(() => {});
+  dpQ('#exDpTemplate').onclick = async () => {
+    const path = await pickPath('savecsv', `${S.project.dir}/exports`, 'stations_template.csv');
+    if (!path) return;
+    try { const r = await api('/api/camtrapdp/template', { path }); dpQ('#exDpStatus').textContent = `${t('ex_dp_template_done')}: ${r.path} (${r.rows} ${t('ex_dp_rows')})`; } catch (e) { toast(e.message, 'error'); }
+  };
+  dpQ('#exDpImport').onclick = async () => {
+    const path = await pickPath('csv', `${S.project.dir}/exports`);
+    if (!path) return;
+    try {
+      const r = await api('/api/camtrapdp/stations', { path });
+      dpStations(r);
+      dpQ('#exDpStatus').textContent = `${t('ex_dp_import_done')} (${r.rows} ${t('ex_dp_rows')})` + (r.n_bad ? ` / ${t('ex_dp_bad_rows')}: ${r.bad.map(b => b.line).join(', ')}` : '')
+        + ((r.not_in_project || []).length ? ` / ${t('ex_dp_not_in_project')}: ${r.not_in_project.join(', ')}` : '');
+    } catch (e) { toast(e.message, 'error'); }
+  };
+  dpQ('#exDp').onclick = async () => {
+    const range = m.querySelector('#exRange').value;
+    const filters = range === 'selection' ? { ids: selIds } : (range === 'filter' ? Object.assign({}, S.filter) : (range === 'verified' ? { status: 'verified' } : {}));
+    const capture = [dpQ('#exDpCapAct').checked && 'activityDetection', dpQ('#exDpCapTl').checked && 'timeLapse'].filter(Boolean);
+    const meta = { title: dpQ('#exDpTitle').value.trim(), contributor: dpQ('#exDpContributor').value.trim(), organization: dpQ('#exDpOrg').value.trim(), email: dpQ('#exDpEmail').value.trim(),
+      sampling: dpQ('#exDpSampling').value, capture, individuals: dpQ('#exDpIndiv').checked, tz: dpQ('#exDpTz').value.trim(),
+      description: dpQ('#exDpDesc').value.trim(), license_data: dpQ('#exDpLicData').value, license_media: dpQ('#exDpLicMedia').value };
+    if (!meta.contributor) { toast(t('ex_dp_need_name'), 'error'); dpQ('#exDpContributor').focus(); return; }
+    if (!meta.sampling) { toast(t('ex_dp_need_sampling'), 'error'); dpQ('#exDpSampling').focus(); return; }
+    if (meta.tz && !/^(Z|UTC|[+-]\d{1,2}(:?\d{2})?)$/i.test(meta.tz)) { toast(t('ex_dp_need_tz'), 'error'); dpQ('#exDpTz').focus(); return; }
+    const el = dpQ('#exDpStatus');
+    el.textContent = '…';
+    try {
+      const r = await api('/api/export/camtrapdp', { out_dir: dpQ('#exDpDir').value.trim(), filters, meta });
+      const lines = [`${t('ex_dp_done')}: ${r.out_dir} (deployments ${r.deployments}, media ${r.media}, observations ${r.observations})`];
+      lines.push(r.valid ? t('ex_dp_ok') : `${t('ex_dp_ng')}: ` + r.problems.map(x => `${x.where} ${t('ex_dp_k_' + x.kind)} (${x.n})`).join(' / '));
+      if (r.no_time) lines.push(`${t('ex_dp_no_time')}: ${r.no_time}`);
+      if ((r.no_sci || []).length) lines.push(`${t('ex_dp_no_sci')}: ` + r.no_sci.map(x => `${x.name} (${x.n})`).join(', '));
+      el.innerHTML = lines.map(esc).join('<br>');
+    } catch (e) { el.textContent = ''; toast(e.message, 'error'); }
   };
   wirePicks(m);
   m.querySelector('#mCancel').onclick = closeModal;

@@ -139,8 +139,9 @@ ffmpeg は「設定」で場所を指定できる（空なら PATH → resources
    種の絞り込みの窓の「動物を全部」で動物の種すべてに印が付く（いずれか）。いくつか外せば「この種以外の動物」になる。
    再生の下の「枠を編集」で、見えている枠を直せる（ドラッグで新しい枠、枠をドラッグで移動、角や辺で大きさ、Delete で消す、「このフレームの枠を消す」（見えているフレームだけ）、「動画の枠を全部消す」（全フレーム。確認の窓つき））。保存すると detections 表が置き換わり、
    その対象は種判別と特徴量の付け直しが要る状態になる（自動判定の「枠はいまあるものを使う」で、編集した対象だけ付け直せる）。
-   「書き出し」の「YOLO 形式で書き出す（枠）」で、検出枠を YOLO のラベル（<種>/images + <種>/labels。動画は枠のある時刻のフレームを JPEG で。class は 0 = 動物か種ごとの番号）に書ける。
-   YOLO を読んだプロジェクトなら、元の <種>/labels に書き戻す（枠の編集の結果を元のラベルに反映）こともできる。
+   「CSV の書き出し」の窓の「YOLO 形式で書き出す（画像とラベル）」で、検出枠を YOLO の学習データ（<種>/images + <種>/labels。動画はフレームを切り出した JPEG。class は 0 = 動物か種ごとの番号）に書ける（どの版でも。
+   細かい決まりは下の「ほかの形式での書き出し」）。YOLO を読んだプロジェクトなら、元の <種>/labels に書き戻す（枠の編集の結果を元のラベルに反映）こともできる（研究用の版だけ）。
+   同じ窓の「Camtrap DP 形式で書き出す」で、Camtrap DP 1.0.2 のパッケージ（datapackage.json と 3 つの CSV）を書ける（どの版でも。下の「ほかの形式での書き出し」）。
    「書き出し」の「Timelapse2 に書き出す」で、Timelapse 2.3 のテンプレート（.tdb）とデータ（.ddb）を作れる（動画 1 本 = 1 行。Species に第 1 種、残りは Multispecies。
    選択で種ごとの Flag 列も。Star = お気に入り、Remarks = メモ、追加項目は項目ごとの列。RelativePath は .ddb を置いたフォルダからなので、メディアのルートに置く）。
 10. 複数人で分担するときは「統合」: 各 PC で「判定を書き出す」（JSON 1 つ）→ 親のプロジェクトで「判定を取り込む」。
@@ -327,10 +328,64 @@ ffmpeg は「設定」で場所を指定できる（空なら PATH → resources
 
 - プログラムを入れ替えたあとの起動し直し: 起動.bat をもう一度（古い版が動いていれば止めて引き継ぐ）か、`POST /api/restart`（同じことをアプリ自身がする。画面は build が変わったのを見て読み直す）。
 
+## ほかの形式での書き出し（Camtrap DP・YOLO）
+
+どちらも「CSV の書き出し」の窓の「ほかの形式で書き出す」にあり、どの版（公開版・Lite・研究用）でも使える。範囲は、窓の上の「範囲」（選択・すべて・いまの絞り込み・確認済みだけ）に従う（確認事項 140 回目）。
+
+### Camtrap DP 形式（`trapnote/camtrapdp.py`、`POST /api/export/camtrapdp`）
+
+- 版は Camtrap DP 1.0.2。フォルダ（既定は `<プロジェクト>/exports/camtrap-dp`）に `datapackage.json`、`deployments.csv`、`media.csv`、`observations.csv` を書く（UTF-8、BOM なし）。
+  3 つの表は、公式の table schema の列を全部、同じ順に持つ（使わない列は空）。列の定義（名前・型・制約）は `camtrapdp.TABLES` に写してあり、
+  `tests/test_camtrapdp.py` が、公式の table schema から取った照合値（SHA-256）と比べる。
+- **deployments**: 1 行 = 調査回 × 地点。deploymentID = `<調査回>_<地点>`（調査回がなければ地点だけ。地点を選んでいないプロジェクトでは、地点の代わりに相対フォルダ）。
+  locationID・locationName = 地点、deploymentGroups = `season:<調査回>`。書き出す範囲に動画のある地点だけを書く。
+  - 緯度・経度などは、地点の表（`<プロジェクト>/stations.csv`）から。窓の「ひな形の CSV を書く…」で地点の一覧（Season, Station, Latitude, Longitude, Start, End と、参考の FirstVideo・LastVideo・Videos）を書き、
+    書き込んだものを「地点の CSV を読み込む…」で読み込む（前の表は置き換える）。列の名前は、日本語（地点・緯度・経度・設置日・回収日 など）、英語、Camtrap DP の名前のどれでもよい（大文字小文字・空白・_ は見ない）。
+    deployments の列（cameraModel、cameraHeight、habitat、setupBy、baitUse、featureType など）をその名前で足せば、そのまま入る。調査回が 2 つ以上あるプロジェクトでは、Season の列で調査回ごとの行にできる。Season が空の行は、その地点の全部の調査回に使う（調査回の行があれば、そちらを先に使う）。
+    範囲の外の座標と読めない日付は捨てて、行の番号を知らせる。
+  - deploymentStart・deploymentEnd は、地点の表の Start・End（日付だけの End は、その日の 23:59:59）。なければ、その地点の最初の動画の日時と、最後の動画の終わり
+    （範囲ではなくプロジェクトの全部の動画から）。そのときは deploymentComments に、その旨（英語）を書く。
+- **media**: 1 行 = 動画・静止画 1 つ。mediaID = 相対パス、timestamp = 撮影日時（時計のずれを直していれば、直したあと）に時差を付けたもの、filePath = ルートからの相対パス、
+  filePublic = false、fileMediatype = 拡張子から（video/x-msvideo、video/mp4、image/jpeg など）、favorite = お気に入り、mediaComments = メモと、対象ごとの自由記述の項目。
+  撮影日時のない対象は書かない（件数を知らせる）。
+- **observations**: 1 行 = 動画 1 本 × 種 1 つ。observationLevel = event（動画 1 本を 1 つの event とみなす。eventID = mediaID、eventStart = 撮影日時、eventEnd = ＋ 動画の長さ。mediaID の列は空）。
+  observationID = `<相対パス>#<種のコード>`（判定のない対象は `#none`）。
+  - 種 → animal ＋ scientificName（種リストの学名）、動物なし → blank、人 → human、車 → vehicle、不明 → unknown、有効範囲 → human ＋ cameraSetupType = calibration。
+    判定のない対象 → unclassified（要確認の印 = AI が動物を見つけて種を付けなかったものは unknown ＋ classificationMethod = machine）。
+  - 確認済みか、CSV・手動の由来の判定 → classificationMethod = human、classifiedBy = 確認した人、classificationTimestamp = 確定した日時。
+    AI の判定のまま → machine、classifiedBy = モデルの名前、classificationProbability = 信頼度。
+  - 追加項目: count（1 以上の整数）→ count、sex（オス・メス など）→ sex（male / female）、behaviour → behavior（` | ` 区切り）。ほかの項目は observationTags に `key:value`（対象ごとの項目も）、
+    自由記述の項目は observationComments。学名のない種は scientificName が空で、名前を observationComments に `species: <名前>` と残し、窓に知らせる。
+  - 検出枠（bbox）は書かない（枠は YOLO 形式か MegaDetector の JSON で）。
+- **datapackage.json**: profile・resources（3 つの表と、公式の table schema の URL）、created、title、name、contributors（作成者 1 人。role = contact）、sources（TrapNote と版）、
+  project（title、samplingDesign、captureMethod、individualAnimals、observationLevel = event）、spatial（座標のある地点を囲む四角の GeoJSON）、temporal（開始と終了の日付）、
+  taxonomic（学名ごとに taxonRank と、英名 eng・和名 jpn）。題名・作成者・調査地点の決め方・撮り方・個体の識別・時差は窓で入れ、`project.json` の `camtrap` に覚える。
+  作成者の名前と調査地点の決め方は必須（空なら書き出さない）。時差の既定は、その PC の時差。
+  description（説明）と licenses（データと、動画・静止画のライセンス。CC0-1.0・CC-BY-4.0・CC-BY-NC-4.0 から選ぶ。name・path・title・scope を書く）は任意で、窓で入れたときだけ書く（確認事項 141 回目）。
+- **検査**: 書き出したあと、自分で読み直して定義と比べ（`camtrapdp.check_package`: 必須・型・決められた値・書式・範囲・重複・参照先、パッケージの必須の項目）、合わない点を窓に出す。
+  座標のない地点があると `deployments.latitude` / `longitude` と `datapackage.spatial` が「必須の値がない」になる（書き出しはする）。
+- **R での確かめ**（確認事項 141 回目）: R のパッケージ camtrapdp 0.6.1（frictionless 2.0.1、R 4.5.0）で、書き出したパッケージを読めることを確かめた（`read_camtrapdp()`。3 つの表とも、読み取りの問題は 0。日時は時差つきで読まれ、media には eventID が付き、observations には taxon. で始まる列が付く）。
+  `events()`・`taxa()`・`locations()`、絞り込み（`filter_observations()`・`filter_deployments()`）、`write_camtrapdp()` での書き直し、`write_dwc()`（Darwin Core への変換）も通る。
+  `write_eml()`（GBIF 向けの EML）は、description と、scope が data のライセンスがないと止まる（`non-character argument`）。窓で 2 つを入れて書き出せば通る。
+
+### YOLO 形式（`trapnote/yolo.py` の export_yolo、`POST /api/yolo/export`。裏の処理）
+
+- 作り: `<書き出し先>/<種のフォルダ>/images/<名前>.jpg` と `<種のフォルダ>/labels/<名前>.txt`、`<書き出し先>/classes.txt`。「種ごとにフォルダ分け」を外すと `images/` と `labels/` だけ。
+  種のフォルダは、人の判定の第 1 種の CSV 表記（人の判定がなければ Unlabeled）。ラベルは 1 行 1 枠で `class cx cy w h`（0〜1）。
+- 名前: 相対パスのフォルダの各段とファイル名を `_` でつないだもの（`St01/IMG_0001.AVI` → `St01_IMG_0001`）。同じ名前になる別の対象には `_2`、`_3` を付ける。
+  動画のフレームは、うしろに `_t<ミリ秒 7 けた>`。YOLO を読んだプロジェクト（`<種>/images/<名前>`）では、元の名前のまま。
+- 動画から書くフレーム（frames）: `anchor`（既定）= 学習フレームだけ（`train.item_crops` の anchors。人が確定したときに選んでいた枠、選んでいなければ信頼度の最も高い枠。種が複数なら種ごとに 1 枚）。
+  学習に使う枠の記録（特徴量の npz）がない動画（検出のみ、Lite）は、信頼度の最も高い動物の枠のフレーム。`all` = 判定の閾値以上の枠のあるフレームを全部。
+- ラベルに書く枠: そのフレームの、判定の閾値（動物は animal_threshold、人・車は person_threshold）以上の枠。「学習から外す」にした枠（crop_excl）は書かない。
+  class 番号は、`0 = 動物`（動物の枠だけ）か、種ごとの番号（種リストの「使う」の順。人・車も。枠の種は、枠ごとの AI の判定が人の種の 1 つならそれ、そうでなければ人の第 1 種）。
+- 「動物なし」と確定した動画に枠があれば、そのフレームを空のラベル（背景）で書く（0 = 動物のとき）。枠のない動画は書かない。静止画はコピーし、枠がなければ空のラベル。
+- 画像は JPEG（品質 92）。「画像も書く」を外すと、ラベルだけ。
+
 ## 保存されるもの（`<ルート>/TrapNote/`）
 
 ```
-project.json     プロジェクト名、ルート（PC ごと）、フォルダ名のパターン、設定（areacheck の StayTime/project.json と同じ骨組み）。横断プロジェクトは kind、sources、imports、label_map（種名の対応表）、catalog も
+project.json     プロジェクト名、ルート（PC ごと）、フォルダ名のパターン、設定（areacheck の StayTime/project.json と同じ骨組み）。Camtrap DP の書き出しの説明（camtrap）。横断プロジェクトは kind、sources、imports、label_map（種名の対応表）、catalog も
+stations.csv     地点の表（緯度・経度、設置と回収の日時など。Camtrap DP の書き出しで読み込んだもの）
 data.sqlite      対象、判定、追加項目の値、履歴、ジョブ（WAL モード。別の PC と同時に開く使い方はしない）
 species.csv      種リスト（code, name_ja, name_en, name_sci, rank, csv_label, non_native, speciesnet, key, enabled）
 fields.json      追加項目の定義
@@ -363,9 +418,10 @@ trapnote/
   jobs.py              裏の処理（レーン: bg = 走査・メタデータ、transcode = 先の変換、archive = 保存用の変換、ml = 検出・種判別・追加学習・判定の付け直し）
   judge.py             一覧（絞り込み・並べ替え・ページング）、判定の保存、取り消し
   export.py            CSV の書き出しと取り込み      merge.py     判定の持ち寄りと統合
+  camtrapdp.py         Camtrap DP 1.0.2 への書き出し（表の定義、地点の表 stations.csv、書き出したあとの検査）
   species.py           種リストと固定項目            fields.py    追加項目
   timelapse.py         Timelapse2 の .tdb / .ddb の取り込み（テンプレート → 種リストと追加項目、データ → 判定など）と書き出し
-  yolo.py              YOLO 形式の学習データ（<種>/images + <種>/labels）の取り込み（種 → 確認済みの判定、枠 → 検出枠、画像名 → 季節・地点）
+  yolo.py              YOLO 形式の学習データ（<種>/images + <種>/labels）の取り込み（種 → 確認済みの判定、枠 → 検出枠、画像名 → 季節・地点）と、書き出し（画像とラベル）
   detect.py            第 2 段階: フレームの抜き出し、MegaDetector（モデルの取得・読み込み・検出）、SpeciesNet（切り出し・分類・特徴量）、
                        ラベル → 種コードの対応、動画 1 本への集約、detections 表への書き込み（jobs.py の DetectJob が ml レーンで回す）
   cross.py             横断プロジェクト: 参照先の登録、種名の対応表（label_map）、カタログ、ランダム選択（地点・調査回・動画・種ごと）、取り込み、書き戻し・再取得、動画のコピー・一覧
@@ -390,6 +446,8 @@ MegaDetector（MDv1000-spruce、CPU）は本物で動かした。SpeciesNet の�
 第 3 段階は、偽のモデルの特徴量を「偽のラベル」と結びつけておき、人の判定を系統的にずらした（deer → boar など）試験データで、方式 A の一致率が上がることと
 付け直し・元に戻す流れを確かめた（`test_train.py A`、`ui_train.py`）。方式 B は `TRAPNOTE_FAKE_ML=torch`（小さな torch のモデル）で流れだけ（`test_train.py B`）。
 リポジトリの `tests/` は pytest で動く（`python -m pytest tests -q`。torch 不要）。横断プロジェクトの種名の対応表・カタログ・ランダム選択・取り込み・書き戻しの比較は `tests/test_cross_labels.py`。
+Camtrap DP の書き出しは `tests/test_camtrapdp.py`（表の定義を公式の table schema の照合値と比べる、判定との対応、地点の表、説明とライセンス、書き出したあとの検査）、
+YOLO の書き出しは `tests/test_yolo_export.py`（OpenCV で作る小さな MJPEG と偽のモデルで、学習フレーム・全フレーム・名前の重なり・背景・class 番号）。
 `bench/bench_catalog.py 1200000` で 120 万行の種名 CSV での読み込み・カタログ・当て直し・ランダム選択の時間を測れる。
 
 ## ライセンス

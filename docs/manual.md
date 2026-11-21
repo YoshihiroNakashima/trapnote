@@ -15,14 +15,15 @@ If you are new to TrapNote, read chapters 1–4 in order; they take you from ope
 6. [Recording more information](#6-recording-more-information)
 7. [Adapting the AI to your study site](#7-adapting-the-ai-to-your-study-site)
 8. [Importing existing records](#8-importing-existing-records)
-9. [Sharing the work among people and PCs](#9-sharing-the-work-among-people-and-pcs)
-10. [Merging several survey rounds](#10-merging-several-survey-rounds)
-11. [Managing videos](#11-managing-videos)
-12. [Where the data is kept and how to move it](#12-where-the-data-is-kept-and-how-to-move-it)
-13. [Keyboard shortcuts](#13-keyboard-shortcuts)
-14. [The three editions](#14-the-three-editions)
-15. [Troubleshooting](#15-troubleshooting)
-16. [Glossary](#16-glossary)
+9. [Exporting in other formats](#9-exporting-in-other-formats)
+10. [Sharing the work among people and PCs](#10-sharing-the-work-among-people-and-pcs)
+11. [Merging several survey rounds](#11-merging-several-survey-rounds)
+12. [Managing videos](#12-managing-videos)
+13. [Where the data is kept and how to move it](#13-where-the-data-is-kept-and-how-to-move-it)
+14. [Keyboard shortcuts](#14-keyboard-shortcuts)
+15. [The three editions](#15-the-three-editions)
+16. [Troubleshooting](#16-troubleshooting)
+17. [Glossary](#17-glossary)
 
 ---
 
@@ -33,7 +34,7 @@ TrapNote reads camera-trap videos and still images, records the species of the a
 1. **Open**: choose a video folder, and its videos appear in a list.
 2. **Auto ID**: the AI finds animals, people and vehicles (MegaDetector) and suggests a species for each animal (SpeciesNet).
 3. **Verify**: a person watches each video, confirms the suggestion if it is right and corrects it if it is wrong.
-4. **Export**: the results are written to a CSV file.
+4. **Export**: the results are written to a CSV file. They can also be exported as Camtrap DP (the standard format for publishing and sharing data) or in YOLO format (training data for object detection).
 5. **Retrain** (optional): the verified results are used to retrain the AI, which then judges the remaining videos and those of later surveys.
 
 You can also record everything by eye without using the AI.
@@ -42,7 +43,7 @@ Good to know:
 
 - Videos are never sent anywhere. All processing happens on your own PC.
 - The results are kept together in a `TrapNote` folder created inside the video folder you open.
-- The original videos are never modified. The only exceptions are "Archive convert" and deleting, both of which you run yourself ([chapter 11](#11-managing-videos)).
+- The original videos are never modified. The only exceptions are "Archive convert" and deleting, both of which you run yourself ([chapter 12](#12-managing-videos)).
 
 ---
 
@@ -95,7 +96,7 @@ From the second time on, start TrapNote with `conda activate trapnote` followed 
 
 - **Update**: run the new `TrapNote-Setup-….exe` and choose the same folder. Only the program is replaced; your settings, models and existing judgements are kept.
 - **Uninstall**: delete the desktop icon and the install folder (`C:\TrapNote`). The `TrapNote` folders inside your video folders (the judgement results) remain unless you delete them yourself.
-- **If installation fails**: see [chapter 15](#15-troubleshooting).
+- **If installation fails**: see [chapter 16](#16-troubleshooting).
 
 ---
 
@@ -215,7 +216,7 @@ Viewing aids:
 
 - Tick "Boxes" below the player to see where the AI found animals.
 - Dark videos can be brightened with the B key (display only; the records are not affected).
-- Use , and . to step frame by frame, and [ and ] to change the playback speed. All keys are listed in [chapter 13](#13-keyboard-shortcuts).
+- Use , and . to step frame by frame, and [ and ] to change the playback speed. All keys are listed in [chapter 14](#14-keyboard-shortcuts).
 
 > **Careful with the → key**: → and ← move to the next and previous video, but if species are ticked, the judgement is confirmed before moving.
 
@@ -239,6 +240,8 @@ The CSV has **one row per video and species**. A video showing two species gives
 | AutoJudgement, Agree | The AI judgement and how it compares with the human judgement (match, partial, mismatch) |
 | Flag, DetAnimal, DetPerson, DetVehicle, DetMaxConf | The "Check" flag (low) and a summary of the detections |
 | Columns of extra fields | Fields you added yourself, such as group size ([6.1](#61-adding-fields-such-as-group-size-or-behaviour)) |
+
+To export in Camtrap DP or YOLO format, see [chapter 9](#9-exporting-in-other-formats).
 
 ---
 
@@ -368,11 +371,117 @@ You can import a Timelapse2 template (.tdb) and its results (.ddb). "Read Timela
 
 ---
 
-## 9. Sharing the work among people and PCs
+## 9. Exporting in other formats
+
+Besides CSV, you can export in formats used by other software. All of them are in the lower part of the window opened with "Export CSV" on the toolbar, under "Export in other formats". They use the "Range" chosen at the top of the window (All, Current filter, Verified only).
+
+| Format | Use |
+|---|---|
+| Camtrap DP | Publishing and sharing data, analysis in R ([9.1](#91-camtrap-dp-format)) |
+| YOLO | Training data for object-detection models ([9.2](#92-yolo-format-images-and-labels)) |
+| Timelapse2 and others | Continuing the work in other software ([9.3](#93-other-formats)) |
+
+### 9.1 Camtrap DP format
+
+[Camtrap DP](https://camtrap-dp.tdwg.org/) (Camera Trap Data Package) is the standard format for exchanging camera-trap data. Use it to publish and share data or to analyse them with R packages such as camtrapdp. TrapNote writes version 1.0.2 as four files in one folder.
+
+| File | Contents |
+|---|---|
+| `datapackage.json` | Description of the data (title, contributor, period, area, list of taxa) |
+| `deployments.csv` | Camera deployments. One row per station (latitude, longitude, start and end time) |
+| `media.csv` | Videos and still images. One row each (recording time, file location) |
+| `observations.csv` | Observations. One row per video and species (scientific name, count, who verified it and so on) |
+
+Steps:
+
+1. Click "Export CSV" and choose the "Range".
+2. Fill in the fields under "Export in Camtrap DP format". What you enter is kept in the project.
+   - **Title** and **Contributor** (the name is required; organization and email are optional)
+   - **Sampling design** (required): how the camera stations were chosen
+   - **Capture method** and the **UTC offset of the camera clock** (`+09:00` for Japan)
+   - **Description** and **License** (optional): a description of the data, and licenses for the data and for the videos and still images. Needed when you publish to GBIF
+3. Load the station coordinates (only the first time).
+   - "Write a template CSV…" creates a CSV listing the stations. Open it in a spreadsheet and enter the latitude and longitude in decimal degrees (for example `35.1203` and `140.0511`). If you know when the cameras were set up and retrieved, enter the times under Start and End.
+   - Click "Read a station CSV…" and choose the CSV you filled in.
+   - In a project with two or more survey rounds, the template has one row per survey round and station. A row with an empty Season applies to every survey round of that station, so if the coordinates do not change between rounds you can keep one row per station.
+4. Click "Export Camtrap DP".
+
+After the export, TrapNote shows the result of checking the files against the Camtrap DP definitions. If it reports "no problems", the package is ready to use. In R, read it like this:
+
+```r
+library(camtrapdp)
+x <- read_camtrapdp("D:/Site_2026/TrapNote/exports/camtrap-dp/datapackage.json")
+```
+
+Good to know:
+
+- Camtrap DP requires latitude and longitude. You can export without them, but the check then reports "required value missing".
+- For stations without setup and retrieval times, the first and last video of the station are used as start and end. This is shorter than the time the camera was actually running, so enter the setup and retrieval times before calculating capture rates and the like.
+- Each video is written as one "event". Judgements are written as follows:
+
+| Judgement in TrapNote | observationType |
+|---|---|
+| A species | animal (scientificName comes from the species list) |
+| Empty | blank |
+| Human, Vehicle | human, vehicle |
+| Unknown | unknown |
+| Area | human (with cameraSetupType calibration) |
+| No judgement | unclassified (unknown for "Check" videos, where the AI did not suggest a species) |
+
+- Verified judgements get classificationMethod human; videos that still carry only the AI judgement get machine.
+- The count, sex and behaviour fields go to the count, sex and behavior columns. Fields you added yourself go to observationTags.
+- The videos themselves are not exported. filePath in `media.csv` is the path relative to the video folder. Detection boxes are not exported either (use the YOLO format below for boxes).
+- Species without a scientific name in the species list get an empty scientificName. Add the scientific names under "Settings" → "Edit species list…".
+- Reading (`read_camtrapdp()`), conversion to Darwin Core (`write_dwc()`) and writing the metadata file for GBIF (`write_eml()`) were checked with the R package camtrapdp (0.6.1). `write_eml()` stops unless a description and a data license have been entered.
+
+### 9.2 YOLO format (images and labels)
+
+You can export your verified results as training data for object-detection models such as YOLO. Frames with boxes are extracted from the videos as images and written together with label files of the same name (text files holding the box positions).
+
+```
+yolo/
+  Boar/                                    ← one folder per species
+    images/St01_IMG_0001_t0001000.jpg      ← frame extracted from a video
+    labels/St01_IMG_0001_t0001000.txt      ← boxes (class cx cy w h, 0–1)
+  Deer/
+  classes.txt                              ← class ids and names
+```
+
+1. Click "Export CSV" and choose "Verified only" as the "Range" (so that only videos checked by a person become training data).
+2. Under "Export in YOLO format (images and labels)", choose the destination folder and the following options.
+
+| Option | Choices |
+|---|---|
+| Frames from videos | **Training frames only** (one per video: the frame of the box used for retraining, see [7.3](#73-better-training-material)) or **Every frame with boxes** |
+| Class id | **0 = animal** (animal boxes only) or **One id per species** (boxes of people and vehicles are written too) |
+| One folder per species | When off, everything goes into two folders, `images` and `labels` |
+| Write images too | When off, only the labels are written |
+
+3. Click "Export YOLO". Progress is shown under "Background jobs" at the top right.
+
+Good to know:
+
+- An image is named after its folders and file name, followed by the time of the frame in milliseconds. Videos with the same file name at different stations do not collide.
+- Only boxes at or above the judgement thresholds are written. Boxes you excluded from training with ✕ in "Training boxes" are left out.
+- If a video confirmed as "Empty" has boxes, its frame is written as an image without boxes (background). This helps a model learn to avoid false detections. Videos without any box are not written.
+- Still images are copied as they are.
+- "Every frame with boxes" can produce dozens of images per video. Check the free disk space first.
+
+### 9.3 Other formats
+
+| Format | Contents |
+|---|---|
+| Judgement index (`TrapNote/judgements.csv`) | The judgements of all videos, always written to the same place. Useful for reading into R and similar tools |
+| Detection boxes (MegaDetector JSON) | The detection boxes in MegaDetector's standard JSON, readable by Timelapse2 and other tools |
+| Timelapse2 (.tdb and .ddb) | A Timelapse2 template and data file, so that the work can continue in Timelapse2 |
+
+---
+
+## 10. Sharing the work among people and PCs
 
 > **Do not open the same project from two PCs at the same time.** Judgements may not be saved correctly. To share the work, use "Collect judgements" as described below.
 
-### 9.1 Collect judgements
+### 10.1 Collect judgements
 
 1. Prepare the same video folder on each PC and do the work there.
 2. When the work is done, click "Collect judgements" → "Export judgements" on each PC. The judgements are written to a single file (JSON).
@@ -380,18 +489,18 @@ You can import a Timelapse2 template (.tdb) and its results (.ddb). "Read Timela
 
 The import rule is "verified > Auto ID > unprocessed". Videos that are verified on both sides with different contents are kept as conflicts, and you choose on the screen which one to keep.
 
-### 9.2 Marking who does what
+### 10.2 Marking who does what
 
 - Enter your name in "Your name (recorded as verifier)" in "Settings" to record who confirmed each judgement (the VerifiedBy column of the CSV).
 - "Assignee" above the list gives the videos in the current filter the name of the person in charge.
 
-### 9.3 Handing over videos
+### 10.3 Handing over videos
 
-Select videos in the list, right-click, choose "Export videos… (selected videos)" and pick "Openable in TrapNote". This creates a folder that holds the videos together with their judgements. The recipient can open it with "Open project" ([11.2](#112-exporting-videos)).
+Select videos in the list, right-click, choose "Export videos… (selected videos)" and pick "Openable in TrapNote". This creates a folder that holds the videos together with their judgements. The recipient can open it with "Open project" ([12.2](#122-exporting-videos)).
 
 ---
 
-## 10. Merging several survey rounds
+## 11. Merging several survey rounds
 
 After working on each survey round in its own project, you can merge the results into one CSV. No videos are copied.
 
@@ -408,9 +517,9 @@ After working on each survey round in its own project, you can merge the results
 
 ---
 
-## 11. Managing videos
+## 12. Managing videos
 
-### 11.1 Archive convert
+### 12.1 Archive convert
 
 "Archive convert" converts MJPEG AVI and similar files to H.264 MP4 to save storage. The resolution and the number of frames stay the same.
 
@@ -420,7 +529,7 @@ After working on each survey round in its own project, you can merge the results
 - If you stop part way, finished files are skipped when you start again.
 - Conversion is faster with an NVIDIA GPU.
 
-### 11.2 Exporting videos
+### 12.2 Exporting videos
 
 Select videos in the list, right-click and choose "Export videos… (selected videos)" to export the selected videos to another folder.
 
@@ -431,7 +540,7 @@ Select videos in the list, right-click and choose "Export videos… (selected vi
 
 AVI and similar files can be converted to MP4 while exporting. If you export to the same destination again, files that are already there are skipped and the export continues from where it stopped.
 
-### 11.3 Deleting
+### 12.3 Deleting
 
 Select videos in the list and delete them with "Delete (to recycle bin)" in the right-click menu or with the Delete key.
 
@@ -439,9 +548,9 @@ Select videos in the list and delete them with "Delete (to recycle bin)" in the 
 
 ---
 
-## 12. Where the data is kept and how to move it
+## 13. Where the data is kept and how to move it
 
-### 12.1 Project data
+### 13.1 Project data
 
 The results are in the `TrapNote` folder inside the video folder you opened.
 
@@ -450,6 +559,7 @@ The results are in the `TrapNote` folder inside the video folder you opened.
 | `data.sqlite` | Judgements, field values and history. This is the most important file |
 | `project.json` | Project settings |
 | `species.csv`, `fields.json` | Species list and extra fields |
+| `stations.csv` | Station coordinates and related details (loaded for the Camtrap DP export, see [9.1](#91-camtrap-dp-format)) |
 | `exports/` | Exported CSV files and other exports |
 | `models/` | Models made by retraining |
 | `cache/` | Playback videos, thumbnails, information for training and so on. Rebuilt when needed if deleted |
@@ -458,13 +568,13 @@ The results are in the `TrapNote` folder inside the video folder you opened.
 - **Moving to another drive or PC**: copy the video folder together with the `TrapNote` folder inside it. At the new location, open the folder once with "Open project".
 - **When the disk is full**: playback videos and other caches can be deleted under "Caches" at the bottom of "Settings". Your original videos and judgements are not affected.
 
-### 12.2 App data
+### 13.2 App data
 
 The `data` folder inside the install folder (`C:\TrapNote`) holds the app-wide settings, the downloaded AI models and the log (`app.log`).
 
 ---
 
-## 13. Keyboard shortcuts
+## 14. Keyboard shortcuts
 
 | Key | Action |
 |---|---|
@@ -482,14 +592,14 @@ The `data` folder inside the install folder (`C:\TrapNote`) holds the app-wide s
 | ↑ / ↓ | Go to the frame of the previous / next box in "Training boxes" |
 | F | Favourite |
 | Ctrl+A | Select everything in the list |
-| Delete | Delete the selected videos (read the warning in [11.3](#113-deleting)) |
+| Delete | Delete the selected videos (read the warning in [12.3](#123-deleting)) |
 | Esc | Close a window or clear the selection |
 
 You can also check the keys on the screen by opening "Keyboard" at the bottom of the right-hand panel.
 
 ---
 
-## 14. The three editions
+## 15. The three editions
 
 TrapNote comes in three editions that run the same program. They share the same project format and differ only in which features appear on the screen.
 
@@ -504,7 +614,7 @@ If you start one edition while another is running, the running one is stopped an
 
 ---
 
-## 15. Troubleshooting
+## 16. Troubleshooting
 
 | Problem | What to do |
 |---|---|
@@ -520,13 +630,15 @@ If you start one edition while another is running, the running one is stopped an
 | The "Advanced search" window does not open | The browser is blocking pop-ups. Allow them |
 | "Retrain" says there are no videos to train on | Run Auto ID first, then verify and confirm videos ([7.2](#72-steps)) |
 | The disk is full | Playback videos and other caches can be deleted under "Caches" at the bottom of "Settings" |
+| The Camtrap DP export reports "required value missing" | The latitude and longitude of the stations have not been loaded. Enter them in the station CSV and load it ([9.1](#91-camtrap-dp-format)) |
+| The YOLO export produces no images | No video with boxes is in the range. Run Auto ID (or Detect only) first. Videos without boxes are not exported ([9.2](#92-yolo-format-images-and-labels)) |
 | "Could not restart" is shown | A job is running in another edition. Start TrapNote again after the job has finished |
 
 If the problem persists, report it on GitHub Issues or to the person who gave you TrapNote, and attach `data\app.log` from the install folder (or `install.log` for installation problems).
 
 ---
 
-## 16. Glossary
+## 17. Glossary
 
 | Term | Meaning |
 |---|---|
@@ -542,3 +654,5 @@ If the problem persists, report it on GitHub Issues or to the person who gave yo
 | Training frame | The one box per video that is used for retraining |
 | Held-out stations | Stations set aside during retraining; they are not used for training and serve to measure accuracy |
 | Agreement | The share of videos on which the human judgement and the AI judgement agree |
+| Camtrap DP | The standard format for exchanging camera-trap data (Camera Trap Data Package) |
+| YOLO format | A format for training data of object-detection models: images paired with text files (labels) that hold the box positions |

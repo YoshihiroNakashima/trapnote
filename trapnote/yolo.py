@@ -162,13 +162,55 @@ def _yolo_line(cls: int, x: float, y: float, w: float, h: float) -> str:
     return f"{cls} {x + w / 2:.6f} {y + h / 2:.6f} {w:.6f} {h:.6f}"
 
 
+def _out_stem(rel_path: str) -> str:
+    """書き出すファイルの名前（拡張子なし）。YOLO の作り（<種>/images/<名前>）のプロジェクトでは元の名前、
+    ふつうのプロジェクトでは、フォルダの各段を _ でつないだ名前（St01/IMG_0001.AVI → St01_IMG_0001。地点が違えば同じファイル名でも重ならない）"""
+    m = ITEM_RE.match(rel_path)
+    if m:
+        return os.path.splitext(m.group("name"))[0]
+    return "_".join(x for x in os.path.splitext(rel_path)[0].replace("\\", "/").split("/") if x)
+
+
+def _same_box(d, t: float, bbox) -> bool:
+    return abs(float(d["t_sec"]) - float(t)) < 0.011 and sum(abs(float(a) - float(b)) for a, b in zip((d["x"], d["y"], d["w"], d["h"]), bbox)) < 0.002
+
+
+def frame_plan(project, it: dict, dets: list, a_th: float, p_th: float, frames: str = "anchor") -> tuple[list[float], list[tuple]]:
+    """動画 1 本から書き出すフレームの時刻と、ラベルに書かない枠（「学習から外す」にした枠の (秒, [x, y, w, h])）。
+    frames = "anchor": 学習フレーム（追加学習に使う枠。人が確定したときに選んでいた枠、選んでいなければ信頼度の最も高い枠。種が複数なら種ごとに 1 枚）のフレームだけ。
+                       学習に使う枠の記録（特徴量）がない動画（検出のみ）は、信頼度の最も高い動物の枠のフレーム
+    frames = "all":    閾値以上の枠のあるフレームを全部"""
+    ok = [d for d in dets if float(d["conf"]) >= (a_th if d["category"] == "animal" else p_th)]
+    if not ok:
+        return [], []
+    excl: list[tuple] = []
+    anchor_t: list[float] = []
+    try:
+        from . import train
+        ic = train.item_crops(project, it["id"])
+        crops = {c["k"]: c for c in ic.get("crops") or []}
+        excl = [(c["t"], c["bbox"]) for c in crops.values() if c.get("excluded")]
+        anchor_t = sorted({float(crops[k]["t"]) for k in (ic.get("anchors") or {}).values() if k in crops})
+    except Exception as e:                       # 特徴量を読めない・numpy がない（Lite）など: 枠だけで決める
+        log.debug("学習フレームを決められません %s: %s", it.get("rel_path"), e)
+    if frames == "all":
+        return sorted({float(d["t_sec"]) for d in ok}), excl
+    if anchor_t:
+        return anchor_t, excl
+    kept = [d for d in ok if not any(_same_box(d, t, b) for t, b in excl)] or ok
+    best = max([d for d in kept if d["category"] == "animal"] or kept, key=lambda d: (float(d["conf"]), -float(d["t_sec"])))
+    return [float(best["t_sec"])], excl
+
+
 def export_yolo(project, out_dir: str, f: dict | None = None, per_species: bool = True, class_mode: str = "animal0", write_images: bool = True,
-                in_place: bool = False, progress=None, stop=None) -> dict:
-    """検出枠を YOLO 形式で書く。
+                in_place: bool = False, progress=None, stop=None, frames: str = "anchor") -> dict:
+    """検出枠を YOLO 形式で書く（画像とラベルの組）。
     in_place: 「<種>/images/画像」の作りのプロジェクトで、元の「<種>/labels/同名.txt」に書き戻す（out_dir は使わない）
-    そうでなければ out_dir の下に <種のフォルダ>/images（画像のコピー。動画は枠のあるフレームを JPEG で）と <種のフォルダ>/labels を作る
-    class_mode: animal0 = 動物の枠を class 0（人・車は書かない）/ species = 種ごとの番号（classes.txt。人・車も）
-    枠のない対象は空のラベル（背景）として書く"""
+    そうでなければ out_dir の下に <種のフォルダ>/images（静止画はコピー、動画はフレームを切り出した JPEG）と <種のフォルダ>/labels（同じ名前の .txt）を作る
+    frames: 動画から書き出すフレーム。anchor = 学習フレームだけ（1 動画 1 枚。種が複数なら種ごとに 1 枚）/ all = 枠のあるフレームを全部（frame_plan）
+    class_mode: animal0 = 動物の枠を class 0（人・車は書かない）/ species = 種ごとの番号（人・車も）。番号と名前の対応は classes.txt
+    ラベルに書くのは、判定の閾値（動物の信頼度、人・車の信頼度）以上の枠。「学習から外す」にした枠は書かない。
+    枠のない静止画は空のラベル（背景）として書く。枠のない動画は書かない。人が「動物なし」と確定した動画に枠があれば、そのフレームを空のラベル（背景）で書く（animal0 のとき）"""
     import shutil
     from .export import _iter_items
     from .detect import read_frames
@@ -179,9 +221,10 @@ def export_yolo(project, out_dir: str, f: dict | None = None, per_species: bool 
     label_of = {r["code"]: (r.get("csv_label") or r.get("name_en") or r["code"]) for r in sl.rows}
     for fx in FIXED:
         label_of.setdefault(fx["code"], fx["csv_label"])
-    classes: list[str] = []
+    classes: list[str] = ["animal"]
     cidx: dict[str, int] = {}
     if class_mode == "species":
+        classes = []
         for r in sl.rows:
             if r.get("enabled") and r["code"] not in cidx:
                 cidx[r["code"]] = len(classes)
@@ -189,7 +232,10 @@ def export_yolo(project, out_dir: str, f: dict | None = None, per_species: bool 
         for code in ("human", "vehicle"):
             cidx[code] = len(classes)
             classes.append(label_of[code])
+    a_th, p_th = float(project.setting("animal_threshold") or 0.2), float(project.setting("person_threshold") or 0.2)
+    frames = frames if frames in ("anchor", "all") else "anchor"
     n_items = n_labels = n_boxes = n_images = n_skip = 0
+    used: dict[str, str] = {}                # 書き出し先の名前（小文字）→ 元の相対パス（同じ名前になる別の対象には _2, _3 を付ける）
     if not in_place:
         os.makedirs(out_dir, exist_ok=True)
     rows_all = list(_iter_items(db, f or {}))
@@ -205,7 +251,7 @@ def export_yolo(project, out_dir: str, f: dict | None = None, per_species: bool 
         folder = re.sub(r'[\\/:*?"<>|]+', "_", folder)
         dets = db.q("SELECT t_sec, category, conf, x, y, w, h, species FROM detections WHERE item_id=? ORDER BY t_sec, id", (it["id"],))
         src = project.abs_path(it["rel_path"])
-        stem = os.path.splitext(os.path.basename(it["rel_path"]))[0]
+        stem = _out_stem(it["rel_path"])
 
         def cls_of(d) -> int | None:
             if class_mode != "species":
@@ -234,7 +280,7 @@ def export_yolo(project, out_dir: str, f: dict | None = None, per_species: bool 
             ldir = os.path.join(project.root, m.group("folder"), "labels")
             os.makedirs(ldir, exist_ok=True)
             lines = lines_of(dets)
-            with open(os.path.join(ldir, stem + ".txt"), "w", encoding="utf-8") as fh:
+            with open(os.path.join(ldir, os.path.splitext(m.group("name"))[0] + ".txt"), "w", encoding="utf-8") as fh:
                 fh.write("\n".join(lines) + ("\n" if lines else ""))
             n_labels += 1
             n_boxes += len(lines)
@@ -242,12 +288,17 @@ def export_yolo(project, out_dir: str, f: dict | None = None, per_species: bool 
             continue
         idir = os.path.join(out_dir, folder, "images") if folder else os.path.join(out_dir, "images")
         ldir = os.path.join(out_dir, folder, "labels") if folder else os.path.join(out_dir, "labels")
-        os.makedirs(idir, exist_ok=True)
-        os.makedirs(ldir, exist_ok=True)
+        base, n_dup = stem, 1
+        while used.get(f"{folder}/{stem}".lower(), it["rel_path"]) != it["rel_path"]:
+            n_dup += 1
+            stem = f"{base}_{n_dup}"
+        used[f"{folder}/{stem}".lower()] = it["rel_path"]
         if it["kind"] == "image":
-            lines = lines_of(dets)
+            os.makedirs(idir, exist_ok=True)
+            os.makedirs(ldir, exist_ok=True)
+            lines = lines_of([d for d in dets if float(d["conf"]) >= (a_th if d["category"] == "animal" else p_th)])
             if write_images and os.path.isfile(src):
-                dst = os.path.join(idir, os.path.basename(it["rel_path"]))
+                dst = os.path.join(idir, stem + os.path.splitext(it["rel_path"])[1])
                 if not os.path.isfile(dst):
                     shutil.copy2(src, dst)
                 n_images += 1
@@ -255,32 +306,37 @@ def export_yolo(project, out_dir: str, f: dict | None = None, per_species: bool 
                 fh.write("\n".join(lines) + ("\n" if lines else ""))
             n_labels += 1
             n_boxes += len(lines)
-        else:                                  # 動画: 枠のある時刻のフレームを JPEG で
-            times = sorted({float(d["t_sec"]) for d in dets})
+        else:                                  # 動画: フレームを切り出して JPEG で書く
+            times, excl = frame_plan(project, it, dets, a_th, p_th, frames)
             if not times:
                 n_skip += 1
                 continue
-            try:
-                frames = read_frames(src, times, it.get("fps"))
-            except Exception as e:
-                log.warning("フレームを読めません %s: %s", it["rel_path"], e)
-                n_skip += 1
-                continue
-            have = {ft: im for ft, im in frames}
-            for t in times:
-                ft = min(have.keys(), key=lambda x: abs(x - t)) if have else None
-                if ft is None:
+            have: dict[float, object] = {}
+            if write_images:
+                try:
+                    have = {ft: im for ft, im in read_frames(src, times, it.get("fps"))}
+                except Exception as e:
+                    log.warning("フレームを読めません %s: %s", it["rel_path"], e)
+                if not have:
+                    n_skip += 1
                     continue
+            os.makedirs(idir, exist_ok=True)
+            os.makedirs(ldir, exist_ok=True)
+            for t in times:
                 name = f"{stem}_t{int(round(t * 1000)):07d}"
-                have[ft].save(os.path.join(idir, name + ".jpg"), "JPEG", quality=92)
-                n_images += 1
-                lines = lines_of([d for d in dets if abs(float(d["t_sec"]) - t) < 1e-6])
+                if write_images:
+                    ft = min(have.keys(), key=lambda x: abs(x - t))
+                    have[ft].save(os.path.join(idir, name + ".jpg"), "JPEG", quality=92)
+                    n_images += 1
+                on = [d for d in dets if abs(float(d["t_sec"]) - t) < 0.011 and float(d["conf"]) >= (a_th if d["category"] == "animal" else p_th)
+                      and not any(_same_box(d, et, eb) for et, eb in excl)]
+                lines = lines_of(on)
                 with open(os.path.join(ldir, name + ".txt"), "w", encoding="utf-8") as fh:
                     fh.write("\n".join(lines) + ("\n" if lines else ""))
                 n_labels += 1
                 n_boxes += len(lines)
         n_items += 1
-    if not in_place and class_mode == "species":
+    if not in_place:
         with open(os.path.join(out_dir, "classes.txt"), "w", encoding="utf-8") as fh:
             fh.write("\n".join(classes) + "\n")
-    return dict(out_dir=out_dir if not in_place else project.root, items=n_items, labels=n_labels, boxes=n_boxes, images=n_images, skipped=n_skip, classes=classes)
+    return dict(out_dir=out_dir if not in_place else project.root, items=n_items, labels=n_labels, boxes=n_boxes, images=n_images, skipped=n_skip, classes=classes, frames=frames)
