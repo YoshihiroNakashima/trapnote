@@ -7,8 +7,7 @@ Camtrap DP は、カメラトラップのデータをやり取りするための
 
 TrapNote の記録との対応
   deployments  1 行 = 調査回 × 地点（deploymentID = <調査回>_<地点>。調査回がなければ地点だけ。地点を選んでいないプロジェクトでは、地点の代わりにフォルダ）。
-               緯度・経度は、地点の表（<プロジェクト>/stations.csv。書き出しの窓で CSV から読み込む）から。なければ空
-               （Camtrap DP では必須なので、書き出したあとの検査で「足りないもの」として出す）。
+               緯度・経度は、地点の表（<プロジェクト>/stations.csv。書き出しの窓で CSV から読み込む）から。
                開始・終了は、地点の表にあればそれ。なければ、その地点の最初と最後の動画の日時（そのことを deploymentComments に書く）
   media        1 行 = 動画・静止画 1 つ。mediaID = 相対パス、timestamp = 撮影日時（時計のずれを直していれば、直したあと）＋ 時差、
                filePath = 動画のフォルダ（ルート）からの相対パス、filePublic = false
@@ -16,10 +15,20 @@ TrapNote の記録との対応
                種 → animal ＋ scientificName（種リストの学名）、動物なし → blank、人 → human、車 → vehicle、不明 → unknown、
                有効範囲 → human ＋ cameraSetupType = calibration。判定のない動画 → unclassified（要確認の印があれば unknown）。
                確認済み・CSV 由来の判定 → classificationMethod = human、AI の判定のまま → machine（確からしさを classificationProbability に）。
-               追加項目の 個体数（count）・性別（sex）・行動（behaviour）は count・sex・behavior へ、ほかの項目は observationTags（key:value）へ、自由記述は comments へ
+               追加項目の 個体数・性別・行動・成長段階・個体 ID は count・sex・behavior・lifeStage・individualID へ（_role。キーか名前で見分ける）、
+               ほかの項目は observationTags（key:value）へ、自由記述は comments へ
   枠（bbox）は書かない（枠は YOLO 形式か MegaDetector の JSON で書き出す）
   datapackage.json の description（説明）と licenses（データと、動画・静止画のライセンス）は任意。窓で入れたときだけ書く（確認事項 141 回目。
                R のパッケージ camtrapdp の write_eml() = GBIF 向けの説明のファイルを作る関数は、説明とデータのライセンスがないと止まる）
+
+決まり（確認事項 148 回目。CRAN の R2camtrapdp と比べて足したもの）
+  必須の項目が足りなければ、書き出さない  書き出す前に precheck() で調べ、足りない項目（作成者、調査地点の決め方、撮影の方法、地点の緯度・経度 など）を
+               どの項目か・どの地点かまで並べて返す。1 つでもあれば、ファイルは 1 つも書かない（前は、書いてから「足りないもの」を知らせていた）。
+               書いたものは、置く前に定義と照合し（check_package）、合わなければ置かない
+  observationID は必ず 1 行に 1 つ  observationID = <mediaID>#<種のコード>。1 本の動画に 2 種が写っていれば 2 行で、ID は別（種のコードが違う）。
+               個体数・性別・成長段階・個体 ID を ＋ で何件も記録してあれば、記録ごとに 1 行（<mediaID>#<種のコード>#<番号>。Camtrap DP は、
+               性別や成長段階が違う個体を別の行にする）。R2camtrapdp は、ID を動画ごとに付けると 2 種の動画で ID が重なり、表を作れない。ここでは重ならない
+  値の中の改行は空白にする  メモなどに改行があると、行ごとに読む道具や表計算ソフトで行がずれる
 """
 from __future__ import annotations
 
@@ -34,6 +43,7 @@ from datetime import datetime, timedelta
 
 from . import VERSION, media
 from .export import _iter_items, _sniff
+from .judge import build_where
 from .species import read_text_any
 
 log = logging.getLogger(__name__)
@@ -161,6 +171,18 @@ MEDIATYPES = {".avi": "video/x-msvideo", ".mp4": "video/mp4", ".mov": "video/qui
               ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png"}
 RANKS = {"種": "species", "亜種": "subspecies", "属": "genus", "科": "family", "目": "order", "綱": "class", "門": "phylum", "界": "kingdom"}
 SEX = {"オス": "male", "雄": "male", "♂": "male", "male": "male", "m": "male", "メス": "female", "雌": "female", "♀": "female", "female": "female", "f": "female"}
+SEX_UNKNOWN = ("不明", "unknown", "?", "？", "-", "ー", "na", "n/a")       # 性別が分からない、という値。Camtrap DP では sex を空にする（タグにも残さない）
+LIFE_STAGE = {"adult": "adult", "成獣": "adult", "成体": "adult", "成鳥": "adult", "おとな": "adult", "大人": "adult",
+              "subadult": "subadult", "sub-adult": "subadult", "亜成獣": "subadult", "亜成体": "subadult", "若獣": "subadult", "若鳥": "subadult",
+              "juvenile": "juvenile", "幼獣": "juvenile", "幼体": "juvenile", "幼鳥": "juvenile", "子": "juvenile", "仔": "juvenile", "子ども": "juvenile", "こども": "juvenile"}
+# 追加項目 → observations の列。項目のキーか名前（日本語・英語。大文字小文字、空白、_ は見ない）で見分ける
+_ROLE_NAMES = {"count": ("count", "個体数", "頭数"),
+               "sex": ("sex", "性別", "雌雄"),
+               "behavior": ("behaviour", "behavior", "行動"),
+               "lifeStage": ("lifestage", "age", "ageclass", "成長段階", "齢", "齢クラス", "齢区分", "年齢", "ライフステージ"),
+               "individualID": ("individualid", "individual", "個体id", "個体識別", "個体名", "個体番号")}
+_ROLE_OF = {n: role for role, names in _ROLE_NAMES.items() for n in names}
+_PATH_RE = re.compile(r"^(?=^[^./~])(^((?!\.{2}).)*$).*$")        # media.filePath の決まり（. / ~ で始まらない、.. を含まない）
 
 
 # ---------- 日時と時差 ----------
@@ -379,57 +401,245 @@ def write_template(project, path: str) -> dict:
     return dict(path=path, rows=len(rows))
 
 
-# ---------- 書き出し ----------
-def _clean_meta(meta: dict | None, project, user_name: str = "") -> dict:
+# ---------- 説明と追加項目 ----------
+def _clean_meta(meta: dict | None, project, user_name: str = "") -> tuple[dict, list[dict]]:
+    """窓で入れた説明をそろえる。返り値は (そろえたもの, 足りない必須の項目の並び)。足りない項目があっても例外は出さない
+    （足りないものを全部まとめて知らせるため。precheck が地点の座標などと合わせて返す）。一覧にないライセンスだけは ValueError"""
     m = dict(meta or {})
-    tz = norm_offset(m.get("tz")) or (None if (m.get("tz") or "").strip() else local_offset())
-    if tz is None:
-        raise ValueError("時差は +09:00 のように書いてください")
-    cap = [c for c in (m.get("capture") or []) if c in CAPTURE] or ["activityDetection"]
+    miss: list[dict] = []
+    tz_raw = str(m.get("tz") or "").strip()
+    tz = norm_offset(tz_raw) if tz_raw else local_offset()
+    if tz is None:                             # 書いてあるが読めない: どの時刻にも時差が要る（deploymentStart、timestamp、eventStart …）
+        miss.append(dict(key="tz", field="deploymentStart / timestamp / eventStart", names=[tz_raw]))
+        tz = local_offset()
+    cap = [c for c in (m.get("capture") or []) if c in CAPTURE]
+    if not cap:
+        if m.get("capture") is None:           # 渡されなかった（窓を通さない呼び出し）: 既定
+            cap = ["activityDetection"]
+        else:                                  # 窓で両方のチェックを外した
+            miss.append(dict(key="capture", field="datapackage.json: project.captureMethod"))
     out = dict(title=(m.get("title") or "").strip() or project.name, contributor=(m.get("contributor") or "").strip() or (user_name or "").strip(),
                organization=(m.get("organization") or "").strip(), email=(m.get("email") or "").strip(), sampling=(m.get("sampling") or "").strip(),
                capture=cap, individuals=bool(m.get("individuals")), tz=tz, description=(m.get("description") or "").strip(),
                license_data=(m.get("license_data") or "").strip(), license_media=(m.get("license_media") or "").strip())
     if not out["contributor"]:
-        raise ValueError("作成者の名前を入れてください（Camtrap DP では、データの連絡先が必須です）")
+        miss.insert(0, dict(key="contributor", field="datapackage.json: contributors.title"))
     if out["sampling"] not in SAMPLING:
-        raise ValueError("調査地点の決め方（samplingDesign）を選んでください")
+        miss.insert(1 if not out["contributor"] else 0, dict(key="sampling", field="datapackage.json: project.samplingDesign"))
+        out["sampling"] = ""
     for k in ("license_data", "license_media"):
         if out[k] and out[k] not in LICENSES:
             raise ValueError("ライセンスは、一覧から選んでください")
-    return out
+    return out, miss
+
+
+def _one_line(s: str) -> str:
+    """値の中の改行を空白 1 つにする（改行のある値は CSV としては正しいが、行ごとに読む道具や表計算ソフトで行がずれる）"""
+    return re.sub(r"[ \t]*[\r\n]+[ \t]*", " ", s).strip() if ("\n" in s or "\r" in s) else s
+
+
+def _cells(vals: list) -> list:
+    return [_one_line(v) if isinstance(v, str) else v for v in vals]
 
 
 def _tag(k: str, v: str) -> str:
     return f"{k}:{str(v).replace('|', '/').strip()}"
 
 
-def _fields_of(vals: dict[str, dict[int, str]], defs: list[dict]) -> tuple[dict[str, list[str]], list[str], list[str]]:
-    """追加項目の値を、(項目のキー → 値の並び, タグ（key:value）, 自由記述) に分ける。count・sex・behaviour はタグにしない"""
-    by: dict[str, list[str]] = {}
+def _role(x: dict) -> str | None:
+    """追加項目 → observations の列の名前（count / sex / behavior / lifeStage / individualID）。あてはまらなければ None"""
+    for s in (x.get("key"), x.get("label_en"), x.get("label_ja")):
+        r = _ROLE_OF.get(_hkey(s or ""))
+        if r:
+            return r
+    return None
+
+
+def _to_col(role: str, v: str) -> str | None:
+    """値を、その列に書ける形にする。書けない値は None（タグに残す）。性別の「不明」は空文字（書かない。タグにも残さない）"""
+    s = v.strip()
+    if role == "count":
+        x = _num(s)
+        return str(int(x)) if x is not None and x >= 1 and x == int(x) else None
+    if role == "sex":
+        return SEX.get(s.lower()) or ("" if s.lower() in SEX_UNKNOWN else None)
+    if role == "lifeStage":
+        return LIFE_STAGE.get(s.lower())
+    return s.replace("|", "/") or None             # individualID
+
+
+def _fields_of(vals: dict[str, dict[int, str]], defs: list[dict]) -> tuple[list[str], list[str]]:
+    """対象ごとの追加項目の値を、(タグ（key:value）, 自由記述) に分ける"""
     tags: list[str] = []
     notes: list[str] = []
     for x in defs:
         vs = [v.strip() for _, v in sorted((vals.get(x["key"]) or {}).items()) if (v or "").strip()]
-        if not vs:
-            continue
-        by[x["key"]] = vs
-        if x["key"] in ("count", "sex", "behaviour", "behavior"):
-            continue
         if x["type"] == "text":
             notes += [f"{x['key']}: {v}" for v in vs]
         else:
             tags += [_tag(x["key"], v) for v in vs]
-    return by, tags, notes
+    return tags, notes
+
+
+def _species_fields(vals: dict[str, dict[int, str]], defs: list[dict]) -> tuple[list[dict], str, list[str], list[str]]:
+    """種の行の追加項目の値を、(記録の並び, behavior, タグ, 自由記述) に分ける。
+    記録 = dict(count, sex, lifeStage, individualID のうち、値のあるもの)。＋ で何件も記録してあれば、記録の番号（seq）ごとに 1 つ
+    （Camtrap DP は、性別や成長段階が違う個体を別の行にする）。1 件だけ、またはこれらの項目に値がなければ、記録は 1 つ"""
+    recs: dict[int, dict] = {}
+    beh: list[str] = []
+    tags: list[str] = []
+    notes: list[str] = []
+    for x in defs:
+        vs = [(s, v.strip()) for s, v in sorted((vals.get(x["key"]) or {}).items()) if (v or "").strip()]
+        if not vs:
+            continue
+        role = _role(x)
+        if role == "behavior":
+            beh += [v.replace("|", "/") for _, v in vs]
+        elif role:
+            for s, v in vs:
+                c = _to_col(role, v)
+                if c is None or role in recs.get(s, {}):         # その列に書けない値、または同じ列にあたる項目が 2 つあるときの 2 つ目: タグに残す
+                    tags.append(_tag(x["key"], v))
+                elif c:
+                    recs.setdefault(s, {})[role] = c
+        elif x["type"] == "text":
+            notes += [f"{x['key']}: {v}" for _, v in vs]
+        else:
+            tags += [_tag(x["key"], v) for _, v in vs]
+    return [recs[s] for s in sorted(recs)] or [{}], " | ".join(dict.fromkeys(beh)), tags, notes
 
 
 def _slug(s: str) -> str:
     return re.sub(r"-{2,}", "-", re.sub(r"[^a-z0-9._-]+", "-", (s or "").lower())).strip("-.") or "trapnote-export"
 
 
+def _deployment_row(did: str, d: dict, idx: dict[tuple, dict], tz: str) -> tuple[dict, tuple[float, float] | None]:
+    """deployments の 1 行（列の名前 → 値）と座標（なければ None）。d = dict(season, loc, first, last)。
+    地点の表（idx）の値を入れる。設置・回収の日時が表になければ、その地点の最初と最後の動画の日時（そのことを deploymentComments に書く）"""
+    s = _station_row(idx, d["season"], d["loc"])
+    row = {c: "" for c in COLS["deployments"]}
+    row.update(deploymentID=did, locationID=d["loc"], locationName=d["loc"], deploymentGroups=f"season:{d['season']}" if d["season"] else "")
+    for c in PASS_COLS:
+        if (s.get(c) or "").strip():
+            v = s[c].strip()
+            row[c] = {"1": "true", "0": "false", "yes": "true", "no": "false"}.get(v.lower(), v.lower()) if c == "baitUse" else v
+    c2 = _coords(s)
+    if c2:
+        row["latitude"], row["longitude"] = repr(c2[0]), repr(c2[1])
+    st, en = s.get("Start") or "", s.get("End") or ""
+    row["deploymentStart"] = iso(st or d["first"], tz) or ""
+    row["deploymentEnd"] = iso(en or d["last"], tz) or ""
+    if not (st and en):
+        note = "deploymentStart/deploymentEnd taken from the first/last media file (setup and retrieval times were not recorded)"
+        row["deploymentComments"] = f"{row['deploymentComments']} | {note}" if row["deploymentComments"] else note
+    return {k: _one_line(v) for k, v in row.items()}, c2
+
+
+# ---------- 書き出す前の検査 ----------
+_DT_SQL = "NULLIF(COALESCE(items.datetime_corrected, items.datetime), '')"
+NAMES_MAX = 30                                 # 足りない地点などの名前を、いくつまで返すか（残りは数だけ）
+
+
+def _names(xs, limit: int = NAMES_MAX) -> dict:
+    xs = sorted(dict.fromkeys(xs))
+    return dict(n=len(xs), names=xs[:limit], more=max(0, len(xs) - limit))
+
+
+def precheck(project, f: dict | None = None, meta: dict | None = None, user_name: str = "") -> dict:
+    """書き出す前の検査（ファイルは書かない）。Camtrap DP の必須の項目のうち足りないものを missing に、知らせておくことを warnings に並べる。
+    missing が 1 つでもあれば（ok = False）、export_camtrapdp は書き出さない。
+    missing の要素 = dict(key, field = Camtrap DP での項目の名前, n, names = 足りない地点などの名前（NAMES_MAX 個まで）, more = 残りの数)
+      key: contributor（作成者の名前がない）/ sampling（調査地点の決め方を選んでいない）/ capture（撮影の方法を選んでいない）/ tz（時差が読めない）/
+           coords（緯度・経度のない地点）/ media（日時のある動画・静止画が 1 つもない）/ deployment_id（別の地点が同じ deploymentID になる）/
+           value（地点の表の値が列の決まりに合わない。kind = type / enum / range / required、names = 「地点: 値」）
+    warnings の要素 = dict(key, n, names, more)
+      key: no_time（日時がなく、書き出されない動画・静止画。names は例）/ no_sci（学名のない種。scientificName が空になる）/
+           outside（地点の表の設置〜回収の期間の外に動画がある地点）/ reversed（回収が設置より前の地点）"""
+    m, missing = _clean_meta(meta, project, user_name)
+    tz = m["tz"]
+    db = project.db
+    where, p = build_where(f or {})
+    p = tuple(p)
+    idx = _station_index(load_stations(project))
+    used: dict[str, dict] = {}
+    pairs: dict[str, set] = {}
+    n_items = n_no_time = 0
+    for r in db.q(f"SELECT items.season AS season, items.station AS station, items.folder AS folder, COUNT(*) AS n, COUNT({_DT_SQL}) AS n_time, "
+                  f"MIN({_DT_SQL}) AS first, MAX({_DT_SQL}) AS last FROM items WHERE {where} GROUP BY items.season, items.station, items.folder", p):
+        n_items += r["n"]
+        n_no_time += r["n"] - r["n_time"]
+        if not r["n_time"]:
+            continue
+        se, loc, did = _loc(r["season"], r["station"], r["folder"])
+        pairs.setdefault(did, set()).add((se, loc))
+        d = used.setdefault(did, dict(season=se, loc=loc, n=0, first=r["first"], last=r["last"]))
+        d["n"] += r["n_time"]
+        d["first"], d["last"] = min(d["first"], r["first"]), max(d["last"], r["last"])
+    if not used:
+        missing.append(dict(key="media", field="media.csv: timestamp", n=n_no_time, names=[], more=0))
+    dup = [did for did, ps in pairs.items() if len(ps) > 1]
+    if dup:
+        missing.append(dict(key="deployment_id", field="deployments.csv: deploymentID", **_names(dup)))
+    no_coords, outside, rev = [], [], []
+    bad_vals: dict[tuple, list] = {}
+    for did, d in used.items():
+        row, c2 = _deployment_row(did, d, idx, tz)
+        if c2 is None:
+            no_coords.append(d["loc"])
+        for fd in TABLES["deployments"]:
+            nm, v = fd["name"], row[fd["name"]]
+            if v in MISSING:
+                if fd.get("required") and nm not in ("latitude", "longitude"):
+                    bad_vals.setdefault((nm, "required"), []).append(d["loc"])
+                continue
+            why = _check_value(fd, v)
+            if why:
+                bad_vals.setdefault((nm, why), []).append(f"{d['loc']}: {v}")
+        s = _station_row(idx, d["season"], d["loc"])
+        st, en = s.get("Start") or "", s.get("End") or ""
+        if st and en and en < st:
+            rev.append(d["loc"])
+        elif (st and d["first"] < st) or (en and d["last"] > en):
+            outside.append(d["loc"])
+    if no_coords:
+        missing.append(dict(key="coords", field="deployments.csv: latitude / longitude", **_names(no_coords)))
+    for (nm, why), xs in bad_vals.items():
+        missing.append(dict(key="value", field=f"deployments.csv: {nm}", kind=why, **_names(xs)))
+    warnings: list[dict] = []
+    if n_no_time:
+        ex = [r["rel_path"] for r in db.q(f"SELECT items.rel_path AS rel_path FROM items WHERE {where} AND {_DT_SQL} IS NULL ORDER BY items.rel_path LIMIT 5", p)]
+        warnings.append(dict(key="no_time", n=n_no_time, names=ex, more=max(0, n_no_time - len(ex))))
+    sp = project.species.by_code()
+    no_sci = []
+    for r in db.q(f"SELECT species, COUNT(*) AS n FROM judgements WHERE item_id IN (SELECT items.id FROM items WHERE {where} AND {_DT_SQL} IS NOT NULL) GROUP BY species", p):
+        s = sp.get(r["species"], {})
+        if not s.get("fixed") and not (s.get("name_sci") or "").strip():
+            no_sci.append(f"{s.get('name_en') or s.get('name_ja') or r['species']} ({r['n']})")
+    if no_sci:
+        warnings.append(dict(key="no_sci", **_names(no_sci)))
+    if outside:
+        warnings.append(dict(key="outside", **_names(outside)))
+    if rev:
+        warnings.append(dict(key="reversed", **_names(rev)))
+    return dict(ok=not missing, missing=missing, warnings=warnings, n_items=n_items, n_media=n_items - n_no_time, n_deployments=len(used), version=DP_VERSION, meta=m)
+
+
+# ---------- 書き出し ----------
+FILES = ("deployments.csv", "media.csv", "observations.csv", "datapackage.json")
+
+
 def export_camtrapdp(project, out_dir: str, f: dict | None = None, meta: dict | None = None, user_name: str = "", progress=None) -> dict:
-    """Camtrap DP 1.0.2 のパッケージを out_dir に書く。返り値は件数と、書き出したあとの検査の結果（problems が空なら、定義どおり）"""
-    m = _clean_meta(meta, project, user_name)
+    """Camtrap DP 1.0.2 のパッケージを out_dir に書く。
+    先に precheck で必須の項目を調べ、足りなければ何も書かずに dict(blocked=True, missing=[…]) を返す（out_dir も作らない）。
+    書いたものは、置く前に定義と照合する（check_package）。合わなければ置かずに消し、dict(blocked=True, problems=[…]) を返す
+    （out_dir に前の書き出しがあれば、それは変えない）。だから、定義に合わないパッケージが out_dir に残ることはない。
+    置けたときの返り値は、件数と warnings（precheck と同じ形。知らせておくこと）で、valid は True"""
+    pc = precheck(project, f, meta, user_name)
+    m = pc["meta"]
+    project.update_data(camtrap=m)             # 次に開いたときのために、入れた説明を覚えておく（足りない項目があるときも）
+    if not pc["ok"]:
+        return dict(out_dir=out_dir, version=DP_VERSION, blocked=True, valid=False, missing=pc["missing"], warnings=pc["warnings"], problems=[])
     tz = m["tz"]
     db = project.db
     sp = project.species.by_code()
@@ -439,156 +649,168 @@ def export_camtrapdp(project, out_dir: str, f: dict | None = None, meta: dict | 
     deps = deployments_of(project)
     idx = _station_index(load_stations(project))
     cap1 = m["capture"][0] if len(m["capture"]) == 1 else ""
+    made_dir = not os.path.isdir(out_dir)
     os.makedirs(out_dir, exist_ok=True)
+    tmp = {n: os.path.join(out_dir, n + ".tmp") for n in FILES}
     used: dict[str, dict] = {}
     taxa: dict[str, dict] = {}
     no_sci: dict[str, int] = {}
+    bad_path: list[str] = []
     n_media = n_obs = n_no_time = 0
-    tmp_m, tmp_o = os.path.join(out_dir, "media.csv.tmp"), os.path.join(out_dir, "observations.csv.tmp")
-    with open(tmp_m, "w", encoding="utf-8", newline="") as fm, open(tmp_o, "w", encoding="utf-8", newline="") as fo:
-        wm, wo = csv.writer(fm, lineterminator="\n"), csv.writer(fo, lineterminator="\n")
-        wm.writerow(COLS["media"])
-        wo.writerow(COLS["observations"])
-        for k, (it, js, fv, _auto) in enumerate(_iter_items(db, f or {})):
-            if progress and k % 500 == 0:
-                progress(k)
-            dt = it.get("datetime_corrected") or it.get("datetime")
-            start = iso(dt, tz)
-            if not start:
-                n_no_time += 1
-                continue
-            end = iso(dt, tz, float(it.get("duration") or 0)) or start
-            se, loc, did = _loc(it.get("season"), it.get("station"), it.get("folder"))
-            used.setdefault(did, deps.get(did) or dict(season=se, loc=loc, n=0, first=dt, last=dt))
-            mid = it["rel_path"]
-            _, itags, inotes = _fields_of(fv.get((it["id"], None), {}), item_defs)
-            comments = " / ".join([x for x in [(it.get("note") or "").strip()] if x] + inotes)
-            ext = os.path.splitext(it["rel_path"])[1].lower()
-            wm.writerow([mid, did, cap1, start, it["rel_path"], "false", it["name"], MEDIATYPES.get(ext, ("image/" if it["kind"] == "image" else "video/") + ext.lstrip(".")),
-                         "", "true" if it.get("favorite") else "false", comments])
-            n_media += 1
-            verified = it["status"] == "verified"
-            try:
-                auto_j = json.loads(it["auto_json"]) if it.get("auto_json") else {}
-            except (ValueError, TypeError):
-                auto_j = {}
+    try:
+        with open(tmp["media.csv"], "w", encoding="utf-8", newline="") as fm, open(tmp["observations.csv"], "w", encoding="utf-8", newline="") as fo:
+            wm, wo = csv.writer(fm, lineterminator="\n"), csv.writer(fo, lineterminator="\n")
+            wm.writerow(COLS["media"])
+            wo.writerow(COLS["observations"])
+            for k, (it, js, fv, _auto) in enumerate(_iter_items(db, f or {})):
+                if progress and k % 500 == 0:
+                    progress(k)
+                dt = it.get("datetime_corrected") or it.get("datetime")
+                start = iso(dt, tz)
+                if not start:
+                    n_no_time += 1
+                    continue
+                mid = it["rel_path"]
+                if not _PATH_RE.match(mid) or "\n" in mid or "\r" in mid:      # filePath の決まりに合わない名前（.. を含むなど）: 書かない（知らせる）
+                    bad_path.append(mid)
+                    continue
+                end = iso(dt, tz, float(it.get("duration") or 0)) or start
+                se, loc, did = _loc(it.get("season"), it.get("station"), it.get("folder"))
+                used.setdefault(did, deps.get(did) or dict(season=se, loc=loc, n=0, first=dt, last=dt))
+                itags, inotes = _fields_of(fv.get((it["id"], None), {}), item_defs)
+                comments = " / ".join([x for x in [(it.get("note") or "").strip()] if x] + inotes)
+                ext = os.path.splitext(it["rel_path"])[1].lower()
+                wm.writerow(_cells([mid, did, cap1, start, it["rel_path"], "false", it["name"], MEDIATYPES.get(ext, ("image/" if it["kind"] == "image" else "video/") + ext.lstrip(".")),
+                                    "", "true" if it.get("favorite") else "false", comments]))
+                n_media += 1
+                verified = it["status"] == "verified"
+                try:
+                    auto_j = json.loads(it["auto_json"]) if it.get("auto_json") else {}
+                except (ValueError, TypeError):
+                    auto_j = {}
+                oids: set = set()                          # この動画でもう使った observationID（observationID は表の中で 1 つだけ。重ねない）
 
-            def obs(code: str, typ: str, **kw) -> None:
-                row = {c: "" for c in COLS["observations"]}
-                row.update(observationID=f"{mid}#{code}", deploymentID=did, eventID=mid, eventStart=start, eventEnd=end, observationLevel="event", observationType=typ)
-                row.update({k2: v for k2, v in kw.items() if v not in (None, "")})
-                wo.writerow([row[c] for c in COLS["observations"]])
-            if not js:
-                if it.get("flag") == "low":            # AI が動物を見つけたが、種を付けなかった（要確認）
-                    obs("none", "unknown", classificationMethod="machine", classifiedBy=auto_j.get("model") or "", classificationTimestamp=_stamp(auto_j.get("at")),
-                        observationTags=" | ".join(itags))
-                else:
-                    obs("none", "unclassified", observationTags=" | ".join(itags))
-                n_obs += 1
-                continue
-            for j in js:
-                code = j["species"]
-                human = verified or j.get("origin") in ("csv", "manual")
-                by, tags, notes = _fields_of(fv.get((it["id"], j["id"]), {}), sp_defs)
-                kw = dict(observationTags=" | ".join(itags + tags), observationComments=" / ".join(notes))
-                if human:
-                    kw.update(classificationMethod="human", classifiedBy=(it.get("verified_by") if verified else j.get("created_by")) or "",
-                              classificationTimestamp=_stamp(it.get("verified_at") if verified else j.get("created_at")))
-                else:
-                    p = j.get("confidence")
-                    kw.update(classificationMethod="machine", classifiedBy=j.get("model") or auto_j.get("model") or "", classificationTimestamp=_stamp(j.get("created_at")),
-                              classificationProbability=f"{min(1.0, max(0.0, float(p))):.3f}" if p is not None else "")
-                if code == "empty":
-                    obs(code, "blank", **kw)
-                elif code in ("human", "vehicle", "unknown"):
-                    obs(code, code, **kw)
-                elif code == "area":                   # 有効範囲の確認用に撮った動画（人がカメラの前を歩く）
-                    obs(code, "human", cameraSetupType="calibration", **kw)
-                else:
-                    s = sp.get(code, {})
-                    sci = (s.get("name_sci") or "").strip()
-                    if sci:
-                        t = taxa.setdefault(sci, dict(scientificName=sci))
-                        rank = RANKS.get((s.get("rank") or "").strip())
-                        if rank:
-                            t["taxonRank"] = rank
-                        vn = {k2: v for k2, v in (("eng", (s.get("name_en") or "").strip()), ("jpn", (s.get("name_ja") or "").strip())) if v}
-                        if vn:
-                            t["vernacularNames"] = vn
-                    else:                              # 学名のない種: 名前を comments に残す（何の種かが分からなくならないように）
-                        label = s.get("name_en") or s.get("name_ja") or code
-                        no_sci[label] = no_sci.get(label, 0) + 1
-                        kw["observationComments"] = " / ".join([f"species: {label}"] + notes)
-                    cnt = _num((by.get("count") or [""])[0])
-                    beh = by.get("behaviour") or by.get("behavior") or []
-                    obs(code, "animal", scientificName=sci, count=str(int(cnt)) if cnt is not None and cnt >= 1 and cnt == int(cnt) else "",
-                        sex=SEX.get(((by.get("sex") or [""])[0]).strip().lower(), ""), behavior=" | ".join(dict.fromkeys(v.replace("|", "/") for v in beh)), **kw)
-                n_obs += 1
-    # deployments: 書き出した動画のある地点だけ
-    n_no_coords = 0
-    starts, ends, pts = [], [], []
-    tmp_d = os.path.join(out_dir, "deployments.csv.tmp")
-    with open(tmp_d, "w", encoding="utf-8", newline="") as fd:
-        wd = csv.writer(fd, lineterminator="\n")
-        wd.writerow(COLS["deployments"])
-        for did, d in sorted(used.items()):
-            s = _station_row(idx, d["season"], d["loc"])
-            row = {c: "" for c in COLS["deployments"]}
-            row.update(deploymentID=did, locationID=d["loc"], locationName=d["loc"], deploymentGroups=f"season:{d['season']}" if d["season"] else "")
-            for c in PASS_COLS:
-                if (s.get(c) or "").strip():
-                    v = s[c].strip()
-                    row[c] = {"1": "true", "0": "false", "yes": "true", "no": "false"}.get(v.lower(), v.lower()) if c == "baitUse" else v
-            c2 = _coords(s)
-            if c2:
-                row["latitude"], row["longitude"] = repr(c2[0]), repr(c2[1])
-                pts.append(c2)
-            else:
-                n_no_coords += 1
-            st, en = s.get("Start") or "", s.get("End") or ""
-            row["deploymentStart"] = iso(st or d["first"], tz) or ""
-            row["deploymentEnd"] = iso(en or d["last"], tz) or ""
-            if not (st and en):
-                note = "deploymentStart/deploymentEnd taken from the first/last media file (setup and retrieval times were not recorded)"
-                row["deploymentComments"] = f"{row['deploymentComments']} | {note}" if row["deploymentComments"] else note
-            if row["deploymentStart"]:
-                starts.append(row["deploymentStart"][:10])
-            if row["deploymentEnd"]:
-                ends.append(row["deploymentEnd"][:10])
-            wd.writerow([row[c] for c in COLS["deployments"]])
-    for name in ("deployments", "media", "observations"):
-        os.replace(os.path.join(out_dir, name + ".csv.tmp"), os.path.join(out_dir, name + ".csv"))
-    # datapackage.json
-    contributor = dict(title=m["contributor"], role="contact")
-    if m["email"]:
-        contributor["email"] = m["email"]
-    if m["organization"]:
-        contributor["organization"] = m["organization"]
-    pkg: dict = dict(
-        resources=[dict(name=n, path=n + ".csv", profile="tabular-data-resource", format="csv", mediatype="text/csv", encoding="utf-8", schema=f"{BASE_URL}{n}-table-schema.json")
-                   for n in ("deployments", "media", "observations")],
-        profile=BASE_URL + "camtrap-dp-profile.json", name=_slug(m["title"]), created=datetime.now().astimezone().isoformat(timespec="seconds"),
-        title=m["title"], contributors=[contributor], sources=[dict(title="TrapNote", version=VERSION)],
-        project=dict(title=m["title"], samplingDesign=m["sampling"], captureMethod=m["capture"], individualAnimals=m["individuals"], observationLevel=["event"]))
-    if m["description"]:                       # 説明とライセンスは任意。入れたときだけ書く
-        pkg["description"] = m["description"]
-    lic = [dict(name=m[k], path=LICENSES[m[k]][1], title=LICENSES[m[k]][0], scope=scope) for k, scope in (("license_data", "data"), ("license_media", "media")) if m[k]]
-    if lic:
-        pkg["licenses"] = lic
-    if pts:
-        la0, la1, lo0, lo1 = min(p[0] for p in pts), max(p[0] for p in pts), min(p[1] for p in pts), max(p[1] for p in pts)
-        pkg["spatial"] = dict(type="Polygon", bbox=[lo0, la0, lo1, la1], coordinates=[[[lo0, la0], [lo1, la0], [lo1, la1], [lo0, la1], [lo0, la0]]])
-    if starts and ends:
-        pkg["temporal"] = dict(start=min(starts), end=max(ends))
-    pkg["taxonomic"] = [taxa[k] for k in sorted(taxa)]
-    tmp = os.path.join(out_dir, "datapackage.json.tmp")
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump(pkg, fh, ensure_ascii=False, indent=2)
-    os.replace(tmp, os.path.join(out_dir, "datapackage.json"))
-    project.update_data(camtrap=m)             # 次に書き出すときのために、説明を覚えておく
-    problems = check_package(out_dir)
-    return dict(out_dir=out_dir, version=DP_VERSION, deployments=len(used), media=n_media, observations=n_obs, no_time=n_no_time, no_coords=n_no_coords,
-                no_sci=[dict(name=k, n=v) for k, v in sorted(no_sci.items(), key=lambda x: -x[1])][:10], taxa=len(taxa), problems=problems, valid=not problems)
+                def obs(code: str, typ: str, **kw) -> None:
+                    nonlocal n_obs
+                    oid, n2 = f"{mid}#{code}", 1
+                    while oid in oids:                     # 念のため: 同じ動画で同じ ID になるなら、番号を付けて別の ID にする（行を捨てない）
+                        n2 += 1
+                        oid = f"{mid}#{code}~{n2}"
+                    oids.add(oid)
+                    row = {c: "" for c in COLS["observations"]}
+                    row.update(observationID=oid, deploymentID=did, eventID=mid, eventStart=start, eventEnd=end, observationLevel="event", observationType=typ)
+                    row.update({k2: v for k2, v in kw.items() if v not in (None, "")})
+                    wo.writerow(_cells([row[c] for c in COLS["observations"]]))
+                    n_obs += 1
+                if not js:
+                    if it.get("flag") == "low":            # AI が動物を見つけたが、種を付けなかった（要確認）
+                        obs("none", "unknown", classificationMethod="machine", classifiedBy=auto_j.get("model") or "", classificationTimestamp=_stamp(auto_j.get("at")),
+                            observationTags=" | ".join(itags))
+                    else:
+                        obs("none", "unclassified", observationTags=" | ".join(itags))
+                    continue
+                for j in js:
+                    code = j["species"]
+                    human = verified or j.get("origin") in ("csv", "manual")
+                    recs, beh, tags, notes = _species_fields(fv.get((it["id"], j["id"]), {}), sp_defs)
+                    kw = dict(observationTags=" | ".join(itags + tags), observationComments=" / ".join(notes))
+                    if human:
+                        kw.update(classificationMethod="human", classifiedBy=(it.get("verified_by") if verified else j.get("created_by")) or "",
+                                  classificationTimestamp=_stamp(it.get("verified_at") if verified else j.get("created_at")))
+                    else:
+                        p = j.get("confidence")
+                        kw.update(classificationMethod="machine", classifiedBy=j.get("model") or auto_j.get("model") or "", classificationTimestamp=_stamp(j.get("created_at")),
+                                  classificationProbability=f"{min(1.0, max(0.0, float(p))):.3f}" if p is not None else "")
+                    if code == "empty":
+                        obs(code, "blank", **kw)
+                    elif code in ("human", "vehicle", "unknown"):
+                        obs(code, code, **kw)
+                    elif code == "area":                   # 有効範囲の確認用に撮った動画（人がカメラの前を歩く）
+                        obs(code, "human", cameraSetupType="calibration", **kw)
+                    else:
+                        s = sp.get(code, {})
+                        sci = (s.get("name_sci") or "").strip()
+                        if sci:
+                            t = taxa.setdefault(sci, dict(scientificName=sci))
+                            rank = RANKS.get((s.get("rank") or "").strip())
+                            if rank:
+                                t["taxonRank"] = rank
+                            vn = {k2: v for k2, v in (("eng", (s.get("name_en") or "").strip()), ("jpn", (s.get("name_ja") or "").strip())) if v}
+                            if vn:
+                                t["vernacularNames"] = vn
+                        else:                              # 学名のない種: 名前を comments に残す（何の種かが分からなくならないように）
+                            label = s.get("name_en") or s.get("name_ja") or code
+                            no_sci[label] = no_sci.get(label, 0) + 1
+                            kw["observationComments"] = " / ".join([f"species: {label}"] + notes)
+                        for n, rec in enumerate(recs, start=1):       # 記録が 2 件以上なら、記録ごとに 1 行（ID は <mediaID>#<種>#<番号>）
+                            obs(code if len(recs) == 1 else f"{code}#{n}", "animal", scientificName=sci, behavior=beh, **rec, **kw)
+        # deployments: 書き出した動画のある地点だけ
+        starts, ends, pts = [], [], []
+        with open(tmp["deployments.csv"], "w", encoding="utf-8", newline="") as fd:
+            wd = csv.writer(fd, lineterminator="\n")
+            wd.writerow(COLS["deployments"])
+            for did, d in sorted(used.items()):
+                row, c2 = _deployment_row(did, d, idx, tz)
+                if c2:
+                    pts.append(c2)
+                if row["deploymentStart"]:
+                    starts.append(row["deploymentStart"][:10])
+                if row["deploymentEnd"]:
+                    ends.append(row["deploymentEnd"][:10])
+                wd.writerow([row[c] for c in COLS["deployments"]])
+        # datapackage.json
+        contributor = dict(title=m["contributor"], role="contact")
+        if m["email"]:
+            contributor["email"] = m["email"]
+        if m["organization"]:
+            contributor["organization"] = m["organization"]
+        pkg: dict = dict(
+            resources=[dict(name=n, path=n + ".csv", profile="tabular-data-resource", format="csv", mediatype="text/csv", encoding="utf-8", schema=f"{BASE_URL}{n}-table-schema.json")
+                       for n in ("deployments", "media", "observations")],
+            profile=BASE_URL + "camtrap-dp-profile.json", name=_slug(m["title"]), created=datetime.now().astimezone().isoformat(timespec="seconds"),
+            title=m["title"], contributors=[contributor], sources=[dict(title="TrapNote", version=VERSION)],
+            project=dict(title=m["title"], samplingDesign=m["sampling"], captureMethod=m["capture"], individualAnimals=m["individuals"], observationLevel=["event"]))
+        if m["description"]:                       # 説明とライセンスは任意。入れたときだけ書く
+            pkg["description"] = m["description"]
+        lic = [dict(name=m[k], path=LICENSES[m[k]][1], title=LICENSES[m[k]][0], scope=scope) for k, scope in (("license_data", "data"), ("license_media", "media")) if m[k]]
+        if lic:
+            pkg["licenses"] = lic
+        if pts:
+            la0, la1, lo0, lo1 = min(p[0] for p in pts), max(p[0] for p in pts), min(p[1] for p in pts), max(p[1] for p in pts)
+            pkg["spatial"] = dict(type="Polygon", bbox=[lo0, la0, lo1, la1], coordinates=[[[lo0, la0], [lo1, la0], [lo1, la1], [lo0, la1], [lo0, la0]]])
+        if starts and ends:
+            pkg["temporal"] = dict(start=min(starts), end=max(ends))
+        pkg["taxonomic"] = [taxa[k] for k in sorted(taxa)]
+        with open(tmp["datapackage.json"], "w", encoding="utf-8") as fh:
+            json.dump(pkg, fh, ensure_ascii=False, indent=2)
+        problems = check_package(out_dir, suffix=".tmp")       # 置く前に、定義と照合する
+        if not problems:
+            for n in FILES:
+                os.replace(tmp[n], os.path.join(out_dir, n))
+    finally:
+        for path in tmp.values():                  # 置かなかったもの（合わなかった、途中で失敗した）は残さない
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+        if made_dir:                               # この回に作ったフォルダが空のままなら、消す（何も置かなかった）
+            try:
+                os.rmdir(out_dir)
+            except OSError:
+                pass
+    warnings = [w for w in pc["warnings"] if w["key"] not in ("no_time", "no_sci")]
+    if n_no_time:
+        warnings.insert(0, next((w for w in pc["warnings"] if w["key"] == "no_time"), dict(key="no_time", n=n_no_time, names=[], more=n_no_time)))
+    if no_sci:
+        warnings.append(dict(key="no_sci", **_names([f"{k} ({v})" for k, v in sorted(no_sci.items(), key=lambda x: -x[1])])))
+    if bad_path:
+        warnings.append(dict(key="bad_path", n=len(bad_path), names=bad_path[:5], more=max(0, len(bad_path) - 5)))
+    res = dict(out_dir=out_dir, version=DP_VERSION, deployments=len(used), media=n_media, observations=n_obs, no_time=n_no_time, no_coords=0,
+               no_sci=[dict(name=k, n=v) for k, v in sorted(no_sci.items(), key=lambda x: -x[1])][:10], taxa=len(taxa), warnings=warnings,
+               problems=problems, valid=not problems, blocked=bool(problems), missing=[])
+    if problems:
+        log.warning("Camtrap DP: 書いたものが定義に合わないので、置きませんでした: %s", problems[:5])
+    return res
 
 
 # ---------- 検査（書き出したものが、定義に合っているか） ----------
@@ -622,15 +844,17 @@ def _check_value(fd: dict, v: str) -> str | None:
     return None
 
 
-def check_package(out_dir: str) -> list[dict]:
+def check_package(out_dir: str, suffix: str = "") -> list[dict]:
     """書き出したパッケージを、Camtrap DP 1.0.2 の定義（TABLES と、パッケージの必須の項目）と比べる。
-    返り値は、合わない点の並び: dict(where = "表.列" か "datapackage.項目", kind = required / type / enum / pattern / range / unique / foreign / header / missing, n, example)"""
+    suffix = ファイルの名前の後ろに付いているもの（書き出しの途中のファイルは <名前>.tmp。置く前に照合するため）。
+    返り値は、合わない点の並び: dict(where = "表.列" か "datapackage.項目", kind = required / type / enum / pattern / range / unique / foreign / header / missing,
+    n = 件数, example = 合わない値の例, rows = 合わない行（CSV の行の番号。見出しが 1 行目。はじめの 5 つ）)"""
     out: list[dict] = []
 
-    def add(where: str, kind: str, n: int = 1, example: str = "") -> None:
-        out.append(dict(where=where, kind=kind, n=n, example=str(example)[:80]))
+    def add(where: str, kind: str, n: int = 1, example: str = "", rows: list | None = None) -> None:
+        out.append(dict(where=where, kind=kind, n=n, example=str(example)[:80], rows=list(rows or [])))
     try:
-        with open(os.path.join(out_dir, "datapackage.json"), encoding="utf-8") as fh:
+        with open(os.path.join(out_dir, "datapackage.json" + suffix), encoding="utf-8") as fh:
             pkg = json.load(fh)
     except (OSError, ValueError):
         add("datapackage.json", "missing")
@@ -684,15 +908,22 @@ def check_package(out_dir: str) -> list[dict]:
             add(f"datapackage.resources.{name}", "required")
         elif r.get("profile") != "tabular-data-resource" or r.get("schema") != f"{BASE_URL}{name}-table-schema.json":
             add(f"datapackage.resources.{name}", "enum")
-        path = os.path.join(out_dir, (r or {}).get("path") or name + ".csv")
+        path = os.path.join(out_dir, ((r or {}).get("path") or name + ".csv") + suffix)
         if not os.path.isfile(path):
             add(f"{name}.csv", "missing")
             continue
         fds = TABLES[name]
-        bad: dict[tuple, list] = {}
+        bad: dict[tuple, list] = {}             # (列, 合わない点) → [件数, 合わない行（はじめの 5 つ）, 値の例]
         seen: dict[str, set] = {f["name"]: set() for f in fds if f.get("unique")}
         fks = FOREIGN_KEYS.get(name, [])
         mine: set = set()
+
+        def note(nm: str, why: str, line: int, v: str) -> None:
+            b = bad.setdefault((nm, why), [0, [], ""])
+            b[0] += 1
+            if len(b[1]) < 5:
+                b[1].append(line)
+            b[2] = b[2] or v
         with open(path, encoding="utf-8", newline="") as fh:
             rd = csv.reader(fh)
             header = next(rd, [])
@@ -700,24 +931,25 @@ def check_package(out_dir: str) -> list[dict]:
                 add(f"{name}.csv", "header", example=",".join(header)[:80])
                 continue
             for row in rd:
+                line = rd.line_num               # 見出しが 1 行目。値の中に改行があれば、その行の終わりの番号
                 for fd, v in zip(fds, row):
                     nm = fd["name"]
                     if v in MISSING:
                         if fd.get("required"):
-                            bad.setdefault((nm, "required"), []).append("")
+                            note(nm, "required", line, "")
                         continue
                     why = _check_value(fd, v)
                     if why:
-                        bad.setdefault((nm, why), []).append(v)
+                        note(nm, why, line, v)
                     if nm in seen:
                         if v in seen[nm]:
-                            bad.setdefault((nm, "unique"), []).append(v)
+                            note(nm, "unique", line, v)
                         seen[nm].add(v)
                     for col, ref, _rc in fks:
                         if col == nm and v not in keys.get(ref, set()):
-                            bad.setdefault((nm, "foreign"), []).append(v)
+                            note(nm, "foreign", line, v)
                 mine.add(row[0] if row else "")
         keys[name] = mine
-        for (nm, why), vs in bad.items():
-            add(f"{name}.{nm}", why, len(vs), next((v for v in vs if v), ""))
+        for (nm, why), (n, lines, ex) in bad.items():
+            add(f"{name}.{nm}", why, n, ex, lines)
     return out

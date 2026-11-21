@@ -243,60 +243,123 @@ async function addFieldDialog(scope) {
 }
 
 // ---------- 書き出し ----------
+// 書き出しの窓（確認事項 148 回目）。CSV のほかの形式もここから書くので、窓の名前は「書き出し」。
+// 形式ごとにカードを 1 枚（CSV / Camtrap DP / YOLO / 判定の索引 / 検出枠の JSON / Timelapse2）。見出しに、形式の印・名前・使い道を出す。
+// 開くカードは 1 枚だけで、開いているカードに色が付く。範囲は、どの形式にも共通。前に開いたカードを覚えておく
+const EX_CARDS = ['csv', 'dp', 'yolo', 'index', 'md', 'tl'];
+const EX_DP_REQ = ['contributor', 'sampling', 'capture', 'coords', 'media'];      // Camtrap DP の必須の項目のうち、いつも一覧に出すもの（そろっていれば ✓）
 async function exportDialog(preset) {
-  // preset = {ids: [...]}（一覧で選んだ動画を右クリック → 書き出し。範囲に「選択した n 件」が加わり、それが既定になる）
+  // preset = {ids: [...]}（一覧で選んだ動画を右クリック → 書き出し。範囲に「選択した n 件」が加わり、それが既定になる）、{open: 'yolo'}（開いておくカード）
   const def = `${S.project.dir}/exports/trapnote_${new Date().toISOString().slice(0, 10)}.csv`;
   const selIds = (preset && preset.ids) || [];
-  const m = showModal(`<h3>${esc(t('ex_title'))}</h3>
-    ${pathRow('exPath', t('ex_path'), 'savecsv', def, '', 'trapnote.csv')}
-    <div class="form-row"><label>${esc(t('ex_range'))}</label><select id="exRange">${selIds.length ? `<option value="selection">${esc(t('ex_selection'))} (${selIds.length})</option>` : ''}<option value="all">${esc(t('ex_all'))}</option><option value="filter">${esc(t('ex_filter'))}</option><option value="verified">${esc(t('ex_verified'))}</option></select></div>
-    <div class="form-row"><label></label><label><input type="checkbox" id="exRecords"> ${esc(t('ex_records'))}</label></div>
-    <div class="form-row"><label></label><label><input type="checkbox" id="exJudged"> ${esc(t('ex_judged_only'))}</label></div>
-    <div class="btn-row"><button id="mOk" class="primary">${esc(t('ex_run_csv'))}</button></div>
-    <div id="exResult" class="note"></div>
-    <h3 class="ex-other">${esc(t('ex_other'))}</h3><div class="note">${esc(t('ex_other_help'))}</div>
-    <h4>${esc(t('ex_dp'))}</h4><div class="note">${esc(t('ex_dp_help'))}</div>
-    ${pathRow('exDpDir', t('ex_dp_dir'), 'folder', `${S.project.dir}/exports/camtrap-dp`, '')}
-    <div class="form-row"><label>${esc(t('ex_dp_title'))}</label><input type="text" id="exDpTitle" spellcheck="false"></div>
-    <div class="form-row"><label>${esc(t('ex_dp_contributor'))}</label><span class="ex-dp-who"><input type="text" id="exDpContributor" spellcheck="false" placeholder="${esc(t('ex_dp_contributor_ph'))}"><input type="text" id="exDpOrg" spellcheck="false" placeholder="${esc(t('ex_dp_org_ph'))}"><input type="text" id="exDpEmail" spellcheck="false" placeholder="${esc(t('ex_dp_email_ph'))}"></span></div>
-    <div class="form-row"><label>${esc(t('ex_dp_sampling'))}</label><select id="exDpSampling"><option value="">${esc(t('ex_dp_sampling_none'))}</option>${['simpleRandom', 'systematicRandom', 'clusteredRandom', 'experimental', 'targeted', 'opportunistic'].map(x => `<option value="${x}">${esc(t('ex_dp_s_' + x))}</option>`).join('')}</select></div>
-    <div class="form-row"><label>${esc(t('ex_dp_capture'))}</label><span><label class="chk"><input type="checkbox" id="exDpCapAct" checked> ${esc(t('ex_dp_cap_act'))}</label>　<label class="chk"><input type="checkbox" id="exDpCapTl"> ${esc(t('ex_dp_cap_tl'))}</label></span></div>
-    <div class="form-row"><label></label><span><label class="chk"><input type="checkbox" id="exDpIndiv"> ${esc(t('ex_dp_indiv'))}</label></span></div>
-    <div class="form-row"><label>${esc(t('ex_dp_tz'))}</label><input type="text" id="exDpTz" spellcheck="false" style="width:90px"><div class="help">${esc(t('ex_dp_tz_help'))}</div></div>
-    <div class="form-row"><label>${esc(t('ex_dp_desc'))}</label><textarea id="exDpDesc" rows="2" spellcheck="false" placeholder="${esc(t('ex_dp_desc_ph'))}"></textarea></div>
-    <div class="form-row"><label>${esc(t('ex_dp_lic'))}</label><span class="ex-dp-lic"><label class="inline">${esc(t('ex_dp_lic_data'))} <select id="exDpLicData"><option value="">${esc(t('ex_dp_lic_none'))}</option>${[['CC0-1.0', 'cc0'], ['CC-BY-4.0', 'ccby'], ['CC-BY-NC-4.0', 'ccbync']].map(x => `<option value="${x[0]}">${esc(t('ex_dp_l_' + x[1]))}</option>`).join('')}</select></label><label class="inline">${esc(t('ex_dp_lic_media'))} <select id="exDpLicMedia"><option value="">${esc(t('ex_dp_lic_none'))}</option>${[['CC0-1.0', 'cc0'], ['CC-BY-4.0', 'ccby'], ['CC-BY-NC-4.0', 'ccbync']].map(x => `<option value="${x[0]}">${esc(t('ex_dp_l_' + x[1]))}</option>`).join('')}</select></label></span><div class="help">${esc(t('ex_dp_pub_help'))}</div></div>
-    <div class="form-row"><label>${esc(t('ex_dp_stations'))}</label><span><span id="exDpStations" class="info"></span><br><button type="button" class="small" id="exDpTemplate">${esc(t('ex_dp_template'))}</button> <button type="button" class="small" id="exDpImport">${esc(t('ex_dp_import'))}</button></span></div>
-    <button type="button" id="exDp">${esc(t('ex_dp_run'))}</button><div id="exDpStatus" class="note"></div>
-    <h4>${esc(t('ex_yolo'))}</h4><div class="note">${esc(t('ex_yolo_help'))}</div>
-    <div class="form-row only-research"><label>${esc(t('ex_yolo_where'))}</label><select id="exYoloWhere"><option value="new">${esc(t('ex_yolo_new'))}</option><option value="in_place">${esc(t('ex_yolo_in_place'))}</option></select></div>
-    <div id="exYoloNewRows">${pathRow('exYoloDir', t('ex_yolo_dir'), 'folder', `${S.project.dir}/exports/yolo`, '')}
-    <div class="form-row"><label>${esc(t('ex_yolo_frames'))}</label><select id="exYoloFrames"><option value="anchor">${esc(t('ex_yolo_frames_anchor'))}</option><option value="all">${esc(t('ex_yolo_frames_all'))}</option></select>${t('ex_yolo_frames_help') ? `<div class="help">${esc(t('ex_yolo_frames_help'))}</div>` : ''}</div>
-    <div class="form-row"><label>${esc(t('ex_yolo_class'))}</label><select id="exYoloClass"><option value="animal0">${esc(t('ex_yolo_class0'))}</option><option value="species">${esc(t('ex_yolo_class_sp'))}</option></select></div>
-    <div class="form-row"><label></label><span><label class="chk"><input type="checkbox" id="exYoloPer" checked> ${esc(t('ex_yolo_per'))}</label>　<label class="chk"><input type="checkbox" id="exYoloImg" checked> ${esc(t('ex_yolo_img'))}</label></span></div></div>
-    <button type="button" id="exYolo">${esc(t('ex_yolo_run'))}</button><div id="exYoloStatus" class="note"></div>
-    <h4>${esc(t('ex_index'))}</h4><div class="note">${esc(t('ex_index_help'))}</div><button type="button" id="exIndex">${esc(t('ex_index'))}</button>
-    <h4>${esc(t('ex_md'))}</h4><div class="note">${esc(t('ex_md_help'))}</div><button type="button" id="exMd">${esc(t('ex_md'))}</button>
-    <h4>${esc(t('ex_tl'))}</h4><div class="note">${esc(t('ex_tl_help'))}</div>
-    ${pathRow('exTlPath', t('ex_path'), 'saveddb', `${S.project.root}/${(S.project.root || '').split('/').pop()}.ddb`, t('ex_tl_path_help'), `${(S.project.root || '').split('/').pop()}.ddb`)}
-    <div class="form-row"><label>${esc(t('ex_tl_style'))}</label><select id="exTlStyle"><option value="choice">${esc(t('ex_tl_choice'))}</option><option value="flags">${esc(t('ex_tl_flags'))}</option></select></div>
-    <div class="form-row"><label></label><span><label class="chk"><input type="checkbox" id="exTlFields" checked> ${esc(t('ex_tl_fields'))}</label>　<label class="chk"><input type="checkbox" id="exTlCorrected" checked> ${esc(t('ex_tl_corrected'))}</label></span></div>
-    <button type="button" id="exTl">${esc(t('ex_tl_run'))}</button>
-    <div class="modal-actions"><button id="mCancel">${esc(t('close'))}</button></div>`);
+  let openCard = (preset && preset.open) || '';
+  if (!openCard) { try { openCard = localStorage.getItem('tn_ex_card') || ''; } catch (e) { /* 覚えていなくても動く */ } }
+  if (!EX_CARDS.includes(openCard)) openCard = 'csv';
+  const card = (key, body) => `<details class="ex-card" data-card="${key}"${key === openCard ? ' open' : ''}><summary><span class="ex-badge ex-b-${key}">${esc(t('ex_badge_' + key))}</span><span class="ex-name">${esc(t('ex_name_' + key))}</span><span class="ex-use">${esc(t('ex_use_' + key))}</span></summary><div class="ex-body">${body}</div></details>`;
+  const lic = [['CC0-1.0', 'cc0'], ['CC-BY-4.0', 'ccby'], ['CC-BY-NC-4.0', 'ccbync']].map(x => `<option value="${x[0]}">${esc(t('ex_dp_l_' + x[1]))}</option>`).join('');
+  const req = ` <span class="ex-req" title="${esc(t('ex_dp_req_tip'))}">${esc(t('ex_dp_req_mark'))}</span>`;
+  const tlName = (S.project.root || '').split('/').pop();
+  const m = showModal(`<div class="ex-wrap"><h3>${esc(t('ex_title'))}</h3>
+    <div class="form-row"><label>${esc(t('ex_range'))}</label><select id="exRange">${selIds.length ? `<option value="selection">${esc(t('ex_selection'))} (${selIds.length})</option>` : ''}<option value="all">${esc(t('ex_all'))}</option><option value="filter">${esc(t('ex_filter'))}</option><option value="verified">${esc(t('ex_verified'))}</option></select><div class="help">${esc(t('ex_range_help'))}</div></div>
+    <div class="ex-pick">${esc(t('ex_pick'))}</div>
+    ${card('csv', `<div class="note">${esc(t('ex_csv_help'))}</div>
+      ${pathRow('exPath', t('ex_path'), 'savecsv', def, '', 'trapnote.csv')}
+      <div class="form-row"><label></label><label><input type="checkbox" id="exRecords"> ${esc(t('ex_records'))}</label></div>
+      <div class="form-row"><label></label><label><input type="checkbox" id="exJudged"> ${esc(t('ex_judged_only'))}</label></div>
+      <div class="ex-run"><button type="button" id="mOk" class="primary">${esc(t('ex_run_csv'))}</button></div><div id="exResult" class="ex-status"></div>`)}
+    ${card('dp', `<div class="note">${esc(t('ex_dp_help'))}</div>
+      <div id="exDpReq" class="ex-reqbox">${esc(t('ex_dp_req_wait'))}</div>
+      ${pathRow('exDpDir', t('ex_dp_dir'), 'folder', `${S.project.dir}/exports/camtrap-dp`, '')}
+      <div class="form-row"><label>${esc(t('ex_dp_title'))}</label><input type="text" id="exDpTitle" spellcheck="false"></div>
+      <div class="form-row"><label>${esc(t('ex_dp_contributor'))}${req}</label><span class="ex-dp-who"><input type="text" id="exDpContributor" spellcheck="false" placeholder="${esc(t('ex_dp_contributor_ph'))}"><input type="text" id="exDpOrg" spellcheck="false" placeholder="${esc(t('ex_dp_org_ph'))}"><input type="text" id="exDpEmail" spellcheck="false" placeholder="${esc(t('ex_dp_email_ph'))}"></span></div>
+      <div class="form-row"><label>${esc(t('ex_dp_sampling'))}${req}</label><select id="exDpSampling"><option value="">${esc(t('ex_dp_sampling_none'))}</option>${['simpleRandom', 'systematicRandom', 'clusteredRandom', 'experimental', 'targeted', 'opportunistic'].map(x => `<option value="${x}">${esc(t('ex_dp_s_' + x))}</option>`).join('')}</select></div>
+      <div class="form-row"><label>${esc(t('ex_dp_capture'))}${req}</label><span><label class="chk"><input type="checkbox" id="exDpCapAct" checked> ${esc(t('ex_dp_cap_act'))}</label>　<label class="chk"><input type="checkbox" id="exDpCapTl"> ${esc(t('ex_dp_cap_tl'))}</label></span></div>
+      <div class="form-row"><label></label><span><label class="chk"><input type="checkbox" id="exDpIndiv"> ${esc(t('ex_dp_indiv'))}</label></span></div>
+      <div class="form-row"><label>${esc(t('ex_dp_tz'))}</label><input type="text" id="exDpTz" spellcheck="false" style="width:90px"><div class="help">${esc(t('ex_dp_tz_help'))}</div></div>
+      <div class="form-row"><label>${esc(t('ex_dp_desc'))}</label><textarea id="exDpDesc" rows="2" spellcheck="false" placeholder="${esc(t('ex_dp_desc_ph'))}"></textarea></div>
+      <div class="form-row"><label>${esc(t('ex_dp_lic'))}</label><span class="ex-dp-lic"><label class="inline">${esc(t('ex_dp_lic_data'))} <select id="exDpLicData"><option value="">${esc(t('ex_dp_lic_none'))}</option>${lic}</select></label><label class="inline">${esc(t('ex_dp_lic_media'))} <select id="exDpLicMedia"><option value="">${esc(t('ex_dp_lic_none'))}</option>${lic}</select></label></span><div class="help">${esc(t('ex_dp_pub_help'))}</div></div>
+      <div class="form-row"><label>${esc(t('ex_dp_stations'))}${req}</label><span><span id="exDpStations" class="info"></span><br><button type="button" class="small" id="exDpTemplate">${esc(t('ex_dp_template'))}</button> <button type="button" class="small" id="exDpImport">${esc(t('ex_dp_import'))}</button></span></div>
+      <div class="ex-run"><button type="button" id="exDp" class="primary">${esc(t('ex_dp_run'))}</button></div><div id="exDpStatus" class="ex-status"></div>`)}
+    ${card('yolo', `<div class="note">${esc(t('ex_yolo_help'))}</div>
+      <div class="form-row only-research"><label>${esc(t('ex_yolo_where'))}</label><select id="exYoloWhere"><option value="new">${esc(t('ex_yolo_new'))}</option><option value="in_place">${esc(t('ex_yolo_in_place'))}</option></select></div>
+      <div id="exYoloNewRows">${pathRow('exYoloDir', t('ex_yolo_dir'), 'folder', `${S.project.dir}/exports/yolo`, '')}
+      <div class="form-row"><label>${esc(t('ex_yolo_frames'))}</label><select id="exYoloFrames"><option value="anchor">${esc(t('ex_yolo_frames_anchor'))}</option><option value="all">${esc(t('ex_yolo_frames_all'))}</option></select>${t('ex_yolo_frames_help') ? `<div class="help">${esc(t('ex_yolo_frames_help'))}</div>` : ''}</div>
+      <div class="form-row"><label>${esc(t('ex_yolo_class'))}</label><select id="exYoloClass"><option value="animal0">${esc(t('ex_yolo_class0'))}</option><option value="species">${esc(t('ex_yolo_class_sp'))}</option></select></div>
+      <div class="form-row"><label></label><span><label class="chk"><input type="checkbox" id="exYoloPer" checked> ${esc(t('ex_yolo_per'))}</label>　<label class="chk"><input type="checkbox" id="exYoloImg" checked> ${esc(t('ex_yolo_img'))}</label></span></div></div>
+      <div class="ex-run"><button type="button" id="exYolo" class="primary">${esc(t('ex_yolo_run'))}</button></div><div id="exYoloStatus" class="ex-status"></div>`)}
+    ${card('index', `<div class="note">${esc(t('ex_index_help'))}</div>
+      <div class="ex-run"><button type="button" id="exIndex" class="primary">${esc(t('ex_index'))}</button></div><div id="exIndexStatus" class="ex-status"></div>`)}
+    ${card('md', `<div class="note">${esc(t('ex_md_help'))}</div>
+      <div class="ex-run"><button type="button" id="exMd" class="primary">${esc(t('ex_md_run'))}</button></div><div id="exMdStatus" class="ex-status"></div>`)}
+    ${card('tl', `<div class="note">${esc(t('ex_tl_help'))}</div>
+      ${pathRow('exTlPath', t('ex_path'), 'saveddb', `${S.project.root}/${tlName}.ddb`, t('ex_tl_path_help'), `${tlName}.ddb`)}
+      <div class="form-row"><label>${esc(t('ex_tl_style'))}</label><select id="exTlStyle"><option value="choice">${esc(t('ex_tl_choice'))}</option><option value="flags">${esc(t('ex_tl_flags'))}</option></select></div>
+      <div class="form-row"><label></label><span><label class="chk"><input type="checkbox" id="exTlFields" checked> ${esc(t('ex_tl_fields'))}</label>　<label class="chk"><input type="checkbox" id="exTlCorrected" checked> ${esc(t('ex_tl_corrected'))}</label></span></div>
+      <div class="ex-run"><button type="button" id="exTl" class="primary">${esc(t('ex_tl_run'))}</button></div><div id="exTlStatus" class="ex-status"></div>`)}
+    <div class="modal-actions"><button id="mCancel">${esc(t('close'))}</button></div></div>`);
   exportModalEl = m;
-  m.querySelector('#exYoloWhere').addEventListener('change', () => { m.querySelector('#exYoloNewRows').classList.toggle('hidden', m.querySelector('#exYoloWhere').value === 'in_place'); });
-  m.querySelector('#exYolo').onclick = async () => {
-    const range = m.querySelector('#exRange').value;
-    const filters = range === 'selection' ? { ids: selIds } : (range === 'filter' ? Object.assign({}, S.filter) : (range === 'verified' ? { status: 'verified' } : {}));
-    const inPlace = m.querySelector('#exYoloWhere').value === 'in_place';
-    if (inPlace) { exportModalEl = null; if (!await confirmModal(t('ex_yolo'), esc(t('ex_yolo_in_place_q')), t('run'), true)) { exportDialog(); return; } await exportDialog(); }
+  const q = sel => m.querySelector(sel);
+  const rangeFilters = () => { const range = q('#exRange').value; return range === 'selection' ? { ids: selIds } : (range === 'filter' ? Object.assign({}, S.filter) : (range === 'verified' ? { status: 'verified' } : {})); };
+  const status = (sel, text, ng) => { const el = q(sel); if (el) { el.className = 'ex-status' + (ng ? ' ng' : ''); el.textContent = text; } };
+  // 開くカードは 1 枚だけ。開いたカードを覚えておく
+  m.querySelectorAll('details.ex-card').forEach(d => d.addEventListener('toggle', () => {
+    if (!d.open) return;
+    m.querySelectorAll('details.ex-card').forEach(o => { if (o !== d) o.open = false; });
+    try { localStorage.setItem('tn_ex_card', d.dataset.card); } catch (e) { /* 覚えられなくても動く */ }
+    if (d.dataset.card === 'dp') dpCheck();
+  }));
+  // ---- YOLO 形式 ----
+  q('#exYoloWhere').addEventListener('change', () => { q('#exYoloNewRows').classList.toggle('hidden', q('#exYoloWhere').value === 'in_place'); });
+  q('#exYolo').onclick = async () => {
+    const filters = rangeFilters();
+    const inPlace = q('#exYoloWhere').value === 'in_place';
+    if (inPlace) { exportModalEl = null; if (!await confirmModal(t('ex_yolo'), esc(t('ex_yolo_in_place_q')), t('run'), true)) { exportDialog({ open: 'yolo' }); return; } await exportDialog({ open: 'yolo' }); }
     const mm = exportModalEl || m;
     try {
       const j = await api('/api/yolo/export', { out_dir: mm.querySelector('#exYoloDir').value.trim(), filters, per_species: mm.querySelector('#exYoloPer').checked, class_mode: mm.querySelector('#exYoloClass').value, write_images: mm.querySelector('#exYoloImg').checked, in_place: inPlace, frames: mm.querySelector('#exYoloFrames').value });
       mm._yoloRunning = true; yoloExportOnJobs(j);
     } catch (e) { toast(e.message, 'error'); }
   };
-  // ---- Camtrap DP 形式の書き出し（確認事項 140 回目）: 覚えている説明（題名・作成者など）と、地点の座標の様子を入れてから、書き出す ----
-  const dpQ = sel => m.querySelector(sel);
+  // ---- Camtrap DP 形式（確認事項 140・148 回目）: 覚えている説明（題名・作成者など）を入れる。必須の項目がそろっているかを、項目を入れるたびに調べて一覧に出す。
+  //      足りなければ、サーバーは書き出さずに、足りない項目を返す（どの項目か、どの地点か）----
+  const dpQ = q;
+  const dpMeta = () => ({ title: dpQ('#exDpTitle').value.trim(), contributor: dpQ('#exDpContributor').value.trim(), organization: dpQ('#exDpOrg').value.trim(), email: dpQ('#exDpEmail').value.trim(),
+    sampling: dpQ('#exDpSampling').value, capture: [dpQ('#exDpCapAct').checked && 'activityDetection', dpQ('#exDpCapTl').checked && 'timeLapse'].filter(Boolean), individuals: dpQ('#exDpIndiv').checked,
+    tz: dpQ('#exDpTz').value.trim(), description: dpQ('#exDpDesc').value.trim(), license_data: dpQ('#exDpLicData').value, license_media: dpQ('#exDpLicMedia').value });
+  const dpNames = x => (x.names || []).join(t('ex_dp_sep')) + (x.more ? ` ${t('ex_dp_more').replace('{n}', x.more)}` : '');
+  const dpDetail = x => {            // 足りない項目・知らせること 1 つの説明（どの地点か、いくつか）
+    const s = t('ex_dp_d_' + x.key);
+    return s.replace('{n}', x.n != null ? x.n : '').replace('{names}', dpNames(x)).replace('{kind}', x.kind ? t('ex_dp_k_' + x.kind) : '').replace('{col}', (x.field || '').split(': ').pop());
+  };
+  const dpReqBox = r => {            // r = /api/camtrapdp/check の答え（書き出しが止まったときの答えも同じ形）
+    const el = dpQ('#exDpReq'); if (!el) return;
+    const miss = r.missing || [], by = {};
+    miss.forEach(x => { if (!by[x.key]) by[x.key] = x; });
+    const line = (cls, mark, text, detail, field) => `<li class="${cls}"><span class="ex-mark">${mark}</span><span><span class="ex-item">${esc(text)}</span>${field ? ` <span class="ex-field">${esc(field)}</span>` : ''}${detail ? `<span class="ex-detail">${esc(detail)}</span>` : ''}</span></li>`;
+    const rows = EX_DP_REQ.map(k => by[k] ? line('ng', '✗', t('ex_dp_m_' + k), dpDetail(by[k]), by[k].field) : line('ok', '✓', t('ex_dp_m_' + k), k === 'media' && r.n_media != null ? `${r.n_media} ${t('items')}` : (k === 'coords' && r.n_deployments != null ? t('ex_dp_ok_coords').replace('{n}', r.n_deployments) : ''), ''));
+    miss.filter(x => !EX_DP_REQ.includes(x.key)).forEach(x => rows.push(line('ng', '✗', t('ex_dp_m_' + x.key), dpDetail(x), x.field)));
+    (r.warnings || []).forEach(w => rows.push(line('warn', '!', t('ex_dp_w_' + w.key), dpDetail(w), '')));
+    el.className = 'ex-reqbox ' + (miss.length ? 'ng' : 'ok');
+    el.innerHTML = `<div class="ex-reqhead">${esc(t(miss.length ? 'ex_dp_req_ng' : 'ex_dp_req_ok'))}</div><ul>${rows.join('')}</ul>`;
+  };
+  let dpTimer = null, dpSeq = 0;
+  const dpCheck = () => {            // 少し待ってから調べる（名前を打っている間は呼ばない）。Camtrap DP のカードが開いているときだけ
+    clearTimeout(dpTimer);
+    dpTimer = setTimeout(async () => {
+      const box = dpQ('#exDpReq');
+      if (!box || !box.closest('details').open) return;
+      const seq = ++dpSeq;
+      try {
+        const r = await api('/api/camtrapdp/check', { filters: rangeFilters(), meta: dpMeta() });
+        if (seq !== dpSeq) return;
+        dpReqBox(r);
+        const st = dpQ('#exDpStatus');           // 足りない項目がそろったら、前の「書き出していません」を消す
+        if (st && r.ok && st.classList.contains('ng')) status('#exDpStatus', '');
+      } catch (e) { /* 調べられなくても、書き出すときにサーバーが調べる */ }
+    }, 300);
+  };
+  ['#exDpContributor', '#exDpTz'].forEach(sel => dpQ(sel).addEventListener('input', dpCheck));
+  ['#exDpSampling', '#exDpCapAct', '#exDpCapTl', '#exRange'].forEach(sel => dpQ(sel).addEventListener('change', dpCheck));
   const dpStations = i => { const el = dpQ('#exDpStations'); if (el) el.textContent = t('ex_dp_st_status').replace('{n}', i.n_deployments).replace('{m}', i.n_with_coords) + (i.n_with_coords < i.n_deployments ? ' ' + t('ex_dp_st_need') : ''); };
   api('/api/camtrapdp/info').then(i => {
     if (!dpQ('#exDpTitle')) return;            // 窓がもう閉じている
@@ -306,11 +369,12 @@ async function exportDialog(preset) {
     dpQ('#exDpIndiv').checked = !!mt.individuals; dpQ('#exDpTz').value = mt.tz || '';
     dpQ('#exDpDesc').value = mt.description || ''; dpQ('#exDpLicData').value = mt.license_data || ''; dpQ('#exDpLicMedia').value = mt.license_media || '';      // 説明とライセンス（任意。確認事項 141 回目）
     dpStations(i);
+    dpCheck();
   }).catch(() => {});
   dpQ('#exDpTemplate').onclick = async () => {
     const path = await pickPath('savecsv', `${S.project.dir}/exports`, 'stations_template.csv');
     if (!path) return;
-    try { const r = await api('/api/camtrapdp/template', { path }); dpQ('#exDpStatus').textContent = `${t('ex_dp_template_done')}: ${r.path} (${r.rows} ${t('ex_dp_rows')})`; } catch (e) { toast(e.message, 'error'); }
+    try { const r = await api('/api/camtrapdp/template', { path }); status('#exDpStatus', `${t('ex_dp_template_done')}: ${r.path} (${r.rows} ${t('ex_dp_rows')})`); } catch (e) { toast(e.message, 'error'); }
   };
   dpQ('#exDpImport').onclick = async () => {
     const path = await pickPath('csv', `${S.project.dir}/exports`);
@@ -318,57 +382,52 @@ async function exportDialog(preset) {
     try {
       const r = await api('/api/camtrapdp/stations', { path });
       dpStations(r);
-      dpQ('#exDpStatus').textContent = `${t('ex_dp_import_done')} (${r.rows} ${t('ex_dp_rows')})` + (r.n_bad ? ` / ${t('ex_dp_bad_rows')}: ${r.bad.map(b => b.line).join(', ')}` : '')
-        + ((r.not_in_project || []).length ? ` / ${t('ex_dp_not_in_project')}: ${r.not_in_project.join(', ')}` : '');
+      status('#exDpStatus', `${t('ex_dp_import_done')} (${r.rows} ${t('ex_dp_rows')})` + (r.n_bad ? ` / ${t('ex_dp_bad_rows')}: ${r.bad.map(b => b.line).join(', ')}` : '')
+        + ((r.not_in_project || []).length ? ` / ${t('ex_dp_not_in_project')}: ${r.not_in_project.join(', ')}` : ''));
+      dpCheck();
     } catch (e) { toast(e.message, 'error'); }
   };
   dpQ('#exDp').onclick = async () => {
-    const range = m.querySelector('#exRange').value;
-    const filters = range === 'selection' ? { ids: selIds } : (range === 'filter' ? Object.assign({}, S.filter) : (range === 'verified' ? { status: 'verified' } : {}));
-    const capture = [dpQ('#exDpCapAct').checked && 'activityDetection', dpQ('#exDpCapTl').checked && 'timeLapse'].filter(Boolean);
-    const meta = { title: dpQ('#exDpTitle').value.trim(), contributor: dpQ('#exDpContributor').value.trim(), organization: dpQ('#exDpOrg').value.trim(), email: dpQ('#exDpEmail').value.trim(),
-      sampling: dpQ('#exDpSampling').value, capture, individuals: dpQ('#exDpIndiv').checked, tz: dpQ('#exDpTz').value.trim(),
-      description: dpQ('#exDpDesc').value.trim(), license_data: dpQ('#exDpLicData').value, license_media: dpQ('#exDpLicMedia').value };
-    if (!meta.contributor) { toast(t('ex_dp_need_name'), 'error'); dpQ('#exDpContributor').focus(); return; }
-    if (!meta.sampling) { toast(t('ex_dp_need_sampling'), 'error'); dpQ('#exDpSampling').focus(); return; }
-    if (meta.tz && !/^(Z|UTC|[+-]\d{1,2}(:?\d{2})?)$/i.test(meta.tz)) { toast(t('ex_dp_need_tz'), 'error'); dpQ('#exDpTz').focus(); return; }
-    const el = dpQ('#exDpStatus');
-    el.textContent = '…';
+    status('#exDpStatus', '…');
     try {
-      const r = await api('/api/export/camtrapdp', { out_dir: dpQ('#exDpDir').value.trim(), filters, meta });
-      const lines = [`${t('ex_dp_done')}: ${r.out_dir} (deployments ${r.deployments}, media ${r.media}, observations ${r.observations})`];
-      lines.push(r.valid ? t('ex_dp_ok') : `${t('ex_dp_ng')}: ` + r.problems.map(x => `${x.where} ${t('ex_dp_k_' + x.kind)} (${x.n})`).join(' / '));
-      if (r.no_time) lines.push(`${t('ex_dp_no_time')}: ${r.no_time}`);
-      if ((r.no_sci || []).length) lines.push(`${t('ex_dp_no_sci')}: ` + r.no_sci.map(x => `${x.name} (${x.n})`).join(', '));
+      const r = await api('/api/export/camtrapdp', { out_dir: dpQ('#exDpDir').value.trim(), filters: rangeFilters(), meta: dpMeta() });
+      const el = dpQ('#exDpStatus'); if (!el) return;
+      if (r.blocked) {                         // 書き出していない: 必須の項目が足りない（一覧に出す）か、書いたものが定義に合わなかった
+        el.className = 'ex-status ng';
+        if ((r.missing || []).length) { dpReqBox(r); el.textContent = t('ex_dp_blocked'); dpQ('#exDpReq').scrollIntoView({ block: 'nearest' }); }
+        else el.innerHTML = [t('ex_dp_blocked_check')].concat((r.problems || []).map(x => `${x.where} ${t('ex_dp_k_' + x.kind)} (${x.n}${(x.rows || []).length ? `; ${t('ex_dp_rows')} ${x.rows.join(', ')}` : ''}${x.example ? `; ${x.example}` : ''})`)).map(esc).join('<br>');
+        return;
+      }
+      const lines = [`${t('ex_dp_done')}: ${r.out_dir} (deployments ${r.deployments}, media ${r.media}, observations ${r.observations})`, t('ex_dp_ok')];
+      (r.warnings || []).forEach(w => lines.push(`${t('ex_dp_w_' + w.key)}: ${dpDetail(w)}`));
+      el.className = 'ex-status';
       el.innerHTML = lines.map(esc).join('<br>');
-    } catch (e) { el.textContent = ''; toast(e.message, 'error'); }
+      dpCheck();
+    } catch (e) { status('#exDpStatus', ''); toast(e.message, 'error'); }
   };
   wirePicks(m);
-  m.querySelector('#mCancel').onclick = closeModal;
-  m.querySelector('#exIndex').onclick = async () => { const r = await api('/api/export/index', {}); m.querySelector('#exResult').textContent = `${t('ex_done')}: ${r.path} (${r.rows})`; };
-  m.querySelector('#exMd').onclick = async () => {
-    const range = m.querySelector('#exRange').value;
-    const filters = range === 'selection' ? { ids: selIds } : (range === 'filter' ? Object.assign({}, S.filter) : (range === 'verified' ? { status: 'verified' } : {}));
+  q('#mCancel').onclick = closeModal;
+  // ---- 判定の索引、検出枠の JSON、Timelapse2 ----
+  q('#exIndex').onclick = async () => { try { const r = await api('/api/export/index', {}); status('#exIndexStatus', `${t('ex_done')}: ${r.path} (${r.rows})`); } catch (e) { toast(e.message, 'error'); } };
+  q('#exMd').onclick = async () => {
+    const filters = rangeFilters();
     const path = await pickPath('savejson', `${S.project.dir}/exports`, 'detections_md.json');
     if (!path) return;
-    try { const r = await api('/api/export/md_json', { path, filters }); m.querySelector('#exResult').textContent = `${t('ex_done')}: ${r.path} (${r.items} ${t('items')})`; } catch (e) { toast(e.message, 'error'); }
+    try { const r = await api('/api/export/md_json', { path, filters }); status('#exMdStatus', `${t('ex_done')}: ${r.path} (${r.items} ${t('items')})`); } catch (e) { toast(e.message, 'error'); }
   };
-  m.querySelector('#exTl').onclick = async () => {
-    const range = m.querySelector('#exRange').value;
-    const filters = range === 'selection' ? { ids: selIds } : (range === 'filter' ? Object.assign({}, S.filter) : (range === 'verified' ? { status: 'verified' } : {}));
-    const path = m.querySelector('#exTlPath').value.trim();
+  q('#exTl').onclick = async () => {
+    const path = q('#exTlPath').value.trim();
     if (!path) { toast(t('ex_tl_need_path'), 'error'); return; }
     try {
-      const r = await api('/api/export/timelapse', { path, filters, species_style: m.querySelector('#exTlStyle').value, include_fields: m.querySelector('#exTlFields').checked, use_corrected: m.querySelector('#exTlCorrected').checked });
-      m.querySelector('#exResult').textContent = `${t('ex_done')}: ${r.ddb} / ${r.tdb} (${r.rows} ${t('items')}${r.skipped ? `, ${t('ex_tl_skipped')} ${r.skipped}` : ''})`;
+      const r = await api('/api/export/timelapse', { path, filters: rangeFilters(), species_style: q('#exTlStyle').value, include_fields: q('#exTlFields').checked, use_corrected: q('#exTlCorrected').checked });
+      status('#exTlStatus', `${t('ex_done')}: ${r.ddb} / ${r.tdb} (${r.rows} ${t('items')}${r.skipped ? `, ${t('ex_tl_skipped')} ${r.skipped}` : ''})`);
     } catch (e) { toast(e.message, 'error'); }
   };
-  m.querySelector('#mOk').onclick = async () => {
-    const range = m.querySelector('#exRange').value;
-    const filters = range === 'selection' ? { ids: selIds } : (range === 'filter' ? Object.assign({}, S.filter) : (range === 'verified' ? { status: 'verified' } : {}));
+  // ---- CSV ----
+  q('#mOk').onclick = async () => {
     try {
-      const r = await api('/api/export/csv', { path: m.querySelector('#exPath').value, filters, records: m.querySelector('#exRecords').checked, judged_only: m.querySelector('#exJudged').checked });
-      m.querySelector('#exResult').textContent = `${t('ex_done')}: ${r.path} (${r.rows} ${t('im_rows')}, ${r.items} ${t('items')})${r.records ? ' + ' + r.records.path : ''}`;
+      const r = await api('/api/export/csv', { path: q('#exPath').value, filters: rangeFilters(), records: q('#exRecords').checked, judged_only: q('#exJudged').checked });
+      status('#exResult', `${t('ex_done')}: ${r.path} (${r.rows} ${t('im_rows')}, ${r.items} ${t('items')})${r.records ? ' + ' + r.records.path : ''}`);
     } catch (e) { toast(e.message, 'error'); }
   };
 }

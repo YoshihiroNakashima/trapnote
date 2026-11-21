@@ -31,7 +31,7 @@
     <rect class="btn" x="502" y="10" width="70" height="24" rx="4"/><text class="lbl" x="537" y="26" text-anchor="middle">Agreement</text>
     <rect class="btn" x="578" y="10" width="58" height="24" rx="4"/><text class="lbl" x="607" y="26" text-anchor="middle">Retrain</text>
     <rect class="btn" x="642" y="10" width="98" height="24" rx="4"/><text class="lbl" x="691" y="26" text-anchor="middle">Archive convert</text>
-    <rect class="btn" x="746" y="10" width="76" height="24" rx="4"/><text class="lbl" x="784" y="26" text-anchor="middle">Export CSV</text>
+    <rect class="btn" x="746" y="10" width="76" height="24" rx="4"/><text class="lbl" x="784" y="26" text-anchor="middle">Export data</text>
     <rect class="btn" x="828" y="10" width="114" height="24" rx="4"/><text class="lbl" x="885" y="26" text-anchor="middle">Collect judgements</text>
 
     <rect x="650" y="42" width="106" height="22" rx="11" fill="#eef0f3" stroke="#d5d9df"/><text class="dim" x="703" y="57" text-anchor="middle">Background jobs</text>

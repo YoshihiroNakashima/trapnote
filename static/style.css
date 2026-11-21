@@ -413,3 +413,39 @@ body[data-edition="research"] .ed-chip { background: #fff1d6; color: #8a5a00; }
 .ex-dp-lic { display: flex; flex-wrap: wrap; gap: 4px 16px; }
 .form-row .ex-dp-lic select { width: auto; }
 #exDpDesc { resize: vertical; min-height: 2.6em; }
+
+/* データの書き出しの窓（確認事項 148 回目）: 形式ごとのカード。見出しに、形式の印（色つき）・名前・使い道を出す。開いているカードに色を付ける */
+.ex-wrap { width: min(780px, 88vw); }
+#modal .ex-pick { margin: 14px 0 6px; font-weight: bold; }
+details.ex-card { border: 1px solid var(--border); border-radius: 8px; margin: 6px 0; background: #fff; }
+details.ex-card > summary { display: flex; align-items: center; gap: 10px; padding: 8px 10px; cursor: pointer; list-style: none; border-radius: 8px; }
+details.ex-card > summary::-webkit-details-marker { display: none; }
+details.ex-card > summary::after { content: '▸'; margin-left: auto; padding-left: 8px; color: var(--muted); }
+details.ex-card[open] > summary::after { content: '▾'; color: var(--accent); }
+details.ex-card:not([open]) > summary:hover { background: #f3f5fb; }
+details.ex-card[open] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+details.ex-card[open] > summary { background: #e7edff; border-radius: 8px 8px 0 0; border-bottom: 1px solid #c9d4f8; }
+.ex-badge { flex: none; min-width: 48px; text-align: center; padding: 3px 6px; border-radius: 6px; font-size: 11px; font-weight: bold; color: #fff; }
+.ex-b-csv { background: #2e7d32; } .ex-b-dp { background: #3b5bdb; } .ex-b-yolo { background: #c2410c; }
+.ex-b-index { background: #5b6472; } .ex-b-md { background: #7c3aed; } .ex-b-tl { background: #0e7490; }
+.ex-name { flex: none; font-size: 14px; font-weight: bold; white-space: nowrap; }
+.ex-use { min-width: 0; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ex-body { padding: 4px 12px 12px; }
+.ex-run { margin-top: 10px; }
+.ex-run button { min-width: 240px; padding: 6px 14px; }
+.ex-status { margin-top: 6px; font-size: 12px; overflow-wrap: anywhere; }
+.ex-status.ng { color: var(--danger); font-weight: bold; }
+/* Camtrap DP: 必須の項目の印と、そろっているかの一覧（✓ / ✗ / !）。色だけでなく、印と文でも分かるようにしてある */
+.ex-req { display: inline-block; margin-left: 4px; padding: 0 5px; border: 1px solid var(--danger); border-radius: 8px; font-size: 10px; font-weight: normal; color: var(--danger); vertical-align: 1px; white-space: nowrap; }
+.ex-reqbox { margin: 8px 0 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 12px; color: var(--muted); }
+.ex-reqbox.ok { border-color: #a9d8b3; background: #f0faf2; color: var(--text); }
+.ex-reqbox.ng { border-color: #e3a8a1; background: #fdf2f1; color: var(--text); }
+.ex-reqhead { margin-bottom: 4px; font-weight: bold; }
+.ex-reqbox.ok .ex-reqhead { color: #1f7a33; } .ex-reqbox.ng .ex-reqhead { color: var(--danger); }
+.ex-reqbox ul { list-style: none; margin: 0; padding: 0; }
+.ex-reqbox li { display: flex; gap: 6px; padding: 1px 0; }
+.ex-mark { flex: none; width: 14px; text-align: center; font-weight: bold; }
+.ex-reqbox li.ok .ex-mark { color: var(--ok); } .ex-reqbox li.ng .ex-mark { color: var(--danger); } .ex-reqbox li.warn .ex-mark { color: #b07d00; }
+.ex-reqbox li.ng .ex-item { font-weight: bold; }
+.ex-field { font-family: Consolas, monospace; font-size: 11px; color: var(--muted); }
+.ex-detail { display: block; overflow-wrap: anywhere; }

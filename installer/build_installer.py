@@ -8,7 +8,8 @@
   1. 配るファイルを zip にまとめる（build/payload.zip）。入れるのは、動かすのに要るものだけ:
      app.py、trapnote/*.py、static/*、resources/*、env/*、docs/*（取扱説明書。英語版と日本語版）、*.bat、README.md、README.ja.md、LICENSE。
      入れないもの: data（設定・ログ・モデル）、tests、bench、installer、確認事項.md、reports、research_notes、dist、build、__pycache__
-  2. アイコン（installer/trapnote.ico）がなければ作る（Pillow）
+  2. exe のアイコンは resources/trapnote.ico（installer/make_icon.py が、もとの絵から作ったもの。デスクトップのショートカットと同じ）。
+     なければ、青い四角に T のアイコンを installer/trapnote.ico に作って使う（Pillow）
   3. Windows に入っている C# のコンパイラ（.NET Framework 4 の csc.exe）で、installer/TrapNoteSetup.cs を exe にする。zip は exe の中に入る
 できた exe は、Python も torch も含まない小さなファイル（1 MB ほど）。入れる先の PC で、conda 環境を作る（インターネットが要る）。
 """
@@ -87,9 +88,11 @@ def main() -> int:
         for rel in files:
             z.write(os.path.join(src, rel), rel)          # 日時はファイルのものが入る（入れた先でも、プログラムの日時 = build が同じになる）
         z.writestr("VERSION.txt", f"{ver}  {stamp}\n")
-    ico = os.path.join(HERE, "trapnote.ico")
+    ico = os.path.join(src, "resources", "trapnote.ico")
     if not os.path.isfile(ico):
-        make_icon(ico)
+        ico = os.path.join(HERE, "trapnote.ico")
+        if not os.path.isfile(ico):
+            make_icon(ico)
     exe = os.path.join(out_dir, f"TrapNote-Setup-{ver}-{stamp[:10].replace('-', '')}.exe")
     cmd = [CSC, "/nologo", "/target:winexe", "/optimize+", "/codepage:65001", "/platform:anycpu", f"/out:{exe}",
            f"/win32icon:{ico}", f"/win32manifest:{os.path.join(HERE, 'app.manifest')}", f"/resource:{zpath},payload.zip",

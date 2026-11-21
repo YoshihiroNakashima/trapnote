@@ -159,6 +159,8 @@ def make_shortcut(ed: str = "public") -> int:
     if not os.path.isfile(pyw):
         pyw = sys.executable
     app = os.path.join(APP_DIR, "app.py")
+    ico = os.path.join(APP_DIR, "resources", "trapnote.ico")       # TrapNote のアイコン（installer/make_icon.py が作る）。なければ Python のアイコン
+    icon = f"{ico},0" if os.path.isfile(ico) else f"{sys.executable},0"
     ps = (
         '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; '
         '$d = [Environment]::GetFolderPath("Desktop"); '
@@ -167,7 +169,7 @@ def make_shortcut(ed: str = "public") -> int:
         f'$s.TargetPath = "{pyw}"; '
         f'$s.Arguments = \'"{app}"{extra}\'; '
         f'$s.WorkingDirectory = "{APP_DIR}"; '
-        f'$s.IconLocation = "{sys.executable},0"; '
+        f'$s.IconLocation = "{icon}"; '
         f'$s.Description = "{name}"; '
         '$s.Save(); Write-Output (Join-Path $d "' + name + '.lnk")'
     )

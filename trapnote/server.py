@@ -1408,7 +1408,18 @@ def make_app(session: Session) -> web.Application:
         except ValueError as e:
             raise ApiError(str(e))
 
+    async def camtrapdp_check(request):
+        """書き出す前の検査（何も書かない）: 必須の項目のうち足りないもの（missing）と、知らせておくこと（warnings）。窓が、項目を入れるたびに呼ぶ（確認事項 148 回目）"""
+        p = S.need()
+        b = await _body(request)
+        f = _filters(b.get("filters") or {})
+        try:
+            return jr(await io(lambda: camtrapdp.precheck(p, f, b.get("meta") or {}, user())))
+        except ValueError as e:
+            raise ApiError(str(e))
+
     async def export_camtrapdp(request):
+        """必須の項目が足りなければ、何も書かずに blocked = True と missing を返す（エラーにはしない。窓が、足りない項目を並べて見せる）"""
         p = S.need()
         b = await _body(request)
         out = norm(str(b.get("out_dir") or "").strip() or os.path.join(p.dir, "exports", "camtrap-dp"))
@@ -1900,6 +1911,7 @@ def make_app(session: Session) -> web.Application:
     r.add_get("/api/camtrapdp/info", camtrapdp_info)
     r.add_post("/api/camtrapdp/template", camtrapdp_template)
     r.add_post("/api/camtrapdp/stations", camtrapdp_stations)
+    r.add_post("/api/camtrapdp/check", camtrapdp_check)
     r.add_post("/api/export/camtrapdp", export_camtrapdp)
     r.add_get("/api/yolo/preview", yolo_preview)
     r.add_post("/api/yolo/import", yolo_import)

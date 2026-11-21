@@ -106,7 +106,7 @@ From the second time on, start TrapNote with `conda activate trapnote` followed 
 
 | No. | Name | What it does |
 |---|---|---|
-| 1 | Toolbar | Buttons that start tasks. From the left: Open project, Rescan, Read Timelapse, Read CSV, Detect only, Auto ID, Agreement, Retrain, Archive convert, Export CSV, Collect judgements |
+| 1 | Toolbar | Buttons that start tasks. From the left: Open project, Rescan, Read Timelapse, Read CSV, Detect only, Auto ID, Agreement, Retrain, Archive convert, Export data, Collect judgements |
 | 2 | Background jobs, Settings, Quit | "Background jobs" shows the progress of scanning, Auto ID and other tasks. Click it to see details or to stop a job |
 | 3 | Folder tree | Click a folder to list only the videos in it. The numbers are "verified / total" |
 | 4 | Filters and sorting | Narrow down the list by station, status, species, detection result and more |
@@ -222,9 +222,9 @@ Viewing aids:
 
 ### 4.7 Exporting to CSV
 
-1. Click "Export CSV" on the toolbar.
-2. Choose "Save to" and the "Range" (All, Current filter, Verified only).
-3. Click "Export CSV".
+1. Click "Export data" on the toolbar.
+2. Choose the "Range" (All, Current filter, Verified only).
+3. Open the "CSV (table)" card (it is open at first), check "Save to", and click "Export CSV".
 
 The CSV has **one row per video and species**. A video showing two species gives two rows. The main columns are:
 
@@ -373,7 +373,7 @@ You can import a Timelapse2 template (.tdb) and its results (.ddb). "Read Timela
 
 ## 9. Exporting in other formats
 
-Besides CSV, you can export in formats used by other software. All of them are in the lower part of the window opened with "Export CSV" on the toolbar, under "Export in other formats". They use the "Range" chosen at the top of the window (All, Current filter, Verified only).
+Besides CSV, you can export in formats used by other software. "Export data" on the toolbar opens a window with one card per format. Click the card of the format you need to open it (only one card is open at a time, and the window remembers the card you opened last). The "Range" at the top of the window (All, Current filter, Verified only) applies to every format.
 
 | Format | Use |
 |---|---|
@@ -394,8 +394,8 @@ Besides CSV, you can export in formats used by other software. All of them are i
 
 Steps:
 
-1. Click "Export CSV" and choose the "Range".
-2. Fill in the fields under "Export in Camtrap DP format". What you enter is kept in the project.
+1. Click "Export data" and choose the "Range".
+2. Open the "Camtrap DP format" card and fill in the fields. Fields marked "required" must be filled in before you can export. What you enter is kept in the project.
    - **Title** and **Contributor** (the name is required; organization and email are optional)
    - **Sampling design** (required): how the camera stations were chosen
    - **Capture method** and the **UTC offset of the camera clock** (`+09:00` for Japan)
@@ -404,9 +404,10 @@ Steps:
    - "Write a template CSV…" creates a CSV listing the stations. Open it in a spreadsheet and enter the latitude and longitude in decimal degrees (for example `35.1203` and `140.0511`). If you know when the cameras were set up and retrieved, enter the times under Start and End.
    - Click "Read a station CSV…" and choose the CSV you filled in.
    - In a project with two or more survey rounds, the template has one row per survey round and station. A row with an empty Season applies to every survey round of that station, so if the coordinates do not change between rounds you can keep one row per station.
-4. Click "Export Camtrap DP".
+4. Look at the "required items" list near the top of the card. A missing item is marked ✗, with the name of the item and of the stations concerned (for example "Latitude and longitude of the stations: Missing for 2 station(s): St03, St07"). When every item is marked ✓, you can export.
+5. Click "Export Camtrap DP".
 
-After the export, TrapNote shows the result of checking the files against the Camtrap DP definitions. If it reports "no problems", the package is ready to use. In R, read it like this:
+If any required item is missing, no file is written (an earlier export in the same folder is left as it is). The written files are checked against the Camtrap DP definitions before they are put in place, so a package that does not follow the definitions is never produced. In R, read it like this:
 
 ```r
 library(camtrapdp)
@@ -415,7 +416,8 @@ x <- read_camtrapdp("D:/Site_2026/TrapNote/exports/camtrap-dp/datapackage.json")
 
 Good to know:
 
-- Camtrap DP requires latitude and longitude. You can export without them, but the check then reports "required value missing".
+- The items Camtrap DP requires are the contributor name, the sampling design, the capture method, the latitude and longitude of every station in the exported range, and the capture time. If even one station lacks its latitude and longitude, you cannot export. To export only the stations whose coordinates you know, filter the list to those stations first and choose "Current filter" as the "Range".
+- Videos and images without a capture time are not exported (their number and some examples are listed with "!"). Stations with videos outside the setup–retrieval period in the station table are also listed with "!" (you can still export). Check the camera clock and the dates in the station table.
 - For stations without setup and retrieval times, the first and last video of the station are used as start and end. This is shorter than the time the camera was actually running, so enter the setup and retrieval times before calculating capture rates and the like.
 - Each video is written as one "event". Judgements are written as follows:
 
@@ -429,7 +431,9 @@ Good to know:
 | No judgement | unclassified (unknown for "Check" videos, where the AI did not suggest a species) |
 
 - Verified judgements get classificationMethod human; videos that still carry only the AI judgement get machine.
-- The count, sex and behaviour fields go to the count, sex and behavior columns. Fields you added yourself go to observationTags.
+- The count, sex and behaviour fields go to the count, sex and behavior columns. Of the fields you added yourself, a field named "Life stage" (or "Age") goes to lifeStage (adult, subadult, juvenile) and a field named "Individual" (or "Individual ID") goes to individualID. Other fields go to observationTags.
+- A video showing two species gives two rows in observations (observationID is `<file>#<species>`, different for each row). If you recorded the count or sex several times with "+", each record gets its own row (`<file>#<species>#1`, `#2`, …).
+- Line breaks inside notes are replaced with a space (so that line-based tools and spreadsheets do not break the rows).
 - The videos themselves are not exported. filePath in `media.csv` is the path relative to the video folder. Detection boxes are not exported either (use the YOLO format below for boxes).
 - Species without a scientific name in the species list get an empty scientificName. Add the scientific names under "Settings" → "Edit species list…".
 - Reading (`read_camtrapdp()`), conversion to Darwin Core (`write_dwc()`) and writing the metadata file for GBIF (`write_eml()`) were checked with the R package camtrapdp (0.6.1). `write_eml()` stops unless a description and a data license have been entered.
@@ -447,8 +451,8 @@ yolo/
   classes.txt                              ← class ids and names
 ```
 
-1. Click "Export CSV" and choose "Verified only" as the "Range" (so that only videos checked by a person become training data).
-2. Under "Export in YOLO format (images and labels)", choose the destination folder and the following options.
+1. Click "Export data" and choose "Verified only" as the "Range" (so that only videos checked by a person become training data).
+2. Open the "YOLO format (images and labels)" card and choose the destination folder and the following options.
 
 | Option | Choices |
 |---|---|

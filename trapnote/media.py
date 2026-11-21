@@ -172,6 +172,33 @@ def _parse_fps(s: str) -> float | None:
         return None
 
 
+def parse_ffmpeg_info(text: str) -> dict:
+    """`ffmpeg -i <動画>` が標準エラーに出す説明から、duration / vcodec / width / height / fps / acodec と、日時のもと（creation_time）を取り出す。
+    ffprobe がないときの経路（imageio-ffmpeg に入っているのは ffmpeg だけ。インストーラで入れた環境はこれ）。
+    値は表示の桁まで: 長さは 0.01 秒に丸めたもの、fps は小数 2 桁に丸めたもの（端数がなければ整数）。
+    日時は ffprobe の経路と同じ順に探す: 全体の creation_time → date → date-eng → 映像の creation_time。
+    値は行の終わりまで取る。AVI の creation_time は「2018-07-14 13:00:22」のように間に空白がある
+    （確認事項 148 回目。前は空白の前までしか取らず、時刻が 00:00:00 になっていた）"""
+    out: dict = dict(duration=None, vcodec=None, width=None, height=None, fps=None, acodec=None, creation_time=None)
+    m = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", text)
+    if m:
+        out["duration"] = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
+    m = re.search(r"Video:\s*([A-Za-z0-9_]+).*?,\s*(\d{2,5})x(\d{2,5}).*?(\d+(?:\.\d+)?)\s*fps", text, re.S)
+    if m:
+        out["vcodec"], out["width"], out["height"], out["fps"] = m.group(1), int(m.group(2)), int(m.group(3)), float(m.group(4))
+    m = re.search(r"Audio:\s*([A-Za-z0-9_]+)", text)
+    if m:
+        out["acodec"] = m.group(1)
+
+    def tag(part: str, name: str) -> str | None:
+        t = re.search(rf"^[ \t]*{re.escape(name)}[ \t]*:[ \t]*(\S.*?)[ \t\r]*$", part, re.M | re.I)
+        return t.group(1) if t else None
+    head, _, tail = text.partition("Duration:")           # 「Duration:」の前 = 全体の Metadata、あと = ストリームごとの説明
+    v = re.search(r"^[ \t]*Stream #[^\n]*Video:.*?(?=^[ \t]*Stream #|\Z)", tail, re.M | re.S)      # 最初の映像のストリームの説明（次のストリームの前まで）
+    out["creation_time"] = tag(head, "creation_time") or tag(head, "date") or tag(head, "date-eng") or (tag(v.group(0), "creation_time") if v else None)
+    return out
+
+
 def probe_video(path: str, ffmpeg: str | None, ffprobe: str | None, z_is_utc: bool = False, background: bool = False) -> dict:
     """duration, width, height, fps, n_frames, vcodec, acodec, container, datetime, datetime_source"""
     out: dict = dict(duration=None, width=None, height=None, fps=None, n_frames=None, vcodec=None, acodec=None,
@@ -213,19 +240,9 @@ def probe_video(path: str, ffmpeg: str | None, ffprobe: str | None, z_is_utc: bo
             log.debug("ffprobe の失敗 %s: %s", path, r.stderr.decode("utf-8", "replace")[-300:])
     elif ffmpeg:
         r = _run([ffmpeg, "-hide_banner", "-i", path], timeout=120, background=background)
-        text = r.stderr.decode("utf-8", "replace")
-        m = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", text)
-        if m:
-            out["duration"] = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
-        m = re.search(r"Video:\s*([A-Za-z0-9_]+).*?,\s*(\d{2,5})x(\d{2,5}).*?(\d+(?:\.\d+)?)\s*fps", text, re.S)
-        if m:
-            out["vcodec"], out["width"], out["height"], out["fps"] = m.group(1), int(m.group(2)), int(m.group(3)), float(m.group(4))
-        m = re.search(r"Audio:\s*([A-Za-z0-9_]+)", text)
-        if m:
-            out["acodec"] = m.group(1)
-        m = re.search(r"creation_time\s*:\s*(\S+)", text)
-        if m:
-            ct = m.group(1)
+        info = parse_ffmpeg_info(r.stderr.decode("utf-8", "replace"))
+        ct = info.pop("creation_time")
+        out.update(info)
     else:
         try:
             import cv2

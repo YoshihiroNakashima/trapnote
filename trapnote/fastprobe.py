@@ -70,17 +70,27 @@ def low_io_thread() -> bool:
         return False
 
 
-def differences(fast: dict, real: dict) -> list[str]:
-    """速い経路の結果と ffprobe の結果（media.probe）で違う項目の名前。長さは 0.001 秒、fps は相対 1e-9 までを同じとみなす。ほかは完全一致"""
+def differences(fast: dict, real: dict, loose: bool = False) -> list[str]:
+    """速い経路の結果と ffprobe の結果（media.probe）で違う項目の名前。長さは 0.001 秒、fps は相対 1e-9 までを同じとみなす。ほかは完全一致。
+    loose = 相手が `ffmpeg -i` の表示から読んだ値（ffprobe がない PC。media.parse_ffmpeg_info）のとき: 表示が丸めてあるぶんだけを許す。
+      長さは 0.01 秒に丸めた値なので ±0.005 秒、fps は小数 2 桁に丸めた値なので ±0.005。
+      フレーム数は表示にないので、相手は「丸めた長さ × 丸めた fps」という見積もり。その丸めから出うる差（0.005 ×（長さ ＋ fps）＋ 1）までを許す。
+      さらに、ヘッダの値が見積もりより少ないほうには、1 秒ぶんのフレーム（か見積もりの 5% の大きいほう）まで許す: 表示の長さは入れ物の長さ
+      （音声が映像より長ければ、音声の長さ）なので、見積もりは実際より多くなることがある。実物の 4,950 本では 34 本がそうで、最大 11 フレーム。
+      どれも、ヘッダの値が、実際に数えたフレーム数と同じだった（確認事項 148 回目）。
+      大きさ・codec・入れ物・日時は、loose でも完全一致"""
     out = []
     for k in FIELDS:
         a, b = fast.get(k), real.get(k)
         if a is None or b is None:
             same = a is None and b is None
         elif k == "duration":
-            same = abs(a - b) <= 0.001
+            same = abs(a - b) <= (0.005 + 1e-6 if loose else 0.001)
         elif k == "fps":
-            same = abs(a - b) <= 1e-9 * max(abs(a), abs(b))
+            same = abs(a - b) <= (0.005 + 1e-6 if loose else 1e-9 * max(abs(a), abs(b)))
+        elif k == "n_frames" and loose:
+            tol = 0.005 * ((fast.get("duration") or 0) + (fast.get("fps") or 0)) + 1
+            same = -(tol + max(fast.get("fps") or 0, 0.05 * b)) <= a - b <= tol
         else:
             same = a == b
         if not same:

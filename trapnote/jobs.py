@@ -190,7 +190,11 @@ class MetaJob(Job):
     """メタデータ（長さ、解像度、fps、日時）を未取得の対象について取る。ffprobe は別プロセスなので並列にする。
     動画はまずヘッダを直接読む（fastprobe。プロセスを起こさないので桁違いに速い）。知らないカメラの形式で違う値を黙って書かないように、
     署名（ファイルの「型」）ごとに最初の 2 本と、そのあと SPOT 本ごとに 1 本を ffprobe と突き合わせ、違えばその署名の動画を、この処理で既に書いた分も含めて ffprobe で取り直す。
-    ヘッダからは言い切れない動画（fastprobe が None）と画像は今までどおり。環境変数 TRAPNOTE_FAST_PROBE=0 なら、全部を今までどおり ffprobe で取る"""
+    ヘッダからは言い切れない動画（fastprobe が None）と画像は今までどおり。環境変数 TRAPNOTE_FAST_PROBE=0 なら、全部を今までどおり ffprobe で取る。
+    ffprobe がない PC（imageio-ffmpeg には ffmpeg しか入っていない。インストーラで入れた環境はこれ）でも、速い経路を使う（確認事項 148 回目。
+    前は ffprobe があるときだけで、ないと全部を `ffmpeg -i` で 1 本ずつ取っていた: 5,201 件で 2 分 50 秒）。そのときの突き合わせの相手は `ffmpeg -i` の表示から
+    読んだ値で、表示が丸めてあるぶん（長さ 0.01 秒、fps 小数 2 桁）だけを許して比べる（fastprobe.differences の loose）。合っていれば、突き合わせた動画にも
+    ヘッダから読んだ値（丸めていない値）を書く（同じプロジェクトの中で、丸めた値と丸めていない値が混ざらないように）"""
 
     CHUNK = 200          # 速い経路で一度に進める本数（「止める」と進捗の表示はこの単位）
     SPOT = 500           # 信用した署名でも、この本数ごとに 1 本を ffprobe と突き合わせる
@@ -247,6 +251,7 @@ class MetaJob(Job):
             wrote: dict = {}        # 署名 → 速い経路の値をそのまま書いた行（rows の番号）。あとで違いが出たら取り直す
             bad: set = set()        # ffprobe と違う値が出た署名（以後は ffprobe で取る）
             n_fast = n_slow = 0
+            loose = not ffprobe     # ffprobe がない: 突き合わせの相手は `ffmpeg -i` の表示（丸めた値）。丸めのぶんだけを許して比べる
 
             def fast_one(r):
                 p = project.abs_path(r["rel_path"])
@@ -299,9 +304,14 @@ class MetaJob(Job):
                         m = got.get(i)
                         if m is None:                        # 止めた、または ffprobe の失敗: 突き合わせられなかった
                             continue
-                        diff = fastprobe.differences(fast[i], m)
+                        diff = fastprobe.differences(fast[i], m, loose=loose)
                         if not diff:
                             trust[sig] = trust.get(sig, 0) + 1
+                            if loose:                        # 相手は丸めた値。合っていたので、この動画にもヘッダから読んだ値（丸めていない）を書く
+                                for n0, (iid0, m0, _e) in enumerate(pending):
+                                    if m0 is m:
+                                        pending[n0] = (iid0, fast[i], None)
+                                        break
                         elif sig not in bad:
                             bad.add(sig)
                             redo += wrote.pop(sig, [])
@@ -327,10 +337,11 @@ class MetaJob(Job):
                             n_fast += 1
                     n_slow += len(slow(redo + rest))
                     flush()
-            log.info("メタデータ: ヘッダから %d 件、ffprobe など今までの方法で %d 件（型 %d 種、うち ffprobe に回した型 %d 種）", n_fast, n_slow, len(trust) + len(bad - set(trust)), len(bad))
+            log.info("メタデータ: ヘッダから %d 件、ffprobe など今までの方法で %d 件（型 %d 種、うち ffprobe に回した型 %d 種。突き合わせの相手: %s）",
+                     n_fast, n_slow, len(trust) + len(bad - set(trust)), len(bad), "ffmpeg -i の表示" if loose else "ffprobe")
 
         with ThreadPoolExecutor(max(1, self.workers), thread_name_prefix="meta") as ex:
-            if ffprobe and os.environ.get("TRAPNOTE_FAST_PROBE", "1").strip() != "0":
+            if (ffprobe or ffmpeg) and os.environ.get("TRAPNOTE_FAST_PROBE", "1").strip() != "0":
                 run_fast(ex)
             else:
                 for i0 in range(0, len(rows), step):

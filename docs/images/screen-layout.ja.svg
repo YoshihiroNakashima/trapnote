@@ -31,7 +31,7 @@
     <rect class="btn" x="508" y="10" width="50" height="24" rx="4"/><text class="lbl" x="533" y="26" text-anchor="middle">一致率</text>
     <rect class="btn" x="564" y="10" width="62" height="24" rx="4"/><text class="lbl" x="595" y="26" text-anchor="middle">追加学習</text>
     <rect class="btn" x="632" y="10" width="86" height="24" rx="4"/><text class="lbl" x="675" y="26" text-anchor="middle">保存用の変換</text>
-    <rect class="btn" x="724" y="10" width="96" height="24" rx="4"/><text class="lbl" x="772" y="26" text-anchor="middle">CSV の書き出し</text>
+    <rect class="btn" x="724" y="10" width="96" height="24" rx="4"/><text class="lbl" x="772" y="26" text-anchor="middle">データの書き出し</text>
     <rect class="btn" x="826" y="10" width="98" height="24" rx="4"/><text class="lbl" x="875" y="26" text-anchor="middle">判定の持ち寄り</text>
 
     <rect x="700" y="42" width="78" height="22" rx="11" fill="#eef0f3" stroke="#d5d9df"/><text class="dim" x="739" y="57" text-anchor="middle">裏の処理</text>

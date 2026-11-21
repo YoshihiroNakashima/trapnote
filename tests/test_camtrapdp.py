@@ -1,10 +1,12 @@
-"""Camtrap DP 形式の書き出し（trapnote/camtrapdp.py。確認事項 140・141 回目）
+"""Camtrap DP 形式の書き出し（trapnote/camtrapdp.py。確認事項 140・141・148 回目）
 
 - 表の定義（列の名前・型・制約）が、公式の table schema（Camtrap DP 1.0.2）と同じ: 2026-11-16 に
   https://raw.githubusercontent.com/tdwg/camtrap-dp/1.0.2/<表>-table-schema.json を開き、fields から name・type・format と
   constraints（required・unique・enum・pattern・minimum・maximum）をこの順に取り出した JSON の SHA-256 を控えた（OFFICIAL）
 - 判定から observations への対応（種・動物なし・人・車・不明・有効範囲・判定なし・要確認、AI のままの判定）、追加項目（個体数・性別・行動・ほか）
-- 地点の表（座標）を読み込めば検査に通り、なければ「足りないもの」として出る
+- 地点の表（座標）を読み込めば検査に通る
+- 必須の項目が足りなければ、どの項目・どの地点かを並べて返し、ファイルは 1 つも書かない（148 回目。前は、書いてから「足りないもの」を知らせていた）
+- 1 本の動画に 2 種が写っていても、observationID は重ならない。個体数・性別・成長段階を ＋ で何件も記録してあれば、記録ごとに 1 行（148 回目）
 動画は空のファイル（中身は読まない）"""
 from __future__ import annotations
 
@@ -147,7 +149,15 @@ def test_export_valid_package(tmp_path):
         p.close()
 
 
-def test_export_without_coordinates_reports_what_is_missing(tmp_path):
+COORDS = "station,lat,lon\nSt01,35.2,140.1\nSt02,35.3,140.2\n"
+
+
+def _keys(xs):
+    return [x["key"] for x in xs]
+
+
+def test_export_without_coordinates_is_blocked(tmp_path):
+    """緯度・経度（deployments の必須の項目）がない地点があれば、どの地点かを返して、何も書かない"""
     p, ids = _project(tmp_path)
     try:
         _judge(p, ids)
@@ -155,31 +165,185 @@ def test_export_without_coordinates_reports_what_is_missing(tmp_path):
         p.db.x("UPDATE items SET datetime=NULL WHERE id=?", (ids["St02/IMG_0003.AVI"],))                 # 日時のない動画は書かない
         out = str(tmp_path / "dp")
         res = camtrapdp.export_camtrapdp(p, out, {}, dict(META, tz="+9"))
-        assert not res["valid"] and res["no_coords"] == 2 and res["no_time"] == 1 and res["media"] == 7
-        kinds = {(x["where"], x["kind"]): x["n"] for x in res["problems"]}
-        assert kinds == {("datapackage.spatial", "required"): 1, ("deployments.latitude", "required"): 2, ("deployments.longitude", "required"): 2}
-        low = {o["observationID"]: o for o in _read(out, "observations")}["St02/IMG_0004.AVI#none"]
-        assert (low["observationType"], low["classificationMethod"], low["classifiedBy"], low["classificationTimestamp"]) == ("unknown", "machine", "speciesnet-test", "2026-11-01T10:00:00+09:00")
-        assert "spatial" not in json.load(open(os.path.join(out, "datapackage.json"), encoding="utf-8"))
+        assert res["blocked"] and not res["valid"] and not os.path.exists(out)                           # フォルダも作らない
+        assert res["missing"] == [dict(key="coords", field="deployments.csv: latitude / longitude", n=2, names=["St01", "St02"], more=0)]
+        assert res["warnings"] == [dict(key="no_time", n=1, names=["St02/IMG_0003.AVI"], more=0)]
         i = camtrapdp.info(p)
         assert (i["n_deployments"], i["n_with_coords"], i["without_coords"], i["stations_file"]) == (2, 0, ["St01", "St02"], "")
+        # 1 地点だけ座標を入れても、まだ書かない（足りない地点の名前が出る）。範囲をその地点に絞れば書ける
+        camtrapdp.import_stations(p, _stations_csv(tmp_path, "station,lat,lon\nSt01,35.2,140.1\n"))
+        res = camtrapdp.export_camtrapdp(p, out, {}, META)
+        assert res["blocked"] and res["missing"][0]["names"] == ["St02"] and not os.path.exists(out)
+        res = camtrapdp.export_camtrapdp(p, out, dict(station="St01"), META)
+        assert res["valid"] and not res["blocked"] and res["missing"] == [] and (res["deployments"], res["media"]) == (1, 4)
+        # 全部の地点に入れれば書ける。日時のない動画は書かずに、知らせる
+        camtrapdp.import_stations(p, _stations_csv(tmp_path, COORDS))
+        res = camtrapdp.export_camtrapdp(p, out, {}, META)
+        assert res["valid"] and res["problems"] == [] and (res["no_time"], res["media"], res["deployments"]) == (1, 7, 2)
+        assert res["warnings"] == [dict(key="no_time", n=1, names=["St02/IMG_0003.AVI"], more=0)]
+        low = {o["observationID"]: o for o in _read(out, "observations")}["St02/IMG_0004.AVI#none"]
+        assert (low["observationType"], low["classificationMethod"], low["classifiedBy"], low["classificationTimestamp"]) == ("unknown", "machine", "speciesnet-test", "2026-11-01T10:00:00+09:00")
     finally:
         p.close()
 
 
 def test_meta_is_required(tmp_path):
+    """作成者・調査地点の決め方・撮影の方法・時差: 足りないものを全部まとめて返し、何も書かない"""
     p, ids = _project(tmp_path)
     try:
+        camtrapdp.import_stations(p, _stations_csv(tmp_path, COORDS))
         out = str(tmp_path / "dp")
-        with pytest.raises(ValueError):
-            camtrapdp.export_camtrapdp(p, out, {}, dict(META, contributor=""))
-        with pytest.raises(ValueError):
-            camtrapdp.export_camtrapdp(p, out, {}, dict(META, sampling=""))
-        with pytest.raises(ValueError):
-            camtrapdp.export_camtrapdp(p, out, {}, dict(META, tz="JST"))
+        res = camtrapdp.export_camtrapdp(p, out, {}, dict(META, contributor="", sampling="", capture=[], tz="JST"))
+        assert res["blocked"] and _keys(res["missing"]) == ["contributor", "sampling", "tz", "capture"]
+        assert [x["field"] for x in res["missing"][:2]] == ["datapackage.json: contributors.title", "datapackage.json: project.samplingDesign"]
+        for bad in (dict(contributor=""), dict(sampling=""), dict(sampling="random"), dict(tz="JST"), dict(capture=[])):
+            r = camtrapdp.export_camtrapdp(p, out, {}, dict(META, **bad))
+            assert r["blocked"] and len(r["missing"]) == 1 and r["missing"][0]["key"] == list(bad)[0], bad
         assert not os.path.exists(out)
+        pc = camtrapdp.precheck(p, {}, dict(META, contributor=""))                                       # 窓が、書き出す前に呼ぶ検査も同じ答え
+        assert not pc["ok"] and _keys(pc["missing"]) == ["contributor"] and (pc["n_items"], pc["n_media"], pc["n_deployments"]) == (8, 8, 2)
+        assert camtrapdp.precheck(p, {}, META)["ok"] and not os.path.exists(out)                          # 検査は何も書かない
         assert camtrapdp.export_camtrapdp(p, out, {}, dict(META, contributor=""), user_name="Hanako")["media"] == 8      # 設定の「確認者の名前」を作成者に使う
         assert json.load(open(os.path.join(out, "datapackage.json"), encoding="utf-8"))["contributors"][0]["title"] == "Hanako"
+        with pytest.raises(ValueError):                                                                  # 一覧にないライセンスは、窓からは来ない値
+            camtrapdp.precheck(p, {}, dict(META, license_data="my-own-terms"))
+    finally:
+        p.close()
+
+
+def test_blocked_export_keeps_previous_package_and_remembers_inputs(tmp_path):
+    p, ids = _project(tmp_path)
+    try:
+        _judge(p, ids)
+        camtrapdp.import_stations(p, _stations_csv(tmp_path, COORDS))
+        out = str(tmp_path / "dp")
+        assert camtrapdp.export_camtrapdp(p, out, {}, META)["valid"]
+        before = {n: open(os.path.join(out, n), "rb").read() for n in os.listdir(out)}
+        res = camtrapdp.export_camtrapdp(p, out, {}, dict(META, title="New title", sampling=""))
+        assert res["blocked"] and _keys(res["missing"]) == ["sampling"]
+        assert {n: open(os.path.join(out, n), "rb").read() for n in os.listdir(out)} == before            # 前の書き出しは、そのまま
+        assert camtrapdp.info(p)["meta"]["title"] == "New title"                                         # 入れた説明は覚えている（入れ直さなくてよい）
+    finally:
+        p.close()
+
+
+def test_nothing_is_placed_when_written_files_do_not_match_definition(tmp_path, monkeypatch):
+    """書いたものは、置く前に定義と照合する。合わなければ置かない（途中のファイルも残さない）"""
+    p, ids = _project(tmp_path)
+    try:
+        _judge(p, ids)
+        camtrapdp.import_stations(p, _stations_csv(tmp_path, COORDS))
+        out = str(tmp_path / "dp")
+        real = camtrapdp.check_package
+        seen = {}
+
+        def broken(d, suffix=""):
+            seen["suffix"], seen["files"] = suffix, sorted(os.listdir(d))
+            return real(d, suffix) + [dict(where="observations.count", kind="type", n=1, example="x", rows=[2])]
+        monkeypatch.setattr(camtrapdp, "check_package", broken)
+        res = camtrapdp.export_camtrapdp(p, out, {}, META)
+        assert seen["suffix"] == ".tmp" and seen["files"] == sorted(n + ".tmp" for n in camtrapdp.FILES)   # 照合するのは、置く前のファイル
+        assert res["blocked"] and not res["valid"] and res["problems"][0]["where"] == "observations.count"
+        assert not os.path.exists(out)                                                                    # 何も置いていない。作ったフォルダも消す
+        monkeypatch.setattr(camtrapdp, "check_package", real)
+        assert camtrapdp.export_camtrapdp(p, out, {}, META)["valid"]
+        before = sorted(os.listdir(out))
+        monkeypatch.setattr(camtrapdp, "check_package", broken)
+        assert camtrapdp.export_camtrapdp(p, out, {}, META)["blocked"] and sorted(os.listdir(out)) == before   # 前の書き出しは残り、途中のファイルは残らない
+    finally:
+        p.close()
+
+
+def test_precheck_finds_bad_values_in_stations_table(tmp_path):
+    """地点の表の値が列の決まりに合わない（数値でない、範囲の外、一覧にない）: どの列・どの地点かを返して、書かない。知らせておくことも返す"""
+    p, ids = _project(tmp_path)
+    try:
+        _judge(p, ids)
+        db = p.db
+        db.x("UPDATE judgements SET species='mystery' WHERE item_id=? AND species='deer'", (ids["St01/IMG_0002.AVI"],))     # 種リストにない（学名のない）種
+        camtrapdp.import_stations(p, _stations_csv(tmp_path, "station,lat,lon,start,end,cameraHeight,cameraTilt,featureType,baitUse\n"
+                                                             "St01,35.2,140.1,2026/10/21,2026/10/22,abc,-120,trail,yes\nSt02,35.3,140.2,2026/11/30,2026/10/01,1.2,10,trailGame,0\n"))
+        pc = camtrapdp.precheck(p, {}, META)
+        assert not pc["ok"] and _keys(pc["missing"]) == ["value", "value", "value"]
+        got = {(x["field"], x["kind"]): x["names"] for x in pc["missing"]}
+        assert got == {("deployments.csv: cameraHeight", "type"): ["St01: abc"], ("deployments.csv: cameraTilt", "range"): ["St01: -120"],
+                       ("deployments.csv: featureType", "enum"): ["St01: trail"]}
+        w = {x["key"]: x for x in pc["warnings"]}
+        assert set(w) == {"no_sci", "outside", "reversed"}
+        assert w["outside"]["names"] == ["St01"] and w["reversed"]["names"] == ["St02"] and w["no_sci"]["names"] == ["mystery (1)"]
+        out = str(tmp_path / "dp")
+        assert camtrapdp.export_camtrapdp(p, out, {}, META)["blocked"] and not os.path.exists(out)
+    finally:
+        p.close()
+
+
+def test_two_species_and_repeated_records_have_unique_observation_ids(tmp_path):
+    """1 本の動画に 2 種: 2 行で、observationID は別（R2camtrapdp では、ID を動画ごとに付けると重なって表を作れない）。
+    個体数・性別・成長段階・個体 ID を ＋ で何件も記録してあれば、記録ごとに 1 行。値の中の改行は空白にする"""
+    p, ids = _project(tmp_path)
+    try:
+        f = [dict(x) for x in p.fields.fields]
+        for x in f:
+            if x["key"] in ("count", "sex"):
+                x.update(repeat=True, group="ind")
+        f += [dict(key="field9", label_ja="成長段階", label_en="成長段階", type="select", scope="species", repeat=True, group="ind", options=["成獣", "幼獣", "当歳"]),
+              dict(key="individual", label_ja="個体", label_en="Individual", type="text", scope="species", repeat=True, group="ind")]
+        p.fields.update(f)
+        camtrapdp.import_stations(p, _stations_csv(tmp_path, COORDS))
+        db = p.db
+        # 2 種の動画。イノシシは 3 件の記録（オスの成獣 1、メスの成獣 2、性別不明の幼獣 3）、シカは記録 1 件
+        save_judgement(db, ids["St01/IMG_0001.AVI"], dict(species=["boar", "deer"], species_fields={
+            "boar": {"count": ["1", "2", "3"], "sex": ["オス", "メス", "不明"], "field9": ["成獣", "成獣", "幼獣"], "individual": ["B-07", "", ""], "behaviour": ["採食"]},
+            "deer": {"count": ["2"], "sex": ["メス"], "field9": ["当歳"]}}, fields={"memo": ["1 行目\n2 行目"]}, note="泥浴び\r\nあり"), "me")
+        save_judgement(db, ids["St01/IMG_0002.AVI"], dict(species=["boar", "deer", "raccoon_dog"]), "me")
+        out = str(tmp_path / "dp")
+        res = camtrapdp.export_camtrapdp(p, out, {}, META)
+        assert res["valid"] and res["problems"] == [], res["problems"]
+        rows = _read(out, "observations")
+        oid = [o["observationID"] for o in rows]
+        assert len(oid) == len(set(oid)) == res["observations"]                                          # ID は重ならない
+        ob = {o["observationID"]: o for o in rows}
+        assert {"St01/IMG_0002.AVI#boar", "St01/IMG_0002.AVI#deer", "St01/IMG_0002.AVI#raccoon_dog"} <= set(ob)      # 3 種の動画は 3 行
+        b = [ob[f"St01/IMG_0001.AVI#boar#{n}"] for n in (1, 2, 3)]
+        assert [(o["count"], o["sex"], o["lifeStage"], o["individualID"]) for o in b] == [("1", "male", "adult", "B-07"), ("2", "female", "adult", ""), ("3", "", "juvenile", "")]
+        assert all(o["scientificName"] == "Sus scrofa" and o["behavior"] == "採食" and o["eventID"] == "St01/IMG_0001.AVI" and o["classificationMethod"] == "human" for o in b)
+        d = ob["St01/IMG_0001.AVI#deer"]                                                                 # 記録が 1 件なら、番号は付かない
+        assert (d["count"], d["sex"], d["lifeStage"]) == ("2", "female", "") and d["observationTags"] == "field9:当歳"    # lifeStage に書けない値は、タグに残す
+        m1 = {m["mediaID"]: m for m in _read(out, "media")}["St01/IMG_0001.AVI"]
+        assert m1["mediaComments"] == "泥浴び あり / memo: 1 行目 2 行目"                                     # 改行は空白に
+        for name in ("deployments", "media", "observations"):                                            # どの表も、行の数 = 記録の数 + 見出し（値の中に改行がない）
+            with open(os.path.join(out, name + ".csv"), encoding="utf-8", newline="") as fh:
+                assert len(fh.read().splitlines()) == len(_read(out, name)) + 1
+    finally:
+        p.close()
+
+
+def test_field_roles_and_values():
+    role = camtrapdp._role
+    assert [role(dict(key=k, label_en="", label_ja="")) for k in ("count", "sex", "behaviour", "behavior", "life_stage", "Age", "individualID", "juvenile", "behaviour_start")] == \
+           ["count", "sex", "behavior", "behavior", "lifeStage", "lifeStage", "individualID", None, None]
+    assert role(dict(key="field3", label_en="Age class", label_ja="")) == "lifeStage" and role(dict(key="field4", label_en="", label_ja="個体ID")) == "individualID"
+    to = camtrapdp._to_col
+    assert (to("count", "3"), to("count", "0"), to("count", "2.5"), to("count", "x")) == ("3", None, None, None)
+    assert (to("sex", "♀"), to("sex", "Male"), to("sex", "不明"), to("sex", "去勢")) == ("female", "male", "", None)
+    assert (to("lifeStage", "亜成獣"), to("lifeStage", "Juvenile"), to("lifeStage", "当歳")) == ("subadult", "juvenile", None)
+    assert camtrapdp._one_line("a \r\n b\n\nc") == "a b c" and camtrapdp._one_line("a b") == "a b"
+
+
+def test_deployment_id_collision_and_bad_file_names(tmp_path):
+    p, ids = _project(tmp_path)
+    try:
+        camtrapdp.import_stations(p, _stations_csv(tmp_path, COORDS + "A_B,35.4,140.3\nB,35.5,140.4\n"))
+        out = str(tmp_path / "dp")
+        # filePath の決まり（.. を含まない）に合わない名前の動画は書かずに、知らせる
+        p.db.x("UPDATE items SET rel_path='St02/IMG..0004.AVI', name='IMG..0004.AVI' WHERE id=?", (ids["St02/IMG_0004.AVI"],))
+        res = camtrapdp.export_camtrapdp(p, out, {}, META)
+        assert res["valid"] and res["media"] == 7 and [w for w in res["warnings"] if w["key"] == "bad_path"] == [dict(key="bad_path", n=1, names=["St02/IMG..0004.AVI"], more=0)]
+        # 調査回 X・地点 A_B と、調査回 X_A・地点 B は、どちらも deploymentID が X_A_B になる: 別の地点を 1 つにまとめてしまうので、書かない
+        p.db.x("UPDATE items SET season='X', station='A_B' WHERE id=?", (ids["St01/IMG_0001.AVI"],))
+        p.db.x("UPDATE items SET season='X_A', station='B' WHERE id=?", (ids["St01/IMG_0002.AVI"],))
+        res = camtrapdp.export_camtrapdp(p, out, {}, META)
+        assert res["blocked"] and res["missing"] == [dict(key="deployment_id", field="deployments.csv: deploymentID", n=1, names=["X_A_B"], more=0)]
     finally:
         p.close()
 
