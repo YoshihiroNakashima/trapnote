@@ -216,7 +216,7 @@ The "Auto ID" column of the table shows whether Auto ID can assign the species.
 
 - If you stop part way, finished videos are skipped and the run continues where it left off when you start it again.
 - You can keep verifying videos while Auto ID is running.
-- Auto ID also works on a PC without a GPU, but it takes longer.
+- Auto ID also works on a PC without a GPU. As a rough guide, a 20-second video takes 2–10 seconds with "Detect only" and 3–20 seconds with Auto ID (it depends on the CPU, and grows roughly in proportion to the length of the video). The actual time per video is shown under "Background jobs" (the figure before 秒/本, seconds per video). If one video takes tens of seconds, see [16. Troubleshooting](#16-troubleshooting).
 - "Species that automatic identification can assign" in the window lists the species of your list that Auto ID can assign. Other animals become "Unknown". If there is none, Auto ID cannot be started: click "Register species" and register species first ([4.4](#44-registering-species)).
 
 After Auto ID, each video ends up in one of these states:
@@ -656,6 +656,7 @@ If you start one edition while another is running, the running one is stopped an
 | The "Auto ID" window says "torch / megadetector / speciesnet are not installed" | The parts that run the AI are missing. Run the installer again |
 | The models cannot be downloaded | The first Auto ID needs an internet connection (the models come from GitHub and Kaggle). Check that your organisation's network does not block them |
 | Auto ID runs on the CPU although there is a GPU | An old NVIDIA driver prevents GPU use. Update the driver to version 570 or later |
+| On a PC without a GPU, Auto ID or Detect only takes tens of seconds per video | (1) Update TrapNote ([2.5](#25-updating-and-uninstalling)). On CPUs that have performance and efficiency cores (Intel 12th generation and later, Core Ultra), versions before 21 November 2026 let Windows run TrapNote's computation on the efficiency cores only. (2) Set "MegaDetector" in the Auto ID window to "auto". redwood and MDv5 are meant for GPUs and take more than 20 times longer on a CPU. (3) Plug in a laptop. (4) Long videos take roughly proportionally longer |
 | It takes a while from opening a video until it plays | Videos in formats the browser cannot play directly are converted for playback first. The next few videos are prepared in advance, so you do not wait when watching them in a row |
 | The recording time is wrong | Videos marked `(mtime)` in the list use the file's modification time. Correct it with 🕓 ([6.4](#64-correcting-the-camera-clock)) |
 | The "Advanced search" window does not open | The browser is blocking pop-ups. Allow them |
