@@ -454,7 +454,7 @@ details.ex-card[open] > summary { background: #e7edff; border-radius: 8px 8px 0 
 .sp-wrap { width: min(880px, 90vw); }
 .sp-summary { margin: 6px 0; font-weight: bold; }
 .sp-country { display: flex; gap: 8px; align-items: center; }
-.sp-country input { width: 70px !important; text-transform: uppercase; }
+.sp-country input { width: 170px !important; }
 .sp-actions { margin: 8px 0 2px; }
 .sp-actions button { flex: none; }
 .sp-tablebox { max-height: 50vh; overflow: auto; border: 1px solid var(--border); border-radius: 6px; }
@@ -479,6 +479,16 @@ details.ex-card[open] > summary { background: #e7edff; border-radius: 8px 8px 0 
 .sk-tools { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; margin: 6px 0; }
 .sk-tools input[type=text] { flex: 1; min-width: 180px; font: inherit; padding: 4px 6px; border: 1px solid var(--border); border-radius: 4px; }
 .sk-bar { display: flex; gap: 8px; align-items: center; font-size: 12px; margin: 4px 0; }
+/* 種リストの窓: 上に登録した種、下にその国の候補（確認事項 150 回目）。どちらも窓の中で巻き上げる。登録した種がまだないときは、候補を広く出す */
+.sp-section { margin: 14px 0 4px; }
+.sp-section b { font-size: 14px; margin-right: 6px; }
+#spReg .sp-tablebox { max-height: 27vh; }
+#spCand .sp-tablebox { max-height: 23vh; }
+.sp-noreg #spCand .sp-tablebox { max-height: 40vh; }
+/* 窓が画面より長くなっても、「保存」が見えているように、下に貼り付ける */
+.sp-wrap > .modal-actions { position: sticky; bottom: -16px; margin: 10px -18px -16px; padding: 10px 18px 14px; background: #fff; border-top: 1px solid var(--border); }
+.sk-bar .primary { margin-left: auto; }
+.sk-nothing { padding: 8px 10px; }
 .sp-none { grid-column: 1 / -1; font-size: 12px; color: var(--muted); padding: 4px 2px; white-space: normal; }
 /* 自動判定の窓: 種リストの様子（どの種が付くか） */
 .dt-species { margin: 6px 0; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 12px; }

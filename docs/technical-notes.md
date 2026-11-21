@@ -350,7 +350,12 @@ ffprobe がない PC でもこの経路を使う（確認事項 148 回目。前
   既定の一覧の 2 項目を、SpeciesNet v4 のラベルに合わせた（ヤギ `capra hircus` → `capra aegagrus hircus`、鯨偶蹄目 `cetartiodactyla` → `artiodactyla`。前の値のリストは、開いたときに直す）。
 - **SpeciesNet が知っている種の一覧**（`trapnote/taxa.py`）: モデルと一緒に置かれるファイル（`info.json` が指すラベルの一覧と geofence）を直接読む。torch もモデルの読み込みも要らない。モデルをまだ取ってきていなければ、使えない（`/api/species/model` が、自動判定と同じ取り方で取ってくる裏の処理を入れる）。
   国ごとの候補は、geofence で除かれないラベル（`Taxa.candidates`。除く・除かないの決まりは `detect.should_geofence` と同じ）。種リストの各行の対応の段（species / genus / family / order / class / none / unknown）は `SpeciesList.ai_status`。
-- **登録のしかた**（`static/species.js`）: ツールバーの「種の登録」で種リストの窓が開く。「＋ 種を登録」と、右の欄の「＋ 登録」は、登録のしかたを選ぶ窓を開く。
+- **種リストの窓**（`static/species.js` の `speciesDialog`。確認事項 150 回目に組み替えた）: 上から、調査地の国 → 登録した種の表 → その国の候補（`spCandidatesPane`。`GET /api/species/candidates`）。
+  国の欄は、3 文字の符号を打ち終えたところで、すぐに反映する（Enter や欄の外を押すのを待たない）: プロジェクトの国（geofence）に保存し、横に国の名前と候補の数を出し、下の候補をその国のものにする。
+  国の名前（日本語・英語）や 2 文字の符号でも入れられる（`spCountryResolve`。Enter か欄の外で反映）。国の名前は、3 文字 → 2 文字の符号の表（`SP_A3_A2`。Windows の地域情報から作った 243 と、手で足した 6。geofence に出てくる 249 の符号と同じ）と、ブラウザの `Intl.DisplayNames` で出す。
+  候補は、登録済みの種を除いて出す（はじめは哺乳類だけ。鳥類・そのほか・属や科の区分も出せる）。チェックを付けて「選んだ種を登録」を押すと、上の表に移る。「保存」は、表で直したぶんと、チェックを付けたままの候補を、どちらも入れる。
+  国が空のときは、候補を並べずに「国を入れると出ます」と出す（「国を決めずに、全部の候補を出す」も選べる）。
+- **登録のしかた**: 「＋ 種を登録」と、右の欄の「＋ 登録」は、登録のしかたを選ぶ窓を開く。
   - 1 種ずつ入れる: `POST /api/species/add`。学名を打つたびに `GET /api/species/suggest` で対応を出す。
   - CSV からまとめて: `POST /api/species/template`（ひな形。いまの種リストの行と、「#」で始まる説明の行つき。BOM つき UTF-8）→ `POST /api/species/import/preview`（何が変わるかだけを返す）→ `POST /api/species/import`。
     見出しは、ひな形のもの、TrapNote の列の名前、日本語・英語の言い方、Darwin Core の名前（scientificName、vernacularName）のどれでもよい。名前の列が 1 つもなければ読まない（前は、名前のない行を 1 つ足していた）。

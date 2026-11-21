@@ -178,13 +178,16 @@ The species shown in the right-hand panel, and the species that Auto ID can assi
 - A project created with the English screen starts with no species ("Empty", "Human", "Vehicle", "Area" and "Unknown" are always there). The country of the study area is not set either.
 
 1. Click "Register species" on the toolbar.
-2. Check the "Country of the study area" (three-letter ISO code, for example KEN). Auto ID removes candidates that do not occur in the country.
-3. Tick "Use" for the species that can occur at your site. Add missing species with "+ Register species". There are three ways to register.
+2. Type the country name or its three-letter ISO code (for example KEN) in "Country of the study area". The candidate species of that country (the species that SpeciesNet, the AI of Auto ID, knows) appear at once in the lower part of the window. Auto ID removes candidates that do not occur in the country.
+3. In the "Registered species" table, tick "Use" for the species that can occur at your site. For species that are not in the table, tick them in the candidates below and click "Register the chosen"; they move into the table (only mammals are listed at first; birds and others can be shown too).
+4. Add species that are not among the candidates with "+ Register species". There are three ways to register.
    - **Enter one species**: type the name and the scientific name. As you type the scientific name, TrapNote shows whether Auto ID can assign it.
    - **Register many from a CSV**: write a CSV with "Write the template…", add one species per row in Excel or similar, then load it with "Choose the CSV…". Before anything is registered, a table shows which species will be added and which will be changed.
-   - **Choose from the SpeciesNet list**: tick species in the list of species that the AI (SpeciesNet) knows and that occur in your country. Scientific names and the link to Auto ID are filled in for you. This list becomes available after the SpeciesNet model has been downloaded (you can download it from that window).
-4. Give frequently used species a "Key" (one character) so that you can select them from the keyboard.
-5. Click "Save".
+   - **Choose from the SpeciesNet list**: the same list as the candidates in the lower part of the window (for when you come from "+ Add" in the right-hand panel).
+5. Give frequently used species a "Key" (one character) so that you can select them from the keyboard.
+6. Click "Save". Candidates that are still ticked are registered as well.
+
+The candidates become available after the SpeciesNet model has been downloaded. Until then, the candidates area shows a "Download the model now" button (the same download as the first Auto ID run). Species registered from the candidates get their scientific name and their link to Auto ID filled in.
 
 Each species has three kinds of name, one for each purpose.
 
