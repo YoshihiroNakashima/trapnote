@@ -144,6 +144,22 @@ Site_2026/          ← open this folder
   St03/
 ```
 
+If you surveyed the same stations several times and each station folder is divided into one folder per survey round, open the folder that holds the station folders.
+
+```
+Site/               ← open this folder
+  St01/             ← one folder per station
+    2026_05/        ← one folder per survey round
+      IMG_0001.AVI
+      IMG_0002.AVI
+    2026_10/
+  St02/
+    2026_05/
+    2026_10/
+```
+
+With this layout, all survey rounds go into one project. You choose the station and survey-round folders in the window that opens after the project is opened ([4.3](#43-choosing-the-station-folders)).
+
 Supported formats are AVI, MP4, MOV, MKV, M4V, MPG, WMV, MTS, 3GP and WebM for videos, and JPG and PNG for still images.
 
 ### 4.2 Opening a project
@@ -166,9 +182,19 @@ For a new project, the window "Choose the station folder" opens after the folder
 2. Check the number of stations and videos in the table below.
 3. Click "Use this level as the station".
 
-- If you surveyed the same stations several times and each period has its own folder inside, also choose "Survey round (if any)". Usually you can leave it at "none".
+- If you surveyed the same stations several times and each period has its own folder inside, also choose "Survey round (if any)" (see "When the station folders contain survey-round folders" below). Usually you can leave it at "none".
 - To change this later, click "Choose again…" next to "Station folder" in "Settings".
 - You can also work without stations. The CSV then lists each folder level in the columns `Folder1`, `Folder2` and so on.
+
+**When the station folders contain survey-round folders** (the second example in [4.1](#41-preparing-the-video-folder))
+
+1. The window first opens with the folder directly above the videos (`2026_05` in the example) chosen as the station. Click the folder that corresponds to a station (`St01`) to choose it instead.
+2. Under "Survey round (if any)", choose the level of the survey-round folders (the level of "2026_05").
+3. In the table below, check the number of stations and survey rounds, and the station and survey round given to each folder.
+4. Click "Use this level as the station".
+
+- If you do not choose again, the names of the survey-round folders (`2026_05` and so on) become the stations.
+- When you add the folders of a new survey round later, click "Rescan". The added videos get their station and survey round in the same way.
 
 ### 4.4 Registering species
 
@@ -333,6 +359,7 @@ You can add your own fields for anything you want to record besides the species 
 1. Open a video whose correct time you know and click 🕓 at the top of the right-hand panel.
 2. Enter the correct date and time for that video. This sets the size of the offset.
 3. Choose where to apply the same offset ("This item only", "This folder", "This station", "Current filter").
+   In a project with two or more survey rounds, "This station" applies to the videos of every survey round of that station. To correct only one survey round, choose "This folder", or filter by station and survey round first and then choose "Current filter".
 
 The original time is kept. The CSV has both the original time (DateTime) and the corrected time (DateTimeCorrected).
 
@@ -545,6 +572,8 @@ After working on each survey round in its own project, you can merge the results
 | 2. Species name mapping | If species names are written differently in different survey rounds, decide which name stands for which species |
 | 3. Build the list of all videos | Make a list of every video in the registered survey rounds |
 | 4. Export merged CSV | Write one CSV with a survey-round column |
+
+- A parent folder is read correctly only when it is laid out as parent folder / survey round / station / video. If the station folders contain the survey-round folders (the second example in [4.1](#41-preparing-the-video-folder)) and you register that folder as it is, stations and survey rounds are swapped. Open such a folder as a project, choose the station and survey-round folders ([4.3](#43-choosing-the-station-folders)), and then register that project.
 
 ---
 
