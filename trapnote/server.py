@@ -13,9 +13,9 @@ from concurrent.futures import ThreadPoolExecutor
 
 from aiohttp import web
 
-from . import APP_ID, APP_NAME, BUILD, BUILD_TIME, VERSION, camtrapdp, cross, detect, dialogs, export as export_mod, judge, media, merge as merge_mod, scan as scan_mod, spot, station, timelapse, train, yolo
+from . import APP_ID, APP_NAME, BUILD, BUILD_TIME, VERSION, camtrapdp, cross, detect, dialogs, export as export_mod, judge, media, merge as merge_mod, scan as scan_mod, spot, station, taxa as taxa_mod, timelapse, train, yolo
 from .config import APP_DIR, DATA_DIR, STATIC_DIR, Settings, State, edition
-from .jobs import ArchiveJob, CatalogBuildJob, CatalogImportJob, CrossCopyJob, CrossImportJob, CrossRemoveJob, CrossSyncJob, DetectJob, FilesOutJob, LabelsJob, Lane, MetaJob, ReclassifyJob, ScanJob, SubsetExportJob, TrainJob, TranscodeJob, YoloExportJob, YoloImportJob
+from .jobs import ArchiveJob, CatalogBuildJob, CatalogImportJob, CrossCopyJob, CrossImportJob, CrossRemoveJob, CrossSyncJob, DetectJob, FilesOutJob, LabelsJob, Lane, MetaJob, ReclassifyJob, ScanJob, SpeciesModelJob, SubsetExportJob, TrainJob, TranscodeJob, YoloExportJob, YoloImportJob
 from .paths import is_foreground_path, key, norm, note_foreground_read
 from .pattern import names_in, preview as pattern_preview
 from .project import PROJECT_DIRNAME, Project, find_project_for_root, is_project_dir
@@ -86,7 +86,9 @@ class Session:
         fresh = bool(create) and not is_project_dir(pdir)
         self.close_project()
         try:
-            self.project = Project(pdir, root=root, create=create, kind=kind)
+            # 画面が英語のときに新しく作るプロジェクト（横断を除く）は、種リストを空から始める（確認事項 149 回目。使う人が、自分の調査地の種を登録する）
+            empty = fresh and kind != "cross" and str(self.settings.get("language") or "ja") == "en"
+            self.project = Project(pdir, root=root, create=create, kind=kind, species_init="empty" if empty else "default")
         except FileNotFoundError as e:
             raise ApiError(str(e))
         if fresh and not self.project.is_cross:        # フォルダを開いて作ったばかりのプロジェクト: 走査のあとで、地点のフォルダを一度だけ訊く（公開版と Lite。station.py）
@@ -281,6 +283,10 @@ class Session:
         os.makedirs(d, exist_ok=True)
         train.SHARED_DIR = os.path.join(d, "local")      # 追加学習のモデルの共有の置き場
         return d
+
+    def taxa(self):
+        """SpeciesNet が知っている種の一覧と geofence（モデルのファイルから読む。まだ取ってきていなければ None）"""
+        return taxa_mod.load(self.models_dir(), str((self.project.setting("speciesnet_model") if self.project else "") or ""))
 
     def model_hub(self):
         if self._hub is None:
@@ -907,7 +913,7 @@ def make_app(session: Session) -> web.Application:
         if "enabled" in b:
             p.species.set_enabled([str(c) for c in b["enabled"]])
         if "rows" in b:
-            p.species.update(b["rows"])
+            p.species.update(b["rows"], await io(S.taxa))
         return jr(p.species.to_dict())
 
     async def species_add(request):
@@ -915,20 +921,118 @@ def make_app(session: Session) -> web.Application:
         b = await _body(request)
         if not any((b.get(k) or "").strip() for k in ("name_ja", "name_en", "name_sci")):
             raise ApiError("名前を入れてください")
-        row = p.species.add(b)
+        row = p.species.add(b, await io(S.taxa))
         return jr(dict(added=row, **p.species.to_dict()))
+
+    # ---- 種の登録（確認事項 149 回目）: CSV からまとめて（ひな形 → 書き換え → 読み込み）、SpeciesNet の候補から、既定の一覧から ----
+    def _import_read(b) -> dict:
+        from .species import read_import
+        path = norm(str(b.get("path") or "").strip())
+        if not os.path.isfile(path):
+            raise ApiError(f"ファイルがありません: {path}")
+        try:
+            return read_import(path)
+        except ValueError as e:
+            raise ApiError(str(e))
+
+    async def species_template(request):
+        """種リストのひな形の CSV を書く（いまの種リストの行つき）"""
+        p = S.need()
+        b = await _body(request)
+        from .species import write_template
+        path = norm(str(b.get("path") or "").strip() or os.path.join(p.dir, "exports", "species_template.csv"))
+        return jr(await io(write_template, path, p.species.rows, S.settings.get("language", "ja")))
+
+    async def species_import_preview(request):
+        """CSV を読んで、いまの種リストと比べた結果だけを返す（何も変えない）"""
+        p = S.need()
+        d = await io(_import_read, await _body(request))
+        plan = p.species.plan_import(d["rows"])
+        counts = {a: sum(1 for x in plan if x["action"] == a) for a in ("new", "update", "same", "fixed", "dup")}
+        return jr(dict(counts, plan=plan[:500], n=len(plan), unknown=d["unknown"], no_name=d["no_name"][:50], heads=d["heads"]))
 
     async def species_import(request):
         p = S.need()
+        d = await io(_import_read, await _body(request))
+        tx = await io(S.taxa)
+        res = await io(p.species.apply_import, d["rows"], tx)
+        res.pop("plan", None)
+        return jr(dict(res, no_name=len(d["no_name"]), **p.species.to_dict()))
+
+    def _species_status(p) -> dict:
+        """種リストの様子: 種ごとの自動判定（SpeciesNet）での対応、使う種の数、自動判定で付く種、調査地の国"""
+        tx = S.taxa()
+        st = p.species.ai_status(tx)
+        on = [r for r in p.species.rows if r["enabled"]]
+        country = str(p.setting("country") or "").strip().upper()
+        known = tx.countries() if tx else []
+        return dict(available=tx is not None, source=tx.source if tx else "", country=country, country_known=(not country) or (tx is None) or country in known,
+                    n_candidates=sum(1 for c in tx.candidates(country) if c["rank"] == "species") if tx else None,
+                    status=st, n_species=len(p.species.rows), n_enabled=len(on), ai=[r["code"] for r in on if st[r["code"]] != "none"],
+                    no_ai=[r["code"] for r in on if st[r["code"]] == "none"], classifier=str(p.setting("classifier") or "speciesnet"),
+                    species_init=p.data.get("species_init") or "default", env_speciesnet=bool(detect.env_status(S.settings, S.models_dir()).get("speciesnet")))
+
+    async def species_suggest(request):
+        """学名 → 自動判定（SpeciesNet）での対応（value = どのラベルを集めるか、level = どの段で当たるか）。1 種ずつ入れる窓が、学名を打つたびに呼ぶ"""
+        S.need()
+        tx = await io(S.taxa)
+        sci = str(request.query.get("sci") or "").strip()
+        if tx is None or not sci:
+            return jr(dict(available=tx is not None, value="", level=""))
+        v, lv = tx.suggest(sci)
+        return jr(dict(available=True, value=v, level=lv))
+
+    async def species_status(request):
+        p = S.need()
+        return jr(await io(_species_status, p))
+
+    def _title(s: str) -> str:
+        """SpeciesNet の英名（小文字）を、語のはじめを大文字に（sika deer → Sika Deer。crandall's の s は大文字にしない）"""
+        import re as _re
+        return _re.sub(r"(^|[\s/\-(])([a-z])", lambda mm: mm.group(1) + mm.group(2).upper(), s or "")
+
+    def _candidates(p, country: str | None) -> dict:
+        tx = S.taxa()
+        c = (str(p.setting("country") or "") if country is None else country).strip().upper()
+        if tx is None:
+            return dict(available=False, country=c, rows=[], countries=[], country_known=True, env_speciesnet=bool(detect.env_status(S.settings, S.models_dir()).get("speciesnet")))
+        by_sci = {(r.get("name_sci") or "").strip().lower(): r for r in p.species.rows if (r.get("name_sci") or "").strip()}
+        by_val = {(r.get("speciesnet") or "").strip().lower(): r for r in p.species.rows if (r.get("speciesnet") or "").strip()}
+        rows = []
+        for x in tx.candidates(c):
+            r = by_sci.get(x["sci"].lower()) or by_val.get(x["value"])
+            rows.append(dict(x, name=_title(x["common"]), have=(r["code"] if r else ""), on=bool(r and r["enabled"])))
+        return dict(available=True, source=tx.source, country=c, countries=tx.countries(), country_known=(not c) or c in tx.countries(), rows=rows)
+
+    async def species_candidates(request):
+        """SpeciesNet が知っている種のうち、その国で除かれないもの（種リストに登録できる候補）。country を渡さなければ、プロジェクトの国"""
+        p = S.need()
+        return jr(await io(_candidates, p, request.query.get("country")))
+
+    async def species_add_many(request):
+        """候補の一覧から選んだ種（values = speciesnet の列の値）をまとめて登録する。defaults = true なら、既定の一覧（日本の哺乳類を中心にした 31 項目）を足す"""
+        p = S.need()
         b = await _body(request)
-        from .species import load_csv
-        rows = await io(load_csv, b.get("path", ""))
-        if b.get("replace"):
-            p.species.update(rows)
-        else:
-            have = {r["code"] for r in p.species.rows}
-            p.species.update(p.species.rows + [r for r in rows if r["code"] not in have])
-        return jr(dict(n=len(rows), **p.species.to_dict()))
+        if b.get("defaults"):
+            res = await io(p.species.add_defaults)
+            return jr(dict(res, existed=0, **p.species.to_dict()))
+        tx = await io(S.taxa)
+        if tx is None:
+            raise ApiError("SpeciesNet の種の一覧をまだ読めません（モデルを取ってきてから使えます）")
+        want = {str(v).strip().lower() for v in (b.get("values") or []) if str(v).strip()}
+        rows = [dict(name_en=_title(x["common"]) or x["sci"], name_sci=x["sci"], rank=taxa_mod.RANKS_JA.get(x["rank"], "種"), speciesnet=x["value"])
+                for x in tx.candidates("") if x["value"] in want]
+        res = await io(p.species.add_many, rows, tx)
+        return jr(dict(res, **p.species.to_dict()))
+
+    async def species_model(request):
+        """SpeciesNet のモデルを取ってきて読み込む（裏の処理）。終わると、候補の一覧が使える"""
+        S.need()
+        env = detect.env_status(S.settings, S.models_dir())
+        if not (env.get("fake") or env.get("speciesnet")):
+            raise ApiError("speciesnet が入っていません。インストールの手順で環境を作り直してください")
+        S.ml.submit(SpeciesModelJob())
+        return jr(S.jobs_status())
 
     async def species_export(request):
         p = S.need()
@@ -1896,6 +2000,13 @@ def make_app(session: Session) -> web.Application:
     r.add_post("/api/species", species_post)
     r.add_post("/api/species/add", species_add)
     r.add_post("/api/species/import", species_import)
+    r.add_post("/api/species/import/preview", species_import_preview)
+    r.add_post("/api/species/template", species_template)
+    r.add_get("/api/species/status", species_status)
+    r.add_get("/api/species/suggest", species_suggest)
+    r.add_get("/api/species/candidates", species_candidates)
+    r.add_post("/api/species/add_many", species_add_many)
+    r.add_post("/api/species/model", species_model)
     r.add_post("/api/species/export", species_export)
     r.add_get("/api/fields", fields_get)
     r.add_post("/api/fields", fields_post)

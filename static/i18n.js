@@ -78,7 +78,7 @@ const I18N = {
     tl_data: 'データ', tl_rows: '行', tl_prefix: 'RelativePath の前に付けるフォルダ', tl_prefix_help: '.ddb が Season のフォルダにあり、TrapNote のルートがその親なら Season の名前（自動で推測）。ルートと同じ階層なら空', tl_do_template: 'テンプレートを取り込む（種リストと追加項目）', tl_do_data: 'データを取り込む（判定・日時・Star・Remarks・項目の値）',
     tl_new_species: '新しく登録', tl_result: '取り込みの結果', tl_sp_added: '種を登録', tl_fd_added: '項目を追加', tl_favs: 'お気に入り', tl_notes: 'メモ',
     tree_tip: 'フォルダをクリックすると、その中（サブフォルダも）に絞り込む', filter_fav: 'お気に入りだけ', fav_tip: 'お気に入り（きれいに撮れた、面白い行動など）。キー F', add_species: '＋ 登録', add_species_tip: '種リストにない種をその場で登録する',
-    as_title: '種を登録', as_help: '和名か英名か学名のどれかがあれば登録できます（あとで「設定 → 種リストを編集」で直せます）。CSV 表記は書き出しの Species 列の値。', as_exists: '同じ名前の種が既にあるので、それを使います',
+    as_title: '種を登録', as_help: '和名・英名・学名のどれかがあれば登録できます。学名を入れると、自動判定（SpeciesNet）と Camtrap DP 形式の書き出しで使えます。あとで、ツールバーの「種の登録」で直せます。', as_exists: '同じ名前の種が既にあるので、それを使います',
     archive: '保存用の変換', archive_tip: 'AVI などを H.264 の MP4 に変換して置き換える（保存容量を減らす）',
     ar_title: '保存用の変換（AVI → MP4）', ar_help: 'ブラウザで直接再生できない動画（MJPEG の AVI など）を、解像度と fps はそのままに H.264 の MP4 に変換し、同じフォルダに同じ名前（拡張子だけ .MP4）で置きます。撮影日時（ファイルの更新時刻）を引き継ぎ、MP4 のメタデータにも書きます。長さを検算してから一覧のパスを付け替えます。判定はそのまま残ります。元の AVI は「残す / 別のフォルダへ移す / 検算に通ったら消す」から選びます。途中で止めても、済んだものは飛ばして再開できます。',
     ar_targets: '対象', ar_targets_n: '本（合計）', ar_pending_meta: 'メタデータ未取得の動画（取得が済むと対象に入る）', ar_done: '変換済み', ar_nvenc: 'GPU のエンコーダ（NVENC）', ar_available: '使える', ar_unavailable: '使えない（CPU で変換。遅い）',
@@ -114,7 +114,7 @@ const I18N = {
     s_project: 'プロジェクト', s_name: 'プロジェクト名', s_pattern: 'フォルダ名のパターン', s_pattern_help: '相対パスの後ろから段ごとに当てる。例 {season}/{station}/{file}、{station}/{file}、{site}_{camera}/{file}。{file} はファイル名',
     s_preview: '当てた結果（先頭の数件）', s_skip: '飛ばすフォルダ名', s_z: '末尾 Z の日時を UTC とみなして時差を変換する', s_z_help: '既定はオフ（カメラの時刻をそのまま使う）',
     s_species_edit: '種リストを編集…', s_fields_edit: '追加項目を編集…', s_meta_redo: 'メタデータを取り直す（全対象）', s_root: 'メディアのルート（この PC）',
-    sp_title: '種リスト', sp_help: '「使う」にチェックした種が判定パネルに並びます。CSV 表記は書き出しの Species 列の値（既存の CSV と同じ表記にする）。キーは判定パネルで押すキー（1 文字）。',
+    sp_title: '種の登録（種リスト）', sp_help: 'ここに登録した種が、右の欄の種の選択肢と、自動判定（SpeciesNet）が付ける種の候補になります。自動判定は、「使う」にした種だけを付けます（ほかの動物は「不明」になります）。調査地で写りうる種を、先に登録してください。',
     sp_use: '使う', sp_ja: '和名', sp_en: '英名', sp_sci: '学名', sp_rank: '階級', sp_csv: 'CSV 表記', sp_nn: '外来', sp_key: 'キー', sp_add: '＋ 種を足す', sp_import: 'CSV から取り込む…', sp_export: 'CSV に書き出す',
     sp_all_on: 'すべて使う', sp_all_off: 'すべて外す',
     fd_title: '追加項目', fd_help: '対象（動画・画像）ごと、または種の行ごとに記録する項目。「＋」の項目は 1 対象に何件でも記録でき、同じ「組」の項目は 1 行に並びます（例: 行動 + 開始秒 + 終了秒）。',
@@ -307,7 +307,7 @@ const I18N = {
     tl_data: 'Data', tl_rows: 'rows', tl_prefix: 'Folder to prepend to RelativePath', tl_prefix_help: 'If the .ddb sits in the season folder and the TrapNote root is its parent, the season name (guessed). Empty if the .ddb is at the root', tl_do_template: 'Import template (species list and extra fields)', tl_do_data: 'Import data (judgements, times, Star, Remarks, field values)',
     tl_new_species: 'register', tl_result: 'Import result', tl_sp_added: 'species registered', tl_fd_added: 'fields added', tl_favs: 'favourites', tl_notes: 'notes',
     tree_tip: 'Click a folder to show only its items (including subfolders)', filter_fav: 'Favourites only', fav_tip: 'Favourite (a nice shot, interesting behaviour, …). Key F', add_species: '+ Add', add_species_tip: 'Register a species that is not in the list',
-    as_title: 'Add a species', as_help: 'Any one of Japanese, English or scientific name is enough (edit later in Settings → Species list). The CSV label is the value written to the Species column.', as_exists: 'A species with the same name exists; using it',
+    as_title: 'Add a species', as_help: 'A name is enough to register. With a scientific name, the species can be used by automatic identification (SpeciesNet) and in Camtrap DP exports. You can edit it later with "Register species" on the toolbar.', as_exists: 'A species with the same name exists; using it',
     archive: 'Archive convert', archive_tip: 'Convert AVI etc. to H.264 MP4 in place (saves storage space)',
     ar_title: 'Archive conversion (AVI → MP4)', ar_help: 'Videos the browser cannot play directly (e.g. MJPEG AVI) are converted to H.264 MP4 at the original resolution and frame rate, placed in the same folder with the same name (extension .MP4). The file time (recording time for AVI) is carried over and written into the MP4 metadata. The duration is verified before the item path is switched; judgements are kept. The original can be kept, moved to another folder, or deleted after verification. The job can be stopped and resumed.',
     ar_targets: 'Targets', ar_targets_n: 'files (total)', ar_pending_meta: 'videos awaiting metadata (added once read)', ar_done: 'Converted so far', ar_nvenc: 'GPU encoder (NVENC)', ar_available: 'available', ar_unavailable: 'not available (CPU; slow)',
@@ -342,8 +342,8 @@ const I18N = {
     s_project: 'Project', s_name: 'Project name', s_pattern: 'Folder name pattern', s_pattern_help: 'Matched segment by segment from the end of the relative path, e.g. {season}/{station}/{file}, {station}/{file}, {site}_{camera}/{file}. {file} is the file name',
     s_preview: 'Result on the first few items', s_skip: 'Folder names to skip', s_z: 'Treat trailing Z as UTC and convert to local time', s_z_help: 'Default off (use the camera time as is)',
     s_species_edit: 'Edit species list…', s_fields_edit: 'Edit extra fields…', s_meta_redo: 'Re-read metadata (all items)', s_root: 'Media root (this PC)',
-    sp_title: 'Species list', sp_help: 'Species checked as "use" appear in the judgement panel. "CSV label" is the value written to the Species column (keep it identical to your existing CSVs). "Key" is the single key pressed in the panel.',
-    sp_use: 'Use', sp_ja: 'Japanese', sp_en: 'English', sp_sci: 'Scientific', sp_rank: 'Rank', sp_csv: 'CSV label', sp_nn: 'Non-native', sp_key: 'Key', sp_add: '+ Add species', sp_import: 'Import from CSV…', sp_export: 'Export to CSV',
+    sp_title: 'Register species (species list)', sp_help: 'The species registered here are the choices in the right panel and the candidates for automatic identification (SpeciesNet). Automatic identification assigns only species marked "Use" (other animals become "Unknown"). Register the species that can occur in your study area first.',
+    sp_use: 'Use', sp_ja: 'Japanese', sp_en: 'English', sp_sci: 'Scientific name', sp_rank: 'Rank', sp_csv: 'CSV label', sp_nn: 'Non-native', sp_key: 'Key', sp_add: '+ Add species', sp_import: 'Import from CSV…', sp_export: 'Export to CSV',
     sp_all_on: 'Use all', sp_all_off: 'Use none',
     fd_title: 'Extra fields', fd_help: 'Fields recorded per item (video/image) or per species row. A "+" field can be recorded any number of times per item; fields sharing a "group" are entered together as one row (e.g. behaviour + start + end).',
     fd_key: 'Key (a–z, 0–9)', fd_ja: 'Label (Japanese)', fd_en: 'Label (English)', fd_type: 'Type', fd_scope: 'Scope', fd_repeat: '+', fd_group: 'Group', fd_options: 'Options (comma separated)', fd_default: 'Default', fd_add: '+ Add field',
@@ -473,5 +473,5 @@ function applyLang() {
   const b = document.querySelector('#btnLang'); if (b) b.textContent = LANG === 'ja' ? 'EN' : '日本語';
   const kb = document.querySelector('#keysBody'); if (kb) kb.textContent = t('keys_body');
 }
-function spName(sp) { if (!sp) return ''; return (LANG === 'ja' ? (sp.name_ja || sp.name_en) : (sp.name_en || sp.name_ja)) || sp.code; }
+function spName(sp) { if (!sp) return ''; return (LANG === 'ja' ? (sp.name_ja || sp.name_en) : (sp.name_en || sp.name_ja)) || sp.name_sci || sp.code; }
 function fdLabel(f) { return (LANG === 'ja' ? (f.label_ja || f.label_en) : (f.label_en || f.label_ja)) || f.key; }

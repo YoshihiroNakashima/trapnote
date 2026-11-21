@@ -757,6 +757,7 @@ function wire() {
   $('#btnRescan').onclick = async () => { if (!S.project) return; await api('/api/project/rescan', {}); toast(t('rescan') + '…'); };
   $('#btnCross').onclick = () => S.project && crossDialog();
   $('#btnArchive').onclick = () => S.project && archiveDialog();
+  $('#btnSpecies').onclick = () => S.project && speciesDialog();        // 種リスト（種の登録。目で判別するときの選択肢と、自動判定が付ける種の候補。確認事項 149 回目）
   $('#btnDetect').onclick = () => S.project && detectDialog();
   $('#btnDetectOnly').onclick = () => S.project && detectDialog({ classifier: 'none', detect_only: true });     // MegaDetector だけ（枠を付けて目視する人向け。プロジェクトの分類器の設定は変えない）
   $('#btnTrain').onclick = () => S.project && trainDialog();

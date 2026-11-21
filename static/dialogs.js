@@ -151,29 +151,7 @@ async function settingsDialog() {
   };
 }
 
-// ---------- 種リスト ----------
-async function speciesDialog() {
-  const sp = await api('/api/species');
-  let rows = JSON.parse(JSON.stringify(sp.species));
-  const render = () => {
-    const m = showModal(`<h3>${esc(t('sp_title'))}</h3><div class="note">${esc(t('sp_help'))}</div>
-      <div class="btn-row"><button type="button" class="small" id="spAllOn">${esc(t('sp_all_on'))}</button><button type="button" class="small" id="spAllOff">${esc(t('sp_all_off'))}</button><button type="button" class="small" id="spAdd">${esc(t('sp_add'))}</button><button type="button" class="small" id="spImport">${esc(t('sp_import'))}</button><button type="button" class="small" id="spExport">${esc(t('sp_export'))}</button></div>
-      <div style="max-height:60vh;overflow:auto"><table class="list"><tr><th>${esc(t('sp_use'))}</th><th>${esc(t('sp_ja'))}</th><th>${esc(t('sp_en'))}</th><th>${esc(t('sp_sci'))}</th><th>${esc(t('sp_rank'))}</th><th>${esc(t('sp_csv'))}</th><th>${esc(t('sp_nn'))}</th><th>${esc(t('sp_key'))}</th><th>SpeciesNet</th><th></th></tr>
-      ${rows.map((r, i) => `<tr class="${r.enabled ? '' : 'off'}" data-i="${i}"><td><input type="checkbox" data-k="enabled" ${r.enabled ? 'checked' : ''}></td><td><input data-k="name_ja" value="${esc(r.name_ja)}"></td><td><input data-k="name_en" value="${esc(r.name_en)}"></td><td><input data-k="name_sci" value="${esc(r.name_sci)}"></td><td><input data-k="rank" value="${esc(r.rank)}" style="width:40px"></td><td><input data-k="csv_label" value="${esc(r.csv_label)}"></td><td><input type="checkbox" data-k="non_native" ${r.non_native ? 'checked' : ''}></td><td><input data-k="key" value="${esc(r.key)}" maxlength="1" style="width:28px"></td><td><input data-k="speciesnet" value="${esc(r.speciesnet)}"></td><td><button type="button" class="small del">×</button></td></tr>`).join('')}
-      </table></div>
-      <div class="modal-actions"><button id="mCancel">${esc(t('cancel'))}</button><button id="mOk" class="primary">${esc(t('save'))}</button></div>`);
-    const read = () => { m.querySelectorAll('tr[data-i]').forEach(tr => { const r = rows[parseInt(tr.dataset.i)]; tr.querySelectorAll('[data-k]').forEach(inp => { r[inp.dataset.k] = inp.type === 'checkbox' ? (inp.checked ? 1 : 0) : inp.value; }); }); };
-    m.querySelectorAll('button.del').forEach(b => { b.onclick = () => { read(); rows.splice(parseInt(b.closest('tr').dataset.i), 1); render(); }; });
-    m.querySelector('#spAllOn').onclick = () => { read(); rows.forEach(r => r.enabled = 1); render(); };
-    m.querySelector('#spAllOff').onclick = () => { read(); rows.forEach(r => r.enabled = 0); render(); };
-    m.querySelector('#spAdd').onclick = () => { read(); rows.push({ code: '', name_ja: '', name_en: '', name_sci: '', rank: '種', csv_label: '', non_native: 0, speciesnet: '', key: '', enabled: 1 }); render(); m.querySelector('tr:last-child input[data-k=name_ja]').focus(); };
-    m.querySelector('#spImport').onclick = async () => { const p = await pickPath('csv'); if (!p) return; read(); await api('/api/species', { rows }); const r = await api('/api/species/import', { path: p }); rows = r.species; render(); toast(`${r.n}`); };
-    m.querySelector('#spExport').onclick = async () => { const p = await pickPath('savecsv', undefined, 'species.csv'); if (!p) return; read(); await api('/api/species', { rows }); const r = await api('/api/species/export', { path: p }); toast(r.path); };
-    m.querySelector('#mCancel').onclick = closeModal;
-    m.querySelector('#mOk').onclick = async () => { read(); try { S.species = await api('/api/species', { rows }); rebuildSpMap(); closeModal(); renderFilters(); if (S.cur) { renderSpeciesPanel(); renderFieldsPanel(); } renderWindow(true); } catch (e) { toast(e.message, 'error'); } };
-  };
-  render();
-}
+// 種リストの窓は species.js（speciesDialog。確認事項 149 回目）
 
 // ---------- 追加項目 ----------
 async function fieldsDialog() {
@@ -665,6 +643,7 @@ async function detectDialog(preset) {
     <div id="dtModeHelp" class="note hidden">${esc(t('dt_mode_reclass_help'))}</div>
     <div class="form-row"><label>${esc(t('dt_range'))}</label><select id="dtRange"><option value="all">${esc(t('ex_all'))}</option><option value="filter">${esc(t('ex_filter'))}</option></select></div>
     <div id="dtPlan" class="dt-counts"></div>
+    <div id="dtSpecies" class="dt-species not-lite hidden"></div>
     <div class="form-row dt-det"><label>${esc(t('dt_model'))}</label><select id="dtModel"></select></div>
     <div class="form-row not-lite"><label>${esc(t('dt_classifier'))}</label><select id="dtCls"><option value="speciesnet">SpeciesNet</option><option value="none">${esc(t('dt_cls_none'))}</option></select></div>
     <div class="form-row"><label>${esc(t('dt_device'))}</label><select id="dtDevice"><option value="auto">${esc(t('dt_dev_auto'))}</option><option value="cuda">GPU (CUDA)</option><option value="mps">GPU (Apple)</option><option value="cpu">CPU</option></select></div>
@@ -681,9 +660,18 @@ async function detectDialog(preset) {
     <div id="dtStatus"></div>
     <div class="modal-actions"><button id="mCancel">${esc(t('close'))}</button><button id="dtStop" class="danger-outline hidden">${esc(t('ar_stop'))}</button><button id="mOk" class="primary">${esc(t('dt_start'))}</button></div>`);
   detectModalEl = m;
+  m._blocked = false;
   const q = sel => m.querySelector(sel);
   let planData = null;
+  let envOkNow = true, nAi = null;                     // nAi = 自動判定で付けられる種の数（種リストで「使う」にしていて、SpeciesNet に対応のある種。分かる前は null）
   const isReclass = () => q('#dtMode').value === 'reclass';
+  const guard = () => {                                // SpeciesNet で種を付けるのに、付けられる種が種リストに 1 つもなければ、始めさせない（動物が全部「不明」になるだけなので）
+    const el = q('#dtSpecies'); if (!el) return;
+    const cls = q('#dtCls').value, use = !isLite() && !(preset && preset.detect_only) && cls !== 'none';
+    el.classList.toggle('hidden', !use || nAi === null);
+    m._blocked = !envOkNow || (use && cls === 'speciesnet' && nAi === 0);      // 処理の進み具合を出す detectOnJobs も、これを見てボタンを決める（終わったときに、押せる状態へ戻さない）
+    if (m._blocked) q('#mOk').disabled = true; else if (!m._wasRunning) q('#mOk').disabled = false;
+  };
   const modeUi = () => {
     const rc = isReclass();
     m.querySelectorAll('.dt-det').forEach(el => el.classList.toggle('hidden', rc));
@@ -691,6 +679,7 @@ async function detectDialog(preset) {
     const none = q('#dtCls').querySelector('option[value="none"]');
     if (none) { none.disabled = rc; if (rc && q('#dtCls').value === 'none') q('#dtCls').value = 'speciesnet'; }
     q('#mOk').textContent = rc ? t('tr_apply') : t('dt_start');
+    guard();
   };
   const fill = ps => {
     const locals = (planData && planData.local_models) || [];
@@ -735,7 +724,8 @@ async function detectDialog(preset) {
         if (preset && preset.mode) q('#dtMode').value = preset.mode;
         modeUi();
       }
-      q('#mOk').disabled = !envOk;
+      envOkNow = envOk;
+      guard();
       const lb = q('#dtLabels');
       if (lb) lb.onclick = labelsDialog;
       const ev = q('#dtEval');
@@ -744,7 +734,11 @@ async function detectDialog(preset) {
   };
   q('#dtRange').addEventListener('change', plan);
   q('#dtMode').addEventListener('change', modeUi);
+  q('#dtCls').addEventListener('change', guard);
   plan();
+  if (!isLite() && !(preset && preset.detect_only)) {   // 種リストの様子（どの種が付くか）。「種リストを開く」で種リストの窓へ行き、閉じたらこの窓に戻る
+    speciesBlockForDetect(q('#dtSpecies'), () => { detectModalEl = null; speciesDialog({ onClose: () => detectDialog(preset) }); }).then(n => { nAi = n; guard(); });
+  }
   q('#mCancel').onclick = () => { detectModalEl = null; closeModal(); };
   q('#dtStop').onclick = async () => { await api('/api/detect/stop', {}); };
   q('#mOk').onclick = async () => {
@@ -1004,7 +998,7 @@ function detectOnJobs(jobs) {
     m.querySelector('#mOk').disabled = true;
   } else {
     st.innerHTML = rec ? `<div><b>${esc(t('ar_result'))}</b> (${esc(t('jb_state_' + rec.state))}): ${esc(rec.message || rec.error || '')}</div>` : '';
-    m.querySelector('#dtStop').classList.add('hidden'); m.querySelector('#mOk').disabled = false;
+    m.querySelector('#dtStop').classList.add('hidden'); m.querySelector('#mOk').disabled = !!m._blocked;      // 環境が足りない・付けられる種がない（guard）ときは、押せないまま
     if (m._wasRunning) { m._wasRunning = false; m.querySelector('#dtRange').dispatchEvent(new Event('change')); }
   }
 }

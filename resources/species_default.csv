@@ -3,9 +3,9 @@ boar,イノシシ,Wild Boar,Sus scrofa,種,Boar,,sus scrofa,1,1
 deer,ニホンジカ,Sika Deer,Cervus nippon,種,Deer,,cervus nippon,2,1
 muntjac,キョン,Reeves' Muntjac,Muntiacus reevesi,種,Muntjac,1,muntiacus reevesi,3,1
 serow,ニホンカモシカ,Japanese Serow,Capricornis crispus,種,Serow,,capricornis,,1
-goat,ヤギ,Domestic Goat,Capra aegagrus hircus,種,Goat,1,capra hircus,,0
+goat,ヤギ,Domestic Goat,Capra aegagrus hircus,種,Goat,1,capra aegagrus hircus,,0
 cervidae,シカ科（種不明）,Cervidae Family,Cervidae,科,Cervidae,,cervidae,,0
-cetartiodactyla,鯨偶蹄目（種不明）,Cetartiodactyla Order,Cetartiodactyla,目,Cetartiodactyla,,cetartiodactyla,,0
+cetartiodactyla,鯨偶蹄目（種不明）,Cetartiodactyla Order,Cetartiodactyla,目,Cetartiodactyla,,artiodactyla,,0
 raccoon_dog,タヌキ,Raccoon Dog,Nyctereutes procyonoides,種,RaccoonDog,,nyctereutes procyonoides,4,1
 fox,アカギツネ,Red Fox,Vulpes vulpes,種,Fox,,vulpes,,1
 dog,イヌ,Domestic Dog,Canis familiaris,種,Dog,1,canis familiaris,,1

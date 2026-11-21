@@ -336,6 +336,29 @@ ffprobe がない PC でもこの経路を使う（確認事項 148 回目。前
 
 - プログラムを入れ替えたあとの起動し直し: 起動.bat をもう一度（古い版が動いていれば止めて引き継ぐ）か、`POST /api/restart`（同じことをアプリ自身がする。画面は build が変わったのを見て読み直す）。
 
+## 種リストと種の登録（確認事項 149 回目）
+
+種リストは、プロジェクトごとの `TrapNote/species.csv`（列: code, name_ja, name_en, name_sci, rank, csv_label, non_native, speciesnet, key, enabled）。固定の 5 項目（動物なし・人・車・有効範囲・不明）は、種リストとは別にいつもある。
+
+- **はじめの中身**: 日本語の画面で作ったプロジェクトは、既定の一覧（`resources/species_default.csv`。日本の哺乳類を中心にした 31 項目）。英語の画面で作ったプロジェクト（横断を除く）は、種が空で、国（geofence）も空（`Project(species_init="empty")`。`project.json` の `species_init`）。
+  国を JPN のままにすると、日本にいない種の候補が除かれ、残った候補に確からしさが寄ってしまうので、空にする。空から始めたリストには、既定の一覧の手直し（`_sync_defaults`）をしない。
+- **名前の役割**: 画面に出すのは、その言語の名前（日本語なら和名、英語なら英名。なければ、もう一方 → 学名。`spName`、`SpeciesList.label`）。CSV の Species の列は「CSV 表記」（空なら英名から作る。ほかの種・固定項目と重ならないように、重なれば番号を付ける）。
+  自動判定と Camtrap DP 形式は、学名でつなぐ。
+- **自動判定との対応**: 自動判定は、SpeciesNet の各ラベルを、種リストで「使う」にした行の `speciesnet` の列で種に集める（`detect.build_label_map`。当たらないラベルは「不明」）。この列は、学名から自動で決まる（`taxa.Taxa.suggest`）:
+  その種のラベルがあれば「属 種」。なくて同じ属のラベルがあれば、属（その属をこの種に集める。ニホンカモシカ → capricornis）。どちらもなければ「属 種」のまま（当たらない）。
+  亜種まで書いたラベル（家畜のヤギ `capra aegagrus hircus`、家畜のブタ `sus scrofa scrofa` など 8 つ）は、3 語で書いた行だけに当てる（前は、はじめの 2 語で比べていたので、野生のヤギのラベルに当たっていた）。
+  既定の一覧の 2 項目を、SpeciesNet v4 のラベルに合わせた（ヤギ `capra hircus` → `capra aegagrus hircus`、鯨偶蹄目 `cetartiodactyla` → `artiodactyla`。前の値のリストは、開いたときに直す）。
+- **SpeciesNet が知っている種の一覧**（`trapnote/taxa.py`）: モデルと一緒に置かれるファイル（`info.json` が指すラベルの一覧と geofence）を直接読む。torch もモデルの読み込みも要らない。モデルをまだ取ってきていなければ、使えない（`/api/species/model` が、自動判定と同じ取り方で取ってくる裏の処理を入れる）。
+  国ごとの候補は、geofence で除かれないラベル（`Taxa.candidates`。除く・除かないの決まりは `detect.should_geofence` と同じ）。種リストの各行の対応の段（species / genus / family / order / class / none / unknown）は `SpeciesList.ai_status`。
+- **登録のしかた**（`static/species.js`）: ツールバーの「種の登録」で種リストの窓が開く。「＋ 種を登録」と、右の欄の「＋ 登録」は、登録のしかたを選ぶ窓を開く。
+  - 1 種ずつ入れる: `POST /api/species/add`。学名を打つたびに `GET /api/species/suggest` で対応を出す。
+  - CSV からまとめて: `POST /api/species/template`（ひな形。いまの種リストの行と、「#」で始まる説明の行つき。BOM つき UTF-8）→ `POST /api/species/import/preview`（何が変わるかだけを返す）→ `POST /api/species/import`。
+    見出しは、ひな形のもの、TrapNote の列の名前、日本語・英語の言い方、Darwin Core の名前（scientificName、vernacularName）のどれでもよい。名前の列が 1 つもなければ読まない（前は、名前のない行を 1 つ足していた）。
+    同じ種とみなすのは、code が同じ行、学名（2 語以上）が同じ行、学名がなければ英名か和名が同じ行（`SpeciesList._match`）。もうある種の、CSV で空の欄は変えない。
+  - SpeciesNet の候補から: `GET /api/species/candidates?country=`、`POST /api/species/add_many`。国を変えると、プロジェクトの国（geofence）も同じにする。
+  - 日本の哺乳類の一覧を入れる: `POST /api/species/add_many`（`defaults: true`）。種が 10 未満のときだけ出す。
+- **自動判定の窓**: 「自動判定が付ける種」の欄（`GET /api/species/status`）に、「使う」にしていて対応のある種を出す。SpeciesNet で種を付けるのに 1 つもなければ、「始める」を押せなくする（動物がすべて「不明」になるだけなので。「検出のみ」と、追加学習したモデル・分類なしでは、止めない）。
+
 ## ほかの形式での書き出し（Camtrap DP・YOLO）
 
 どちらも「データの書き出し」の窓にあり、どの版（公開版・Lite・研究用）でも使える。範囲は、窓の上の「範囲」（選択・すべて・いまの絞り込み・確認済みだけ）に従う（確認事項 140 回目）。
@@ -444,7 +467,8 @@ trapnote/
   judge.py             一覧（絞り込み・並べ替え・ページング）、判定の保存、取り消し
   export.py            CSV の書き出しと取り込み      merge.py     判定の持ち寄りと統合
   camtrapdp.py         Camtrap DP 1.0.2 への書き出し（表の定義、地点の表 stations.csv、書き出す前の検査、置く前の照合）
-  species.py           種リストと固定項目            fields.py    追加項目
+  species.py           種リストと固定項目、CSV からの登録  fields.py    追加項目
+  taxa.py              SpeciesNet が知っている種の一覧と geofence を、モデルのファイルから読む（候補の一覧、自動判定との対応）
   timelapse.py         Timelapse2 の .tdb / .ddb の取り込み（テンプレート → 種リストと追加項目、データ → 判定など）と書き出し
   yolo.py              YOLO 形式の学習データ（<種>/images + <種>/labels）の取り込み（種 → 確認済みの判定、枠 → 検出枠、画像名 → 季節・地点）と、書き出し（画像とラベル）
   detect.py            第 2 段階: フレームの抜き出し、MegaDetector（モデルの取得・読み込み・検出）、SpeciesNet（切り出し・分類・特徴量）、
@@ -453,7 +477,7 @@ trapnote/
   train.py             第 3 段階: 学習データの収集（確認済みの枠と重み）、検証用の地点の分割、方式 A（softmax 回帰）、方式 B（本体の後ろの層の学習）、評価、
                        学習したモデルの読み込みと特徴量からの判定の付け直し（jobs.py の TrainJob / ReclassifyJob）
   server.py            API（aiohttp）                dialogs.py   OS のファイル選択の窓
-static/                画面（index.html, style.css, i18n.js, app.js, avi.js = MJPEG の AVI をそのまま描く再生器, player.js, judge.js, dialogs.js）
+static/                画面（index.html, style.css, i18n.js, app.js, avi.js = MJPEG の AVI をそのまま描く再生器, player.js, judge.js, dialogs.js, species.js = 種リストの窓と種の登録）
 resources/             species_default.csv（Snapshot Japan の哺乳類 30 項目）、trapnote.ico（アイコン。installer/make_icon.py が作る）
 env/                   conda 環境の定義
 data/                  設定・状態・ログ（起動時に作る）。data/models/ にモデル（MegaDetector の .pt、SpeciesNet の kagglehub キャッシュ）
@@ -473,6 +497,7 @@ MegaDetector（MDv1000-spruce、CPU）は本物で動かした。SpeciesNet の�
 リポジトリの `tests/` は pytest で動く（`python -m pytest tests -q`。torch 不要）。横断プロジェクトの種名の対応表・カタログ・ランダム選択・取り込み・書き戻しの比較は `tests/test_cross_labels.py`。
 Camtrap DP の書き出しは `tests/test_camtrapdp.py`（表の定義を公式の table schema の照合値と比べる、判定との対応、地点の表、説明とライセンス、書き出す前の検査 = 必須の項目が足りなければ書かない、置く前の照合、2 種の動画と記録ごとの行）、
 ffprobe がない PC でのメタデータの取得は `tests/test_meta_no_ffprobe.py`（ffmpeg だけで動く）、
+種リストと種の登録は `tests/test_species_list.py`（はじめの中身、CSV のひな形と読み込み、SpeciesNet の種の一覧 = 小さな偽物のファイルで、API）、
 YOLO の書き出しは `tests/test_yolo_export.py`（OpenCV で作る小さな MJPEG と偽のモデルで、学習フレーム・全フレーム・名前の重なり・背景・class 番号）。
 `bench/bench_catalog.py 1200000` で 120 万行の種名 CSV での読み込み・カタログ・当て直し・ランダム選択の時間を測れる。
 

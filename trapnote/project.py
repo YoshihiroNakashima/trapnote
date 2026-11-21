@@ -124,7 +124,12 @@ def resolve_root_of(pdir: str, data: dict | None = None) -> str | None:
 
 
 class Project:
-    def __init__(self, pdir: str, root: str | None = None, create: bool = False, kind: str | None = None):
+    def __init__(self, pdir: str, root: str | None = None, create: bool = False, kind: str | None = None, species_init: str = "default"):
+        """species_init = 新しく作るプロジェクトの種リストのはじめの中身（確認事項 149 回目）:
+          default = 日本の哺乳類を中心にした既定の一覧。国（geofence）は JPN
+          empty   = 種は空（動物なし・人・車・有効範囲・不明の固定項目だけ）。国は空（制限なし）。画面が英語のときに作るプロジェクトはこれで、
+                    使う人が自分の調査地の種を登録する。国を JPN のままにすると、日本にいない種の候補が除かれてしまうので、空にする
+        もうあるプロジェクトを開くときは、作ったときのものを使う（project.json の species_init）"""
         self.dir = norm(pdir)
         jp = os.path.join(self.dir, PROJECT_JSON)
         self.data = read_json(jp, None)
@@ -134,6 +139,9 @@ class Project:
             own = kind == "cross" and os.path.basename(self.dir) != PROJECT_DIRNAME          # 横断: 置き場のフォルダ自体がプロジェクト → 名前はそのフォルダ名
             self.data = dict(app=APP_ID, version=VERSION, name=(os.path.basename(self.dir) if own else os.path.basename(os.path.dirname(self.dir))) or "project",
                              roots={}, root="", settings=dict(PROJECT_DEFAULTS), created_at=self._now())
+            if species_init == "empty":
+                self.data["species_init"] = "empty"
+                self.data["settings"]["country"] = ""
             if kind == "cross":
                 self.data.update(kind="cross", sources=[], imports=[])
         self._src_roots: dict[str, str | None] = {}     # 横断プロジェクト: 参照先の名前 → ルート（この PC で解決したもの）
@@ -157,7 +165,8 @@ class Project:
         for sub in ("cache", "cache/video", "cache/thumb", "cache/features", "models", "exports", "logs"):
             os.makedirs(os.path.join(self.dir, sub), exist_ok=True)
         self.db = Database(os.path.join(self.dir, "data.sqlite"))
-        self.species = SpeciesList(os.path.join(self.dir, "species.csv"))
+        empty_start = self.data.get("species_init") == "empty"
+        self.species = SpeciesList(os.path.join(self.dir, "species.csv"), initial="empty" if empty_start else "default", sync=not empty_start)
         self.fields = Fields(os.path.join(self.dir, "fields.json"))
         self.save()
 

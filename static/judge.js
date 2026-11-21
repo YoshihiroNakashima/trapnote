@@ -80,6 +80,10 @@ function renderSpeciesPanel() {
   const extra = S.sel.filter(c => { const s = spByCode(c); return s && !s.fixed && !s.enabled; }).map(c => spByCode(c));   // 「その他」から選んだ種
   const row = s => `<label class="${S.sel.includes(s.code) ? 'on' : ''}" data-code="${esc(s.code)}"><input type="checkbox" ${S.sel.includes(s.code) ? 'checked' : ''}> ${s.key ? `<span class="k">${esc(s.key)}</span>` : ''}<span>${esc(spName(s))}</span>${s.non_native ? '<span class="nn">*</span>' : ''}</label>`;
   grid.innerHTML = enabled.concat(extra).map(row).join('');
+  if (!enabled.length && !extra.length && S.project) {       // 種が 1 つもない（英語の画面で作ったプロジェクトは、空から始まる）: 登録の入口を出す
+    grid.innerHTML = `<div class="sp-none">${esc(t('sp_none'))} <button type="button" class="small" id="spNoneBtn">${esc(t('sr_title'))}</button></div>`;
+    grid.querySelector('#spNoneBtn').onclick = () => speciesRegisterDialog({ selectAfter: true });
+  }
   fixed.innerHTML = (S.species.fixed || []).map(row).join('');
   grid.querySelectorAll('label').forEach(l => { l.onclick = e => { e.preventDefault(); toggleSpecies(l.dataset.code); }; });
   fixed.querySelectorAll('label').forEach(l => { l.onclick = e => { e.preventDefault(); toggleSpecies(l.dataset.code); }; });
@@ -304,35 +308,11 @@ async function confirmOrStep(step) {
   goStep(step);
 }
 
-async function speciesAddDialog() {
-  const m = showModal(`<h3>${esc(t('as_title'))}</h3><div class="note">${esc(t('as_help'))}</div>
-    <div class="form-row"><label>${esc(t('sp_ja'))}</label><input type="text" id="asJa"></div>
-    <div class="form-row"><label>${esc(t('sp_en'))}</label><input type="text" id="asEn"></div>
-    <div class="form-row"><label>${esc(t('sp_sci'))}</label><input type="text" id="asSci"></div>
-    <div class="form-row"><label>${esc(t('sp_csv'))}</label><input type="text" id="asCsv" placeholder="(英名から)"></div>
-    <div class="form-row"><label>${esc(t('sp_key'))}</label><input type="text" id="asKey" maxlength="1" style="width:40px"></div>
-    <div class="modal-actions"><button id="mCancel">${esc(t('cancel'))}</button><button id="mOk" class="primary">${esc(t('ok'))}</button></div>`);
-  m.querySelector('#mCancel').onclick = closeModal;
-  const ok = async () => {
-    const row = { name_ja: m.querySelector('#asJa').value.trim(), name_en: m.querySelector('#asEn').value.trim(), name_sci: m.querySelector('#asSci').value.trim(),
-      csv_label: m.querySelector('#asCsv').value.trim(), key: m.querySelector('#asKey').value.trim(), rank: '種', enabled: 1 };
-    try {
-      const r = await api('/api/species/add', row);
-      const existed = (S.species.species || []).some(s => s.code === r.added.code);
-      S.species = { species: r.species, fixed: r.fixed }; rebuildSpMap();
-      closeModal();
-      if (existed) toast(t('as_exists'));
-      if (S.cur && !S.sel.includes(r.added.code)) toggleSpecies(r.added.code); else { renderSpeciesPanel(); renderFieldsPanel(); }
-      renderFilters();
-    } catch (e) { toast(e.message, 'error'); }
-  };
-  m.querySelector('#mOk').onclick = ok;
-  m.querySelectorAll('input').forEach(i => i.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); ok(); } }));
-}
+// 種の登録の窓は species.js（speciesRegisterDialog。確認事項 149 回目）
 
 function wireJudge() {
   $('#btnConfirm').onclick = confirmAndNext;
-  $('#btnAddSpecies').onclick = () => S.project && speciesAddDialog();
+  $('#btnAddSpecies').onclick = () => S.project && speciesRegisterDialog({ selectAfter: true });      // 登録のしかたを選ぶ（1 種ずつ / CSV から / 候補から）
   $('#btnFav').onclick = toggleFavorite;
   $('#btnTime').onclick = () => S.cur && timeDialog();
   $('#btnClear').onclick = clearJudgement;

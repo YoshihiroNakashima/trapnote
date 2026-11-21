@@ -361,6 +361,29 @@ class MetaJob(Job):
         self.message = f"{self.done} 件取得、{self.failed} 件失敗"
 
 
+class SpeciesModelJob(Job):
+    """SpeciesNet のモデルを取ってきて読み込む（確認事項 149 回目）。まだ取ってきていない PC で、種リストの窓の「候補から選ぶ」
+    （SpeciesNet が知っている種の一覧。モデルと一緒に置かれるファイルを読む）を使えるようにするためのもの。自動判定をはじめて流すときと同じ取り方"""
+
+    def __init__(self):
+        super().__init__("species_model", {}, "SpeciesNet のモデルの準備")
+
+    def run(self, ctx) -> None:
+        from . import detect
+        project = ctx.project
+        if project is None:
+            return
+        self.total = 1
+        hub = ctx.model_hub()
+        s = detect.project_settings(project)
+
+        def prog(msg: str = "") -> None:
+            self.current = str(msg or "")
+        hub.load_classifier(s.get("speciesnet_model") or detect.SPECIESNET_DEFAULT, prog, self.stop_flag.is_set)
+        self.done = 1
+        self.message = "SpeciesNet のモデルを読み込みました"
+
+
 class TranscodeJob(Job):
     """再生用 MP4 を先に作っておく（prefetch）。既にあるものは飛ばす"""
 

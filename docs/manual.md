@@ -106,7 +106,7 @@ From the second time on, start TrapNote with `conda activate trapnote` followed 
 
 | No. | Name | What it does |
 |---|---|---|
-| 1 | Toolbar | Buttons that start tasks. From the left: Open project, Rescan, Read Timelapse, Read CSV, Detect only, Auto ID, Agreement, Retrain, Archive convert, Export data, Collect judgements |
+| 1 | Toolbar | Buttons that start tasks. From the left: Open project, Rescan, Read Timelapse, Read CSV, Register species, Detect only, Auto ID, Agreement, Retrain, Archive convert, Export data, Collect judgements |
 | 2 | Background jobs, Settings, Quit | "Background jobs" shows the progress of scanning, Auto ID and other tasks. Click it to see details or to stop a job |
 | 3 | Folder tree | Click a folder to list only the videos in it. The numbers are "verified / total" |
 | 4 | Filters and sorting | Narrow down the list by station, status, species, detection result and more |
@@ -170,17 +170,40 @@ For a new project, the window "Choose the station folder" opens after the folder
 - To change this later, click "Choose again…" next to "Station folder" in "Settings".
 - You can also work without stations. The CSV then lists each folder level in the columns `Folder1`, `Folder2` and so on.
 
-### 4.4 Setting up the species list
+### 4.4 Registering species
 
-The species shown in the right-hand panel come from the species list. At first it holds about 30 entries, mainly Japanese mammals.
+The species shown in the right-hand panel, and the species that Auto ID can assign, come from the species list. Auto ID assigns only species marked "Use" in the list; other animals become "Unknown". Register the species that can occur at your study site before running Auto ID.
 
-1. Click "Settings" → "Edit species list…".
-2. Tick "Use" for the species that may appear at your study site. Add species that are not in the list with "+ Add species".
-3. Give frequently used species a "Key" (one character) so that you can select them from the keyboard.
+- A project created with the Japanese screen starts with 31 entries, mainly Japanese mammals.
+- A project created with the English screen starts with no species ("Empty", "Human", "Vehicle", "Area" and "Unknown" are always there). The country of the study area is not set either.
 
-"CSV label" is the value written to the Species column of the exported CSV. Using the same labels as your existing CSV files makes the records easier to combine later.
+1. Click "Register species" on the toolbar.
+2. Check the "Country of the study area" (three-letter ISO code, for example KEN). Auto ID removes candidates that do not occur in the country.
+3. Tick "Use" for the species that can occur at your site. Add missing species with "+ Register species". There are three ways to register.
+   - **Enter one species**: type the name and the scientific name. As you type the scientific name, TrapNote shows whether Auto ID can assign it.
+   - **Register many from a CSV**: write a CSV with "Write the template…", add one species per row in Excel or similar, then load it with "Choose the CSV…". Before anything is registered, a table shows which species will be added and which will be changed.
+   - **Choose from the SpeciesNet list**: tick species in the list of species that the AI (SpeciesNet) knows and that occur in your country. Scientific names and the link to Auto ID are filled in for you. This list becomes available after the SpeciesNet model has been downloaded (you can download it from that window).
+4. Give frequently used species a "Key" (one character) so that you can select them from the keyboard.
+5. Click "Save".
 
-> **Using TrapNote outside Japan**: replace the species list with the species of your region, and change "Country (geofence)" under "Advanced" in the "Auto ID" window to the country of your study site (three-letter ISO code). The default is JPN, which removes suggestions of species that do not occur in Japan. Leave it empty for no restriction.
+Each species has three kinds of name, one for each purpose.
+
+| Name | Where it is used |
+|---|---|
+| Name | Shown on the screen: the English name on the English screen, the Japanese name on the Japanese screen (or the other one, then the scientific name, when it is missing) |
+| Scientific name | Links the species to Auto ID (SpeciesNet) and to Camtrap DP exports |
+| CSV label | The value written to the Species column of the exported CSV. Using the same labels as your existing CSV files makes the records easier to combine later |
+
+The "Auto ID" column of the table shows whether Auto ID can assign the species.
+
+| Shown | Meaning |
+|---|---|
+| species | SpeciesNet has this species |
+| genus (also family, order, class) | SpeciesNet does not have this species, so candidates of the same genus are collected for it |
+| none | Not assigned by Auto ID (no scientific name, or a name SpeciesNet does not have). You can still choose it by eye |
+| not checked | Unknown until the SpeciesNet model has been downloaded |
+
+> **Using TrapNote outside Japan**: set "Country of the study area" to your country (three-letter ISO code). With JPN, candidates that do not occur in Japan are removed. Leave it empty for no restriction.
 
 ### 4.5 Running Auto ID
 
@@ -191,6 +214,7 @@ The species shown in the right-hand panel come from the species list. At first i
 - If you stop part way, finished videos are skipped and the run continues where it left off when you start it again.
 - You can keep verifying videos while Auto ID is running.
 - Auto ID also works on a PC without a GPU, but it takes longer.
+- "Species that automatic identification can assign" in the window lists the species of your list that Auto ID can assign. Other animals become "Unknown". If there is none, Auto ID cannot be started: click "Register species" and register species first ([4.4](#44-registering-species)).
 
 After Auto ID, each video ends up in one of these states:
 
@@ -294,7 +318,7 @@ You can add your own fields for anything you want to record besides the species 
 ### 6.2 When a species is not in the list
 
 - "Other…" lets you choose species that are in the species list but not marked "Use".
-- "+ Add" registers a new species on the spot. A Japanese name, an English name or a scientific name is enough.
+- "+ Add" registers new species. Choose how to register (enter one species, from a CSV, or from the SpeciesNet list; see [4.4](#44-registering-species)). When you enter one species, it is selected for the video that is open.
 
 ### 6.3 Notes and favourites
 
@@ -435,7 +459,7 @@ Good to know:
 - A video showing two species gives two rows in observations (observationID is `<file>#<species>`, different for each row). If you recorded the count or sex several times with "+", each record gets its own row (`<file>#<species>#1`, `#2`, …).
 - Line breaks inside notes are replaced with a space (so that line-based tools and spreadsheets do not break the rows).
 - The videos themselves are not exported. filePath in `media.csv` is the path relative to the video folder. Detection boxes are not exported either (use the YOLO format below for boxes).
-- Species without a scientific name in the species list get an empty scientificName. Add the scientific names under "Settings" → "Edit species list…".
+- Species without a scientific name in the species list get an empty scientificName. Add the scientific names with "Register species" on the toolbar.
 - Reading (`read_camtrapdp()`), conversion to Darwin Core (`write_dwc()`) and writing the metadata file for GBIF (`write_eml()`) were checked with the R package camtrapdp (0.6.1). `write_eml()` stops unless a description and a data license have been entered.
 
 ### 9.2 YOLO format (images and labels)

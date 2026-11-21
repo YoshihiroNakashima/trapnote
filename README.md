@@ -53,9 +53,10 @@ Updating to a new version, uninstalling and fixing installation problems are cov
 
 1. Click "Open project" and choose your video folder (the parent folder that contains one folder per station).
 2. In the "Choose the station folder" window, select the folders that correspond to your camera stations.
-3. Click "Auto ID", then "Start". The AI suggests a species for each video.
-4. Watch each video. If the suggestion is right, press Enter to confirm it. If it is wrong, choose the correct species first, then press Enter.
-5. Save the results as CSV with "Export data".
+3. Click "Register species" and register the species that can occur at your study site (a project created with the English screen starts with an empty list; you can pick species from the list the AI knows for your country).
+4. Click "Auto ID", then "Start". The AI suggests a species for each video, choosing among the species you registered.
+5. Watch each video. If the suggestion is right, press Enter to confirm it. If it is wrong, choose the correct species first, then press Enter.
+6. Save the results as CSV with "Export data".
 
 Once you have verified enough videos, "Retrain" adapts the AI to your study site. See the **[user manual](docs/manual.md)** for the full procedure.
 

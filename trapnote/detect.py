@@ -595,7 +595,8 @@ def _parse_label(label: str) -> dict:
 
 def build_label_map(labels: list[str], species_rows: list[dict]) -> list[str]:
     """各ラベルが入る種コード（なければ 'unknown'）。species.csv の speciesnet 列（学名。空なら自動では対応しない）で対応。
-    2 語なら属＋種、1 語なら属・科・目・綱のどれかとして当て、より具体的な対応を優先する"""
+    2 語以上なら属＋種（3 語なら亜種まで。「capra aegagrus hircus」= 家畜のヤギ は、野生のヤギ「capra aegagrus」のラベルには当てない。確認事項 149 回目）、
+    1 語なら属・科・目・綱のどれかとして当て、より具体的な対応を優先する"""
     rules = []       # (code, matcher)
     for r in species_rows:
         if not r.get("enabled"):
@@ -606,7 +607,7 @@ def build_label_map(labels: list[str], species_rows: list[dict]) -> list[str]:
         if not toks:
             continue
         if len(toks) >= 2:
-            rules.append((r["code"], ("binomial", toks[0], toks[1])))
+            rules.append((r["code"], ("binomial", toks[0], " ".join(toks[1:]))))
         else:
             rules.append((r["code"], ("taxon", toks[0])))
     # 属・科だけのラベル（"muntiacus species"、"cervidae family"）を、その属・科で唯一の種に寄せるための表
