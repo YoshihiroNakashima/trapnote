@@ -33,6 +33,7 @@ DEFAULTS = {
     "device": "auto",               # auto / cuda / mps / cpu（第 2 段階の検出・判別）
     "batch_size": 8,                # 検出・判別で一度にモデルに入れる枚数（GPU のメモリに合わせる。CPU なら 4 くらい）
     "models_dir": "",               # モデルファイルの置き場所（空なら data/models。MegaDetector の .pt と SpeciesNet の kagglehub キャッシュ）
+    "full_speed": True,             # Windows の電力の絞り込み（窓のないプロセスを裏の仕事と見て、E コアだけに回す扱い）を受けない。False = Windows まかせ（CPU での検出が何倍も遅くなる。確認事項 151 回目）
     "cache_limit_gb": 20,           # 再生用 MP4 とサムネイルの上限（GB）。超えたら古いものから消す
     "transcode_max_width": 1280,    # 再生用 MP4 の最大幅（px）
     "transcode_codec": "h264",      # 再生用の動画の codec。h264（MP4。既定）/ vp9（WebM。H.264 を再生できないブラウザの試験用）
@@ -129,6 +130,7 @@ class Settings:
         except Exception:
             d["batch_size"] = DEFAULTS["batch_size"]
         d["models_dir"] = str(d.get("models_dir") or "").strip()
+        d["full_speed"] = bool(d.get("full_speed", True))
         d["auto_advance"] = bool(d.get("auto_advance", True))
         try:
             d["play_speed"] = float(d.get("play_speed") or 1.0)

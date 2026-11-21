@@ -205,6 +205,11 @@ def main() -> int:
 
     from trapnote.server import Session, serve
     session = Session()
+    if session.settings.get("full_speed", True):
+        # 窓のないプロセス（pythonw.exe）は、Windows 11 が裏の仕事と見て E コアだけに回す（CPU での検出が何倍も遅くなる）ので、その扱いから外す（確認事項 151 回目）
+        from trapnote.paths import no_power_throttling
+        if no_power_throttling():
+            log.info("Windows の電力の絞り込み（裏の仕事を E コアに回す扱い）から、このプロセスを外しました")
     port = a.port or int(session.settings["port"])
     if not port_free(port):
         info = running_info(port)

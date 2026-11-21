@@ -161,3 +161,58 @@ def lower_process_io(popen) -> bool:
         return st == 0
     except Exception:
         return False
+
+
+# ---- Windows の電力の絞り込み（Power Throttling）から、このプロセスを外す（確認事項 151 回目） ----
+PROCESS_POWER_THROTTLING = 4               # SetProcessInformation / GetProcessInformation の ProcessPowerThrottling
+POWER_THROTTLING_EXECUTION_SPEED = 0x1     # 実行の速さ（EcoQoS）の指定
+
+
+def _power_throttling(set_to: tuple[int, int] | None = None) -> tuple[bool, tuple[int, int] | None]:
+    """このプロセスの電力の絞り込みの指定を（set_to があれば、先にその値にしてから）読む。返り値 = (設定できたか, (ControlMask, StateMask) か None)"""
+    import sys
+    if not sys.platform.startswith("win"):
+        return False, None
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class State(ctypes.Structure):
+            _fields_ = [("Version", wintypes.ULONG), ("ControlMask", wintypes.ULONG), ("StateMask", wintypes.ULONG)]
+
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        k32.GetCurrentProcess.restype = wintypes.HANDLE
+        for fn in (k32.SetProcessInformation, k32.GetProcessInformation):
+            fn.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+            fn.restype = wintypes.BOOL
+        h = k32.GetCurrentProcess()
+        ok = False
+        if set_to is not None:
+            st = State(1, int(set_to[0]), int(set_to[1]))
+            ok = bool(k32.SetProcessInformation(h, PROCESS_POWER_THROTTLING, ctypes.byref(st), ctypes.sizeof(st)))
+        st = State(1, 0, 0)
+        got = bool(k32.GetProcessInformation(h, PROCESS_POWER_THROTTLING, ctypes.byref(st), ctypes.sizeof(st)))
+        return ok, ((int(st.ControlMask), int(st.StateMask)) if got else None)
+    except Exception:
+        return False, None
+
+
+def no_power_throttling() -> bool:
+    """このプロセスを、Windows の電力の絞り込みの対象から外す（起動のときに 1 回呼ぶ。app.py）。返り値 = 外せたか。Windows 以外と、古い Windows では何もしない。
+
+    TrapNote のサーバーは窓のないプロセス（pythonw.exe）で、画面はブラウザの側にある。Windows 11 は、前面に窓のないプロセスを「裏の仕事」と見て、
+    P コアと E コアが混ざった CPU（Intel の第 12 世代以降、Core Ultra）では E コアだけに回す。資料では、バッテリーで動いているときは周波数も下げる。
+    検出（MegaDetector）と種の判別（SpeciesNet）は、このプロセスの中で CPU を使い切る計算なので、E コアだけでは何倍も遅くなる。
+    確認事項 151 回目に測った（Core i7-12700K = P コア 8 + E コア 4、AC 電源、電源プランは高パフォーマンス、GPU を使わない設定、20 秒の動画 9 本）:
+    外す前は E コア 4 個だけが 100% で、検出のみが 1 本 7.8〜8.6 秒、自動判定が 13.8〜14.6 秒。外すと P コアが使われる（時間は確認事項に書いた）。
+
+    SetProcessInformation(ProcessPowerThrottling) で、ControlMask に EXECUTION_SPEED を立て、StateMask を 0 にすると「絞らない」の指定になる
+    （ControlMask が 0 = Windows まかせ = 既定。StateMask も立てると「いつも絞る」= タスク マネージャーの効率モード）。
+    この指定は、子プロセス（ffmpeg）には引き継がれない（測って確かめた）。あとから、タスク マネージャーで効率モードにすれば、そちらが通る"""
+    return _power_throttling((POWER_THROTTLING_EXECUTION_SPEED, 0))[0]
+
+
+def power_throttling_state() -> tuple[int, int] | None:
+    """このプロセスの電力の絞り込みの指定 (ControlMask, StateMask)。(0, 0) = Windows まかせ（既定）、(1, 0) = 絞らない、(1, 1) = いつも絞る。
+    Windows 以外・読めないときは None（確かめと試験用）"""
+    return _power_throttling()[1]
