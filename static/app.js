@@ -30,6 +30,9 @@ const S = {
 // 版ごとに出す機能（確認事項 125 回目）。画面の要素は class（only-research / not-lite）と style.css で隠し、処理の分かれ目はこの 2 つで見る
 const isLite = () => S.edition === 'lite';
 const isResearch = () => S.edition === 'research';
+// 「保存用の変換」の入口（上のボタンと、「裏の処理」の窓の欄）は、いったん外した（確認事項 152 回目）。戻すときは true にする。
+// index.html のボタン、窓（archiveDialog）、サーバーの処理（/api/archive/*、ArchiveJob）は残してある
+const SHOW_ARCHIVE = false;
 
 // ---------- 小道具 ----------
 function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
@@ -136,7 +139,8 @@ function renderTarget() {
   if (bt) bt.onclick = () => tidyProject(S.project.dir, false);
   // 横断プロジェクトでは「参照先と取り込み」を出し、参照先の動画を書き換える機能（保存用の変換）と走査前提の読み込みは隠す
   $('#btnCross').classList.toggle('hidden', !cross);
-  ['#btnArchive', '#btnTimelapse', '#btnImport'].forEach(sel => $(sel).classList.toggle('hidden', cross));
+  ['#btnTimelapse', '#btnImport'].forEach(sel => $(sel).classList.toggle('hidden', cross));
+  $('#btnArchive').classList.toggle('hidden', cross || !SHOW_ARCHIVE);
 }
 
 // ---------- 絞り込み ----------
@@ -757,6 +761,7 @@ function wire() {
   $('#btnRescan').onclick = async () => { if (!S.project) return; await api('/api/project/rescan', {}); toast(t('rescan') + '…'); };
   $('#btnCross').onclick = () => S.project && crossDialog();
   $('#btnArchive').onclick = () => S.project && archiveDialog();
+  $('#btnArchive').classList.toggle('hidden', !SHOW_ARCHIVE);        // いったん外した（SHOW_ARCHIVE）。プロジェクトを開く前から出さない
   $('#btnSpecies').onclick = () => S.project && speciesDialog();        // 種リスト（種の登録。目で判別するときの選択肢と、自動判定が付ける種の候補。確認事項 149 回目）
   $('#btnDetect').onclick = () => S.project && detectDialog();
   $('#btnDetectOnly').onclick = () => S.project && detectDialog({ classifier: 'none', detect_only: true });     // MegaDetector だけ（枠を付けて目視する人向け。プロジェクトの分類器の設定は変えない）

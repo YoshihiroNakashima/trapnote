@@ -26,13 +26,13 @@
     <rect class="btn" x="178" y="10" width="100" height="24" rx="4"/><text class="lbl" x="228" y="26" text-anchor="middle">Timelapse を読む</text>
     <rect class="btn" x="284" y="10" width="70" height="24" rx="4"/><text class="lbl" x="319" y="26" text-anchor="middle">CSV を読む</text>
 
-    <rect class="btn" x="372" y="10" width="62" height="24" rx="4"/><text class="lbl" x="403" y="26" text-anchor="middle">検出のみ</text>
-    <rect class="btn" x="440" y="10" width="62" height="24" rx="4"/><text class="lbl" x="471" y="26" text-anchor="middle">自動判定</text>
-    <rect class="btn" x="508" y="10" width="50" height="24" rx="4"/><text class="lbl" x="533" y="26" text-anchor="middle">一致率</text>
-    <rect class="btn" x="564" y="10" width="62" height="24" rx="4"/><text class="lbl" x="595" y="26" text-anchor="middle">追加学習</text>
-    <rect class="btn" x="632" y="10" width="86" height="24" rx="4"/><text class="lbl" x="675" y="26" text-anchor="middle">保存用の変換</text>
-    <rect class="btn" x="724" y="10" width="96" height="24" rx="4"/><text class="lbl" x="772" y="26" text-anchor="middle">データの書き出し</text>
-    <rect class="btn" x="826" y="10" width="98" height="24" rx="4"/><text class="lbl" x="875" y="26" text-anchor="middle">判定の持ち寄り</text>
+    <rect class="btn" x="372" y="10" width="62" height="24" rx="4"/><text class="lbl" x="403" y="26" text-anchor="middle">種の登録</text>
+    <rect class="btn" x="440" y="10" width="62" height="24" rx="4"/><text class="lbl" x="471" y="26" text-anchor="middle">検出のみ</text>
+    <rect class="btn" x="508" y="10" width="62" height="24" rx="4"/><text class="lbl" x="539" y="26" text-anchor="middle">自動判定</text>
+    <rect class="btn" x="576" y="10" width="50" height="24" rx="4"/><text class="lbl" x="601" y="26" text-anchor="middle">一致率</text>
+    <rect class="btn" x="632" y="10" width="62" height="24" rx="4"/><text class="lbl" x="663" y="26" text-anchor="middle">追加学習</text>
+    <rect class="btn" x="700" y="10" width="96" height="24" rx="4"/><text class="lbl" x="748" y="26" text-anchor="middle">データの書き出し</text>
+    <rect class="btn" x="802" y="10" width="98" height="24" rx="4"/><text class="lbl" x="851" y="26" text-anchor="middle">判定の持ち寄り</text>
 
     <rect x="700" y="42" width="78" height="22" rx="11" fill="#eef0f3" stroke="#d5d9df"/><text class="dim" x="739" y="57" text-anchor="middle">裏の処理</text>
     <text class="dim" x="816" y="57" text-anchor="middle">v0.3.0</text>

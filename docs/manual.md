@@ -43,7 +43,7 @@ Good to know:
 
 - Videos are never sent anywhere. All processing happens on your own PC.
 - The results are kept together in a `TrapNote` folder created inside the video folder you open.
-- The original videos are never modified. The only exceptions are "Archive convert" and deleting, both of which you run yourself ([chapter 12](#12-managing-videos)).
+- The original videos are never modified. The only exception is deleting videos, which you run yourself ([12.2](#122-deleting)).
 
 ---
 
@@ -106,7 +106,7 @@ From the second time on, start TrapNote with `conda activate trapnote` followed 
 
 | No. | Name | What it does |
 |---|---|---|
-| 1 | Toolbar | Buttons that start tasks. From the left: Open project, Rescan, Read Timelapse, Read CSV, Register species, Detect only, Auto ID, Agreement, Retrain, Archive convert, Export data, Collect judgements |
+| 1 | Toolbar | Buttons that start tasks. From the left: Open project, Rescan, Read Timelapse, Read CSV, Register species, Detect only, Auto ID, Agreement, Retrain, Export data, Collect judgements |
 | 2 | Background jobs, Settings, Quit | "Background jobs" shows the progress of scanning, Auto ID and other tasks. Click it to see details or to stop a job |
 | 3 | Folder tree | Click a folder to list only the videos in it. The numbers are "verified / total" |
 | 4 | Filters and sorting | Narrow down the list by station, status, species, detection result and more |
@@ -527,7 +527,7 @@ The import rule is "verified > Auto ID > unprocessed". Videos that are verified 
 
 ### 10.3 Handing over videos
 
-Select videos in the list, right-click, choose "Export videos… (selected videos)" and pick "Openable in TrapNote". This creates a folder that holds the videos together with their judgements. The recipient can open it with "Open project" ([12.2](#122-exporting-videos)).
+Select videos in the list, right-click, choose "Export videos… (selected videos)" and pick "Openable in TrapNote". This creates a folder that holds the videos together with their judgements. The recipient can open it with "Open project" ([12.1](#121-exporting-videos)).
 
 ---
 
@@ -550,17 +550,7 @@ After working on each survey round in its own project, you can merge the results
 
 ## 12. Managing videos
 
-### 12.1 Archive convert
-
-"Archive convert" converts MJPEG AVI and similar files to H.264 MP4 to save storage. The resolution and the number of frames stay the same.
-
-> **This replaces the original videos.** Before you run it, always check what will happen to the original files (keep them, move them to another folder, or delete them once the check has passed). If you choose to delete them, they cannot be recovered.
-
-- The converted file is created in the same folder under the same name (with the extension .MP4). The recording time and the judgements are carried over.
-- If you stop part way, finished files are skipped when you start again.
-- Conversion is faster with an NVIDIA GPU.
-
-### 12.2 Exporting videos
+### 12.1 Exporting videos
 
 Select videos in the list, right-click and choose "Export videos… (selected videos)" to export the selected videos to another folder.
 
@@ -571,7 +561,7 @@ Select videos in the list, right-click and choose "Export videos… (selected vi
 
 AVI and similar files can be converted to MP4 while exporting. If you export to the same destination again, files that are already there are skipped and the export continues from where it stopped.
 
-### 12.3 Deleting
+### 12.2 Deleting
 
 Select videos in the list and delete them with "Delete (to recycle bin)" in the right-click menu or with the Delete key.
 
@@ -623,7 +613,7 @@ The `data` folder inside the install folder (`C:\TrapNote`) holds the app-wide s
 | ↑ / ↓ | Go to the frame of the previous / next box in "Training boxes" |
 | F | Favourite |
 | Ctrl+A | Select everything in the list |
-| Delete | Delete the selected videos (read the warning in [12.3](#123-deleting)) |
+| Delete | Delete the selected videos (read the warning in [12.2](#122-deleting)) |
 | Esc | Close a window or clear the selection |
 
 You can also check the keys on the screen by opening "Keyboard" at the bottom of the right-hand panel.

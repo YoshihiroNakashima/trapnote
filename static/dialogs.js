@@ -1064,8 +1064,8 @@ async function jobsDialog() {
     <div class="btn-row"><button type="button" class="small" id="jbStopBg">${esc(t('jb_stop'))}</button><button type="button" class="small" id="jbMeta">${esc(t('jb_meta_run'))}</button></div>
     <h4>${esc(t('detect'))}</h4>${line(j.ml && j.ml.current)}
     <div class="btn-row"><button type="button" class="small" id="jbStopMl">${esc(t('jb_stop'))}</button><button type="button" class="small" id="jbDetect">${esc(t('dt_title'))}…</button></div>
-    <h4>${esc(t('archive'))}</h4>${line(j.archive.current)}
-    <div class="btn-row"><button type="button" class="small" id="jbStopAr">${esc(t('jb_stop'))}</button></div>
+    ${SHOW_ARCHIVE || j.archive.current || (j.archive.queued || []).length ? `<h4>${esc(t('archive'))}</h4>${line(j.archive.current)}
+    <div class="btn-row"><button type="button" class="small" id="jbStopAr">${esc(t('jb_stop'))}</button></div>` : ''}
     <h4>${esc(t('jb_tc'))}</h4>${line(j.transcode.current)}${j.transcoding.length ? `<div class="note">⟳ ${j.transcoding.length}</div>` : ''}
     <div class="btn-row"><button type="button" class="small" id="jbStopTc">${esc(t('jb_stop'))}</button></div>
     ${j.cross ? `<h4>${esc(t('jb_cross'))}</h4><div class="note">${esc(t('jb_cross_help'))}</div>${line(j.cross.current)}${j.cross.queued.length ? `<div class="note">${t('jb_queued')}: ${j.cross.queued.map(x => esc(x.label)).join(', ')}</div>` : ''}
@@ -1075,7 +1075,7 @@ async function jobsDialog() {
   m.querySelector('#mCancel').onclick = closeModal;
   m.querySelector('#jbStopBg').onclick = async () => { await api('/api/jobs/stop', { lane: 'bg' }); jobsDialog(); };
   m.querySelector('#jbStopTc').onclick = async () => { await api('/api/jobs/stop', { lane: 'transcode' }); jobsDialog(); };
-  m.querySelector('#jbStopAr').onclick = async () => { await api('/api/jobs/stop', { lane: 'archive' }); jobsDialog(); };
+  if (m.querySelector('#jbStopAr')) m.querySelector('#jbStopAr').onclick = async () => { await api('/api/jobs/stop', { lane: 'archive' }); jobsDialog(); };     // 欄は、入口を外している間は、処理があるときだけ出す
   m.querySelector('#jbStopMl').onclick = async () => { await api('/api/jobs/stop', { lane: 'ml' }); jobsDialog(); };
   if (m.querySelector('#jbStopCr')) m.querySelector('#jbStopCr').onclick = async () => { await api('/api/jobs/stop', { lane: 'cross' }); jobsDialog(); };
   m.querySelector('#jbDetect').onclick = () => detectDialog();
