@@ -210,7 +210,7 @@ The species shown in the right-hand panel, and the species that Auto ID can assi
    - **Enter one species**: type the name and the scientific name. As you type the scientific name, TrapNote shows whether Auto ID can assign it.
    - **Register many from a CSV**: write a CSV with "Write the template…", add one species per row in Excel or similar, then load it with "Choose the CSV…". Before anything is registered, a table shows which species will be added and which will be changed.
    - **Choose from the SpeciesNet list**: the same list as the candidates in the lower part of the window (for when you come from "+ Add" in the right-hand panel).
-5. Give frequently used species a "Key" (one character) so that you can select them from the keyboard.
+5. Give frequently used species a "Key" (one character) so that you can select them from the keyboard. You can also set the keys with "Keys…" on the screen where you watch videos ([4.6](#46-watching-and-confirming-videos)).
 6. Click "Save". Candidates that are still ticked are registered as well.
 
 The candidates become available after the SpeciesNet model has been downloaded. Until then, the candidates area shows a "Download the model now" button (the same download as the first Auto ID run). Species registered from the candidates get their scientific name and their link to Auto ID filled in.
@@ -264,6 +264,16 @@ Click a video in the list to play it. Check the judgement in the right-hand pane
 - **The AI judgement is wrong**: change the species checkboxes, then press Enter. Species that have a key can also be toggled with that key. If a video shows two or more species, tick all of them.
 - **No animal in the video**: press N (Empty) and then Enter. Use H for a person, V for a vehicle and U (Unknown) when the species cannot be told. A (Area) is the item for videos taken to check a camera's detection area.
 - **Confirmed by mistake**: Ctrl+Z undoes the last confirmation. To fix it later, open the video and set the judgement again, or click "Clear".
+
+Setting the keys that choose species:
+
+1. Click "Keys…" in the right-hand panel.
+2. Select a species (click it or use the arrow keys) and press the key you want (a letter or a digit). The selection then moves to the next species. Backspace removes a key.
+3. Click "Save" (Enter also saves). The key is shown in front of the species name in the right-hand panel.
+
+- "Number species without a key" gives the species without a key the free digits, from the top.
+- If you assign a key that another species uses, the key is taken away from that species.
+- N, H, V, A and U, and Space, , . < > [ ] cannot be given to a species. F, B, L, - and + can, but while a species uses one of them, favourite, brightening or loop has no key (use the controls on the screen).
 
 Viewing aids:
 
@@ -630,7 +640,7 @@ The `data` folder inside the install folder (`C:\TrapNote`) holds the app-wide s
 |---|---|
 | Enter | Confirm and go to the next video (Ctrl+Enter inside the note box) |
 | Ctrl+Z | Undo the last confirmation |
-| Digits, letters | Toggle species (as set in the "Key" column of the species list) |
+| Digits, letters | Toggle species (as set with "Keys…" in the right-hand panel or in the "Key" column of the species list; see [4.6](#46-watching-and-confirming-videos)) |
 | N / H / V / A / U | Empty / Human / Vehicle / Area / Unknown |
 | → / ← | Next / previous video (if species are ticked, the judgement is confirmed before moving). PageDown / PageUp do the same |
 | Space | Play or pause |
