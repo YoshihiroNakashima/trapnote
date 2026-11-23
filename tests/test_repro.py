@@ -83,7 +83,10 @@ def test_model_script_reproduces_the_classifier(tmp_path):
         text = open(r["path"], encoding="utf-8").read()
         compile(text, r["path"], "exec")                                   # 実行できる Python であること
         assert "TRAINING = " in text and "'train_min_per_class': 2" in text and "models/m0/train_items.csv" in text
-        assert "'frame_interval_sec': 0.5" in text and "'md_model': 'MDv1000-spruce'" in text     # 「自動」は、数値と名前に直して書く
+        # 「自動」は、数値と名前に直して書く。値は、書き出す計算機の機器で決まる（GPU なし = 0.5 秒と spruce、cuda = 0.2 秒と redwood、mps = 0.2 秒と spruce）
+        res = r["resolved"]
+        assert (res["frame_interval_sec"], res["md_model"]) in ((0.5, "MDv1000-spruce"), (0.2, "MDv1000-redwood"), (0.2, "MDv1000-spruce")), res
+        assert f"'frame_interval_sec': {res['frame_interval_sec']!r}" in text and f"'md_model': {res['md_model']!r}" in text
         before = dict(p.data["settings"])
     finally:
         p.close()
@@ -163,6 +166,24 @@ def test_classification_script_and_csv(tmp_path):
         assert fh.readline().startswith("Season,Station,File")
     code, out = _run(r["path"], tmp_path, "--project", str(tmp_path / "nowhere"))
     assert code != 0 and "Folder not found" in out
+
+
+def test_script_is_valid_python_with_windows_paths(tmp_path, monkeypatch):
+    """Windows の場所（C:\\Users\\… など）が入っても、書き出したスクリプトが Python として読めること（確認事項 155 回目）。
+    はじめの説明（docstring）に r が付いていないと、\\U や \\x が文字の指定と読まれて SyntaxError になる"""
+    import ast
+    p, _ = _project(tmp_path)
+    try:
+        monkeypatch.setattr(sys, "executable", r"C:\Users\name\xenv\New folder\tools\pythonw.exe")
+        for model in (None, "m0"):
+            r = repro.export_script(p, None, model)
+            text = open(r["path"], encoding="utf-8").read()
+            tree = ast.parse(text, r["path"])                               # SyntaxError にならない
+            doc = ast.get_docstring(tree, clean=False)
+            assert r'"C:\Users\name\xenv\New folder\tools\python.exe"' in doc, doc     # 場所が、書いたとおりに読める（pythonw は python に直す）
+            assert r["command"].startswith(r'"C:\Users\name\xenv\New folder\tools\python.exe" ')
+    finally:
+        p.close()
 
 
 def test_shared_or_missing_model_is_refused(tmp_path):
