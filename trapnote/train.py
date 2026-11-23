@@ -332,6 +332,10 @@ def collect(project, opts: dict, progress=None, stop=None) -> dict:
         frames = "one"
     n_static = n_disagree = n_anchor_manual = n_anchor_auto = 0
     rows = db.q("SELECT id, rel_path, station, status, agree, recheck, train_exclude, batch, crop_excl, crop_anchor FROM items WHERE status='verified' AND missing=0 AND det_state=1 AND cls_state=1 ORDER BY station, id")
+    only = s.get("only_items")                                  # 再現用のスクリプト（repro.py）: 学習のときの一覧（train_items.csv）にある対象だけを材料にする。{プロジェクトの名前: 相対パスの集まり}
+    if only is not None:
+        allowed = only.get(source_label(project)) or set()
+        rows = [r for r in rows if r["rel_path"] in allowed]
     ids = [r["id"] for r in rows]
     js: dict[int, list[dict]] = {i: [] for i in ids}
     for chunk in range(0, len(ids), 900):

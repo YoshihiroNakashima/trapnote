@@ -65,6 +65,14 @@ Object.assign(I18N.ja, {
   ex_dp_k_unique: '同じ値が 2 つ以上ある', ex_dp_k_foreign: '参照先の表にない', ex_dp_k_header: '列の並びが違う',
   ex_dp_k_missing: 'ファイルがない', ex_dp_need_name: '作成者の名前を入れてください', ex_dp_need_sampling: '調査地点の決め方を選んでください',
   ex_dp_need_tz: '時差は +09:00 の形で入れてください', ex_dp_rows: '行', ex_yolo_frames: '動画のフレーム',
+  // ---- 再現用のスクリプト（repro.py） ----
+  ex_script: '再現用のスクリプト（Python）',
+  ex_script_help: '検出と種の判別を、いまの設定でやり直せる Python のスクリプトを書きます。画面を開かずに、命令 1 行で動きます。目視で確定した判定は、プロジェクトの記録をそのまま使います。追加学習のモデルをやり直すスクリプトは、「追加学習」の窓の表の「スクリプト」から書けます。',
+  ex_script_help_lite: '検出を、いまの設定でやり直せる Python のスクリプトを書きます。画面を開かずに、命令 1 行で動きます。',
+  ex_script_run: 'スクリプトを書く', ex_script_done: '書き出しました', ex_script_cmd: '実行の命令（TrapNote を終了してから、コマンドプロンプトかターミナルで）',
+  ex_script_notes: '「自動」の設定は、この PC での値に直して書きました',
+  ex_badge_script: 'PY', ex_name_script: '再現用のスクリプト（Python）', ex_use_script: '同じ設定で、画面なしでやり直す',
+  tr_script: 'スクリプト', tr_script_tip: 'このモデルの学習を、同じ設定と同じ動画でやり直す Python のスクリプトを書く（結果を記録と比べる）',
   ex_yolo_frames_anchor: '学習フレームだけ（1 動画 1 枚。種が複数なら種ごとに 1 枚）', ex_yolo_frames_all: '枠のあるフレームを全部', ex_yolo_frames_help: '学習フレーム = 追加学習に使う枠のフレーム（確定したときに選んでいた枠。選んでいなければ、信頼度の最も高い枠）',
   // ---- Camtrap DP の書き出しの、説明とライセンス（任意。確認事項 141 回目） ----
   ex_dp_desc: '説明', ex_dp_desc_ph: '任意。調査の目的、場所、期間など', ex_dp_lic: 'ライセンス',
@@ -209,6 +217,14 @@ Object.assign(I18N.en, {
   ex_dp_k_unique: 'duplicate value', ex_dp_k_foreign: 'not found in the referenced table', ex_dp_k_header: 'columns differ',
   ex_dp_k_missing: 'file missing', ex_dp_need_name: 'Enter the contributor name', ex_dp_need_sampling: 'Choose the sampling design',
   ex_dp_need_tz: 'Enter the UTC offset like +09:00', ex_dp_rows: 'rows', ex_yolo_frames: 'Frames from videos',
+  // ---- reproducibility script (repro.py) ----
+  ex_script: 'Reproducibility script (Python)',
+  ex_script_help: 'Writes a Python script that re-runs detection and species classification with the current settings. It runs from one command, without the interface. Verified labels are read from the project as they are. A script that re-trains a retrained model is written from "Script" in the table of the Retrain window.',
+  ex_script_help_lite: 'Writes a Python script that re-runs detection with the current settings. It runs from one command, without the interface.',
+  ex_script_run: 'Write the script', ex_script_done: 'Written', ex_script_cmd: 'Command to run it (quit TrapNote first; use the Command Prompt or a terminal)',
+  ex_script_notes: 'Settings on "auto" were written with the values used on this computer',
+  ex_badge_script: 'PY', ex_name_script: 'Reproducibility script (Python)', ex_use_script: 'Re-run with the same settings, without the interface',
+  tr_script: 'Script', tr_script_tip: 'Write a Python script that re-trains this model with the same settings and the same videos, and compares the result with the record',
   ex_yolo_frames_anchor: 'Training frames only (one per video; one per species if several)', ex_yolo_frames_all: 'Every frame with boxes', ex_yolo_frames_help: 'Training frame = the frame of the box used for retraining (the box selected when the video was confirmed; otherwise the box with the highest confidence)',
   // ---- Camtrap DP の書き出しの、説明とライセンス（任意。確認事項 141 回目） ----
   ex_dp_desc: 'Description', ex_dp_desc_ph: 'Optional. Aim, area and period of the survey, etc.', ex_dp_lic: 'License',

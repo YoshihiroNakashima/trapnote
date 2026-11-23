@@ -515,3 +515,8 @@ details.ex-card[open] > summary { background: #e7edff; border-radius: 8px 8px 0 
 .dt-species.ok { border-color: #a9d8b3; background: #f0faf2; }
 .dt-species.ng { border-color: #e3a8a1; background: #fdf2f1; }
 .dt-sp-head { margin-bottom: 2px; }
+/* 再現用のスクリプト（repro.py）: 書き出した場所と実行の命令。命令は写せるように入力欄に入れる */
+.ex-script-out input { width: 100%; font-family: Consolas, Menlo, monospace; font-size: 12px; margin: 4px 0; }
+.ex-script-out div { margin: 2px 0; overflow-wrap: anywhere; }
+/* 「データの書き出し」の窓の、再現用のスクリプトのカードの印 */
+.ex-b-script { background: #a16207; }
