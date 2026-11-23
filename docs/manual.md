@@ -2,7 +2,7 @@ English | [日本語](manual.ja.md)
 
 # TrapNote User Manual
 
-This manual describes how to use the public edition of TrapNote v0.3.0 (the edition started from the normal desktop icon).
+This manual describes how to use the public edition of TrapNote v0.4.0 (the edition started from the normal desktop icon).
 If you are new to TrapNote, read chapters 1–4 in order; they take you from opening your videos to exporting a CSV. Read chapter 5 onward when you need it.
 
 ## Contents

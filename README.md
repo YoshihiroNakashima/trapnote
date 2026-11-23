@@ -71,7 +71,7 @@ Once you have verified enough videos, "Retrain" adapts the AI to your study site
 
 ## Citation
 
-A paper is in preparation. Until it is published, please cite the URL of this repository and the version you used (for example, v0.3.0).
+A paper is in preparation. Until it is published, please cite the URL of this repository and the version you used (for example, v0.4.0).
 
 ## License
 
