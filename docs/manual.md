@@ -380,6 +380,7 @@ Besides CSV, you can export in formats used by other software. All of them are i
 | Camtrap DP | Publishing and sharing data, analysis in R ([9.1](#91-camtrap-dp-format)) |
 | YOLO | Training data for object-detection models ([9.2](#92-yolo-format-images-and-labels)) |
 | Timelapse2 and others | Continuing the work in other software ([9.3](#93-other-formats)) |
+| Reproducibility script | Re-running the automated steps with the same settings ([9.4](#94-reproducibility-script)) |
 
 ### 9.1 Camtrap DP format
 
@@ -474,6 +475,42 @@ Good to know:
 | Judgement index (`TrapNote/judgements.csv`) | The judgements of all videos, always written to the same place. Useful for reading into R and similar tools |
 | Detection boxes (MegaDetector JSON) | The detection boxes in MegaDetector's standard JSON, readable by Timelapse2 and other tools |
 | Timelapse2 (.tdb and .ddb) | A Timelapse2 template and data file, so that the work can continue in Timelapse2 |
+
+### 9.4 Reproducibility script
+
+Work done by clicking in a window leaves no record that someone else can run again. TrapNote can therefore write a Python script that repeats the automated steps with exactly the settings that were used. The script runs from one command, without opening the interface.
+
+| Script | Where to write it | What it re-runs |
+|---|---|---|
+| Classification | "Export CSV" → "Export in other formats" → "Reproducibility script (Python)" → "Write the script" | Detection and species classification of the videos that have not been processed yet, with the current settings |
+| Retrained model | "Retrain" → the "Script" button in the row of the model | The step above, then the training of that model with the recorded settings and the same videos. The result is compared with the record |
+
+To run a script:
+
+1. Write the script. It is saved in `TrapNote/exports/scripts/` in the project, and the window shows the command that runs it.
+2. Quit TrapNote.
+3. Paste the command into the Command Prompt (Windows) or a terminal (macOS) and press Enter.
+
+What to know:
+
+- Manual verification cannot be scripted. The script reads the verified judgements stored in the project.
+- A model script uses only the videos that were used when the model was trained (the list `models/<name>/train_items.csv`), so videos verified later do not change the result. If judgements of those videos have been changed since then, the script reports how many.
+- The re-trained model is saved under a new name (`<name>_repro`). The original model is not touched.
+- With the lightweight classifier (method A), the result is identical to the record. Fine-tuning (method B) is not deterministic, so small differences are expected.
+- Settings on "auto" (the MegaDetector model and the frame interval) are written with the values used on your PC, so that the script behaves in the same way on another computer.
+- The videos themselves are needed only for detection and for method B. Method A can be re-run from the `TrapNote` folder alone, as long as its `cache/features` folder is included.
+
+Options (add them after the command):
+
+| Option | Meaning |
+|---|---|
+| `--project DIR`, `--app DIR` | The project folder and the TrapNote application folder, if they have moved |
+| `--device X` | `auto`, `cuda`, `mps` or `cpu` |
+| `--skip-detect` | Skip detection and use the stored results as they are |
+| `--csv FILE` | Also write the results of the project to a CSV file |
+| `--name NAME` | Model scripts: the name of the re-trained model |
+| `--source NAME=DIR` | Model scripts: the folder of a project that was added as training material, if it has moved |
+| `--strict` | Model scripts: exit with status 2 when the result differs from the record |
 
 ---
 

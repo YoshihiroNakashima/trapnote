@@ -13,7 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from aiohttp import web
 
-from . import APP_ID, APP_NAME, BUILD, BUILD_TIME, VERSION, camtrapdp, cross, detect, dialogs, export as export_mod, judge, media, merge as merge_mod, scan as scan_mod, spot, station, timelapse, train, yolo
+from . import APP_ID, APP_NAME, BUILD, BUILD_TIME, VERSION, camtrapdp, cross, detect, dialogs, export as export_mod, judge, media, merge as merge_mod, repro, scan as scan_mod, spot, station, timelapse, train, yolo
 from .config import APP_DIR, DATA_DIR, STATIC_DIR, Settings, State, edition
 from .jobs import ArchiveJob, CatalogBuildJob, CatalogImportJob, CrossCopyJob, CrossImportJob, CrossRemoveJob, CrossSyncJob, DetectJob, FilesOutJob, LabelsJob, Lane, MetaJob, ReclassifyJob, ScanJob, SubsetExportJob, TrainJob, TranscodeJob, YoloExportJob, YoloImportJob
 from .paths import is_foreground_path, key, norm, note_foreground_read
@@ -1418,6 +1418,18 @@ def make_app(session: Session) -> web.Application:
         except ValueError as e:
             raise ApiError(str(e))
 
+    # ---- 再現用のスクリプト（repro.py。画面で行った自動の処理を、同じ設定でやり直せる Python のスクリプトにする） ----
+    async def export_script(request):
+        p = S.need()
+        b = await _body(request)
+        model = str(b.get("model") or "").strip() or None                  # 追加学習のモデルの名前（あれば、その学習をやり直す手順も入れる）
+        path = norm(str(b.get("path") or "").strip()) if str(b.get("path") or "").strip() else None
+        classifier = "none" if b.get("classifier") == "none" else None      # Lite（検出だけ）からは none
+        try:
+            return jr(await io(lambda: repro.export_script(p, S.settings, model, path, classifier)))
+        except (ValueError, FileNotFoundError) as e:
+            raise ApiError(str(e))
+
     async def import_preview(request):
         b = await _body(request)
         path = norm(b.get("path", ""))
@@ -1901,6 +1913,7 @@ def make_app(session: Session) -> web.Application:
     r.add_post("/api/camtrapdp/template", camtrapdp_template)
     r.add_post("/api/camtrapdp/stations", camtrapdp_stations)
     r.add_post("/api/export/camtrapdp", export_camtrapdp)
+    r.add_post("/api/export/script", export_script)
     r.add_get("/api/yolo/preview", yolo_preview)
     r.add_post("/api/yolo/import", yolo_import)
     r.add_post("/api/yolo/export", yolo_export)

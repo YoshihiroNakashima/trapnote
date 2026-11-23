@@ -16,6 +16,7 @@ The AI (MegaDetector and SpeciesNet) suggests a species for each video, a person
 - **Adapts the AI to your study site**: retrain from your verified judgements and compare the accuracy before and after training.
 - **Reuses your existing records**: import existing CSV files and Timelapse2 records.
 - **Exports in standard formats**: besides CSV, export as Camtrap DP (the standard format for publishing and sharing camera-trap data) or in YOLO format (training data for object detection: images of video frames with their labels).
+- **Reproducible**: writes Python scripts that re-run the automated steps (detection, species classification and retraining) with the recorded settings, without the interface.
 
 ## Requirements
 

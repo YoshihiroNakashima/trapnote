@@ -276,6 +276,7 @@ async function exportDialog(preset) {
     <button type="button" id="exYolo">${esc(t('ex_yolo_run'))}</button><div id="exYoloStatus" class="note"></div>
     <h4>${esc(t('ex_index'))}</h4><div class="note">${esc(t('ex_index_help'))}</div><button type="button" id="exIndex">${esc(t('ex_index'))}</button>
     <h4>${esc(t('ex_md'))}</h4><div class="note">${esc(t('ex_md_help'))}</div><button type="button" id="exMd">${esc(t('ex_md'))}</button>
+    <h4>${esc(t('ex_script'))}</h4><div class="note">${esc(t(isLite() ? 'ex_script_help_lite' : 'ex_script_help'))}</div><button type="button" id="exScript">${esc(t('ex_script_run'))}</button><div id="exScriptOut" class="note ex-script-out"></div>
     <h4>${esc(t('ex_tl'))}</h4><div class="note">${esc(t('ex_tl_help'))}</div>
     ${pathRow('exTlPath', t('ex_path'), 'saveddb', `${S.project.root}/${(S.project.root || '').split('/').pop()}.ddb`, t('ex_tl_path_help'), `${(S.project.root || '').split('/').pop()}.ddb`)}
     <div class="form-row"><label>${esc(t('ex_tl_style'))}</label><select id="exTlStyle"><option value="choice">${esc(t('ex_tl_choice'))}</option><option value="flags">${esc(t('ex_tl_flags'))}</option></select></div>
@@ -346,6 +347,10 @@ async function exportDialog(preset) {
   wirePicks(m);
   m.querySelector('#mCancel').onclick = closeModal;
   m.querySelector('#exIndex').onclick = async () => { const r = await api('/api/export/index', {}); m.querySelector('#exResult').textContent = `${t('ex_done')}: ${r.path} (${r.rows})`; };
+  // 再現用のスクリプト（repro.py）: 検出と種判別の設定を、同じ設定でやり直せる Python のスクリプトにする。モデルごとのスクリプトは「追加学習」の窓の表から
+  m.querySelector('#exScript').onclick = async () => {
+    try { const r = await api('/api/export/script', isLite() ? { classifier: 'none' } : {}); showScriptResult(m.querySelector('#exScriptOut'), r); } catch (e) { toast(e.message, 'error'); }
+  };
   m.querySelector('#exMd').onclick = async () => {
     const range = m.querySelector('#exRange').value;
     const filters = range === 'selection' ? { ids: selIds } : (range === 'filter' ? Object.assign({}, S.filter) : (range === 'verified' ? { status: 'verified' } : {}));
@@ -1174,12 +1179,13 @@ async function trainDialog(showName, preset) {
     const ms = r.models || [];
     const cur = r.classifier || 'speciesnet';
     q('#trModels').innerHTML = ms.length ? `<table class="tbl"><tr><th>${esc(t('tr_name'))}</th><th>${esc(t('tr_kind'))}</th><th>${esc(t('tr_trained_at'))}</th><th>${esc(t('tr_data'))}</th><th>${esc(t('tr_eval_short'))}</th><th></th></tr>` +
-      ms.map(x => `<tr class="${cur === 'local:' + x.name ? 'cur' : ''}"><td><b>${esc(x.name)}</b>${cur === 'local:' + x.name ? ` <span class="chip ai">${esc(t('tr_in_use'))}</span>` : ''}${x.shared || x.also_shared ? ` <span class="chip human" title="${esc(t('tr_shared_tip'))}">${esc(t('tr_shared'))}</span>` : ''}${x.init_from ? `<div class="info">${esc(t('tr_init_from'))}: ${esc((x.init_chain || [x.init_from]).join(' → '))}</div>` : ''}${x.sources && x.sources.length ? `<div class="info">${esc(t('tr_src_with'))}: ${esc([x.project || ''].concat(x.sources.map(y => y.name)).filter(Boolean).join(' + '))}</div>` : ''}${x.final_without_holdout ? `<div class="info">${esc(t('tr_final_wo_short'))}</div>` : ''}</td><td>${esc(x.kind)}</td><td class="info">${esc((x.trained_at || '').slice(0, 16).replace('T', ' '))}</td><td class="info">${x.n_items || 0} ${esc(t('items'))} · ${x.n_crops || 0} ${esc(t('tr_crops'))} · ${(x.classes || []).length} ${esc(t('tr_species_u'))}</td><td>${x.eval ? `${evalLine(x.eval)} <span class="info">(${x.eval.n_items}${x.eval.batches && x.eval.batches.length ? ` · ${esc(x.eval.batches.join(', '))}` : ''})</span>` : `<span class="info">${esc(t('tr_no_holdout'))}</span>`}</td><td><button type="button" class="small" data-res="${esc(x.name)}">${esc(t('tr_result'))}</button> <button type="button" class="small" data-use="${esc(x.name)}" title="${esc(t('tr_row_apply_tip'))}">${esc(t('tr_row_apply'))}</button> ${!x.shared && !x.also_shared ? `<button type="button" class="small" data-share="${esc(x.name)}" title="${esc(t('tr_share_tip'))}">${esc(t('tr_share'))}</button> ` : ''}<button type="button" class="small" data-del="${esc(x.name)}">${esc(t('delete'))}</button></td></tr>`).join('') + '</table>'
+      ms.map(x => `<tr class="${cur === 'local:' + x.name ? 'cur' : ''}"><td><b>${esc(x.name)}</b>${cur === 'local:' + x.name ? ` <span class="chip ai">${esc(t('tr_in_use'))}</span>` : ''}${x.shared || x.also_shared ? ` <span class="chip human" title="${esc(t('tr_shared_tip'))}">${esc(t('tr_shared'))}</span>` : ''}${x.init_from ? `<div class="info">${esc(t('tr_init_from'))}: ${esc((x.init_chain || [x.init_from]).join(' → '))}</div>` : ''}${x.sources && x.sources.length ? `<div class="info">${esc(t('tr_src_with'))}: ${esc([x.project || ''].concat(x.sources.map(y => y.name)).filter(Boolean).join(' + '))}</div>` : ''}${x.final_without_holdout ? `<div class="info">${esc(t('tr_final_wo_short'))}</div>` : ''}</td><td>${esc(x.kind)}</td><td class="info">${esc((x.trained_at || '').slice(0, 16).replace('T', ' '))}</td><td class="info">${x.n_items || 0} ${esc(t('items'))} · ${x.n_crops || 0} ${esc(t('tr_crops'))} · ${(x.classes || []).length} ${esc(t('tr_species_u'))}</td><td>${x.eval ? `${evalLine(x.eval)} <span class="info">(${x.eval.n_items}${x.eval.batches && x.eval.batches.length ? ` · ${esc(x.eval.batches.join(', '))}` : ''})</span>` : `<span class="info">${esc(t('tr_no_holdout'))}</span>`}</td><td><button type="button" class="small" data-res="${esc(x.name)}">${esc(t('tr_result'))}</button> <button type="button" class="small" data-use="${esc(x.name)}" title="${esc(t('tr_row_apply_tip'))}">${esc(t('tr_row_apply'))}</button> ${!x.shared && !x.also_shared ? `<button type="button" class="small" data-share="${esc(x.name)}" title="${esc(t('tr_share_tip'))}">${esc(t('tr_share'))}</button> ` : ''}${!x.shared ? `<button type="button" class="small" data-script="${esc(x.name)}" title="${esc(t('tr_script_tip'))}">${esc(t('tr_script'))}</button> ` : ''}<button type="button" class="small" data-del="${esc(x.name)}">${esc(t('delete'))}</button></td></tr>`).join('') + '</table><div id="trScriptOut" class="note ex-script-out"></div>'
       : `<div class="note">${esc(t('tr_none_models'))}</div>`;
     m.querySelectorAll('[data-use]').forEach(b => { b.onclick = () => { trainModalEl = null; detectDialog({ mode: 'reclass', classifier: 'local:' + b.dataset.use }); }; });
     const initNow = q('#trInit').value;
     fillSelect(q('#trInit'), [['', t('tr_init_base')]].concat(ms.filter(x => x.kind === 'B').map(x => [x.name, x.name + (x.shared ? ` (${t('tr_shared')})` : '')])), ms.some(x => x.kind === 'B' && x.name === initNow) ? initNow : '');
     m.querySelectorAll('[data-res]').forEach(b => { b.onclick = () => trainResultDialog(b.dataset.res); });
+    m.querySelectorAll('[data-script]').forEach(b => { b.onclick = async () => { try { const r = await api('/api/export/script', { model: b.dataset.script }); showScriptResult(q('#trScriptOut'), r); } catch (e) { toast(e.message, 'error'); } }; });
     m.querySelectorAll('[data-share]').forEach(b => { b.onclick = async () => { try { const r = await api('/api/train/models/share', { name: b.dataset.share }); toast(`${t('tr_shared_done')}: ${r.path}`); trainModalEl = null; trainDialog(); } catch (e) { toast(e.message, 'error'); } }; });
     m.querySelectorAll('[data-del]').forEach(b => { b.onclick = async () => {
       trainModalEl = null;
@@ -1283,6 +1289,15 @@ function trainOnJobs(jobs) {
     }
   }
 }
+// 再現用のスクリプトを書き出した結果（場所と、実行の命令）を出す。命令は選んで写せるように入力欄に入れる
+function showScriptResult(el, r) {
+  if (!el) { toast(`${t('ex_script_done')}: ${r.path}`); return; }
+  el.innerHTML = `<div>${esc(t('ex_script_done'))}: ${esc(r.path)}</div><div>${esc(t('ex_script_cmd'))}</div><input type="text" readonly value="${esc(r.command)}" spellcheck="false">`
+    + (r.resolved && Object.keys(r.resolved).length ? `<div>${esc(t('ex_script_notes'))}: ${esc(Object.keys(r.resolved).map(k => `${k} = ${r.resolved[k]}`).join(' / '))}</div>` : '');
+  const inp = el.querySelector('input');
+  if (inp) inp.onfocus = () => inp.select();
+}
+
 async function trainResultDialog(name) {
   let r;
   try { r = await api(`/api/train/result?name=${encodeURIComponent(name)}`); } catch (e) { toast(e.message, 'error'); return; }

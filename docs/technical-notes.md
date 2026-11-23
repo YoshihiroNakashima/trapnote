@@ -381,6 +381,26 @@ ffmpeg は「設定」で場所を指定できる（空なら PATH → resources
 - 「動物なし」と確定した動画に枠があれば、そのフレームを空のラベル（背景）で書く（0 = 動物のとき）。枠のない動画は書かない。静止画はコピーし、枠がなければ空のラベル。
 - 画像は JPEG（品質 92）。「画像も書く」を外すと、ラベルだけ。
 
+## 再現用のスクリプト（`trapnote/repro.py`、`POST /api/export/script`）
+
+画面で行った自動の処理（検出と種判別、追加学習）を、同じ設定でやり直せる Python のスクリプトとして書き出す（2026-11-23）。MEE の Applications の条件「実行できるスクリプトを書き出せること」に合わせたもの。
+
+- 書き出す場所: 「CSV の書き出し」の窓の「ほかの形式で書き出す」→「再現用のスクリプト（Python）」（検出と種判別だけ。`reproduce_classification.py`）と、
+  「追加学習」の窓のモデルの表の「スクリプト」（そのモデルの学習をやり直す手順も入る。`reproduce_<モデルの名前>.py`）。どちらも `<プロジェクト>/exports/scripts/` に書き、窓に実行の命令を出す。
+  API は `POST /api/export/script`（`model` = モデルの名前、`path` = 書く場所、`classifier: "none"` = Lite の検出だけ）。共有の置き場にだけあるモデルは、学習したプロジェクトで書き出す。
+- スクリプトの中身: 設定を Python の値として書き（DETECTION、TRAINING、RECORDED）、`repro.Runner` を順に呼ぶ。手順 1 = 検出と種判別（まだ処理していない対象だけ。確認済みも含む。モデルのスクリプトでは元の SpeciesNet で）、
+  手順 2 = 追加学習（`run_train_a` / `run_train_b`）、手順 3 = 記録（model.json の数）との比較（`compare_records`）。`--csv` で CSV も書く。スクリプトと、その出す文は英語（査読者や、ほかの国の利用者が読むため）。
+- `Runner`: 画面なしで、アプリと同じ処理を動かす（ジョブが使う ctx の形 = project / db() / model_hub() / settings。`DetectJob` はそのまま使う）。
+  記録した設定（`use_settings`）は、メモリの上でだけプロジェクトに当て、`close()` で元の設定に戻して保存する。機器（`--device`）は、アプリの設定を書き換えない。
+- 「自動」の設定は、書き出すときに値に直す: `md_model` は、検出済みの対象の記録（det_json の model）でいちばん多いもの（なければ、いまの機器から）。
+  `frame_interval_sec` は、いまの機器での値（GPU 0.2 秒 / それ以外 0.5 秒）。直した項目は、スクリプトの GENERATED の notes に残る。
+- 学習の材料: 学習は「そのときの確認済み全部」から集めるので、スクリプトは、学習のときの一覧（`models/<名前>/train_items.csv`）にある対象だけを使う
+  （`train.collect` の `only_items` = {プロジェクトの名前: 相対パスの集まり}）。一覧にあるのに見つからない対象と、人の判定が変わった対象の数を、学習の前に知らせる（`Runner.check_items`）。
+  設定は model.json の settings、検証用の地点と組は記録のもの（holdout_stations、holdout_batches）、材料に加えたプロジェクトは sources の場所（`--source 名前=場所` で付け替え）。
+- やり直したモデルは `<名前>_repro`（あれば `_2`、`_3` …）に保存し、元のモデルには触れない。方式 A は乱数の種が固定なので、重み（head.npz）まで同じになる。
+  方式 B は同じにならないので、違っていても終了コードは 0（`--strict` を付けると、違えば 2）。
+- 試験: `tests/test_repro.py`（スクリプトを別のプロセスで実行して、重みが同じになること、あとから確認した動画が結果を変えないこと、判定が変わった数を知らせること、設定が元に戻ること）。
+
 ## 保存されるもの（`<ルート>/TrapNote/`）
 
 ```
@@ -425,6 +445,7 @@ trapnote/
   detect.py            第 2 段階: フレームの抜き出し、MegaDetector（モデルの取得・読み込み・検出）、SpeciesNet（切り出し・分類・特徴量）、
                        ラベル → 種コードの対応、動画 1 本への集約、detections 表への書き込み（jobs.py の DetectJob が ml レーンで回す）
   cross.py             横断プロジェクト: 参照先の登録、種名の対応表（label_map）、カタログ、ランダム選択（地点・調査回・動画・種ごと）、取り込み、書き戻し・再取得、動画のコピー・一覧
+  repro.py             再現用のスクリプト（画面なしで動かす Runner、スクリプトの書き出し、記録との比較）
   train.py             第 3 段階: 学習データの収集（確認済みの枠と重み）、検証用の地点の分割、方式 A（softmax 回帰）、方式 B（本体の後ろの層の学習）、評価、
                        学習したモデルの読み込みと特徴量からの判定の付け直し（jobs.py の TrainJob / ReclassifyJob）
   server.py            API（aiohttp）                dialogs.py   OS のファイル選択の窓
