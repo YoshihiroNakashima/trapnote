@@ -297,10 +297,18 @@ class Runner:
         w = max(len(r[0]) for r in res["rows"])
         self.out(f"  {'':{w}}  {'recorded':>12}  {'this run':>12}")
         for label, a, b, same in res["rows"]:
-            self.out(f"  {label:{w}}  {str(a):>12}  {str(b):>12}  {'' if same else '<- differs'}")
+            mark = "" if same else ("<- differs (input)" if label in INPUT_ROWS else "<- differs")
+            self.out(f"  {label:{w}}  {str(a):>12}  {str(b):>12}  {mark}")
+        kind_b = (new.get("kind") or recorded.get("kind")) == "B"
         if res["identical"]:
             self.out("Result: identical to the record.")
-        elif (new.get("kind") or recorded.get("kind")) == "B":
+        elif any(not r[3] and r[0] in INPUT_ROWS for r in res["rows"]):
+            # 学習のしかたによらない行が違う = 材料か、保存してある検出・判別の結果が、学習のあとで変わっている（方式 B の「毎回わずかに違う」とは別の理由）
+            self.out("Result: differs from the record. The rows marked (input) do not depend on the training run itself: the training material, or the "
+                     "detections and classifications stored in the project, have changed since the model was trained (for example, the automatic "
+                     "classification was run again, or verified labels were edited). The record cannot be reproduced exactly from the project as it is now."
+                     + (" Fine-tuning (method B) is also not deterministic." if kind_b else ""))
+        elif kind_b:
             self.out("Result: differs from the record. Fine-tuning (method B) is not deterministic, so small differences are expected.")
         else:
             self.out("Result: differs from the record (see the notes above: changed labels, missing items or a different version of the models).")
@@ -317,6 +325,13 @@ class Runner:
 
 def _ev(d: dict | None, k: str):
     return (d or {}).get(k) if isinstance(d, dict) else None
+
+
+# 比較の表のうち、学習のしかた（乱数や計算の順）によらない行。材料と、学習の前にプロジェクトに保存してあった自動の結果だけで決まる。
+# ここが記録と違えば、材料か、保存してある検出・判別の結果が、学習のあとで変わっている（確認事項 155 回目。事例の微調整のモデルで、
+# 学習のあとに元の SpeciesNet で判別を流し直していたために、学習に使う動画が 1 本減り、学習の前の一致の数が変わっていた）
+INPUT_ROWS = ("training videos", "training crops", "classes", "class names", "validation videos",
+              "agreement before training", "first species correct before training")
 
 
 def compare_records(recorded: dict, new: dict) -> dict:

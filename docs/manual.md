@@ -565,6 +565,7 @@ What to know:
 - A model script uses only the videos that were used when the model was trained (the list `models/<name>/train_items.csv`), so videos verified later do not change the result. If judgements of those videos have been changed since then, the script reports how many.
 - The re-trained model is saved under a new name (`<name>_repro`). The original model is not touched.
 - With the lightweight classifier (method A), the result is identical to the record. Fine-tuning (method B) is not deterministic, so small differences are expected.
+- If detection or classification was run again after the model was trained, the results stored in the project are no longer those used for training, and the record cannot be reproduced exactly. The comparison then marks the rows that do not depend on the training run (the number of training videos, the agreement before training and so on) with `(input)`.
 - Settings on "auto" (the MegaDetector model and the frame interval) are written with the values used on your PC, so that the script behaves in the same way on another computer.
 - The videos themselves are needed only for detection and for method B. Method A can be re-run from the `TrapNote` folder alone, as long as its `cache/features` folder is included.
 

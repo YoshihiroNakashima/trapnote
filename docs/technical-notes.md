@@ -503,6 +503,8 @@ ffprobe がない PC でもこの経路を使う（確認事項 148 回目。前
   設定は model.json の settings、検証用の地点と組は記録のもの（holdout_stations、holdout_batches）、材料に加えたプロジェクトは sources の場所（`--source 名前=場所` で付け替え）。
 - やり直したモデルは `<名前>_repro`（あれば `_2`、`_3` …）に保存し、元のモデルには触れない。方式 A は乱数の種が固定なので、重み（head.npz）まで同じになる。
   方式 B は同じにならないので、違っていても終了コードは 0（`--strict` を付けると、違えば 2）。
+  比較の表のうち、学習のしかたによらない行（`repro.INPUT_ROWS` = training videos、training crops、classes、validation videos、agreement / first species correct before training）が記録と違うときは、
+  行に `(input)` の印を付け、材料か、保存してある検出・判別の結果が、学習のあとで変わったと知らせる（方式 B の「毎回わずかに違う」とは分ける。確認事項 155 回目）。
 - 試験: `tests/test_repro.py`（スクリプトを別のプロセスで実行して、重みが同じになること、あとから確認した動画が結果を変えないこと、判定が変わった数を知らせること、設定が元に戻ること）。
 
 ## 保存されるもの（`<ルート>/TrapNote/`）

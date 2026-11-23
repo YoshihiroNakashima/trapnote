@@ -198,6 +198,42 @@ def test_shared_or_missing_model_is_refused(tmp_path):
         p.close()
 
 
+def test_compare_tells_changed_inputs_from_training_noise():
+    """記録との違いの知らせ方（確認事項 155 回目）。学習のしかたによらない行（学習に使った動画の数、学習の前の一致の数など）が違うときは、
+    行に (input) の印を付けて、材料か保存してある自動の結果が変わったと知らせる。方式 B の「毎回わずかに違う」とは分ける"""
+    class Out:
+        def __init__(self):
+            self.lines = []
+
+        def out(self, s):
+            self.lines.append(s)
+
+    def run(recorded, new):
+        o = Out()
+        same = repro.Runner.compare(o, recorded, new)
+        return same, "\n".join(o.lines)
+
+    rec = dict(kind="B", n_items=10, n_crops=10, classes=["deer", "boar"],
+               eval=dict(n_items=4, before=dict(n=4, exact=2, first=2), after=dict(n=4, exact=3, first=3)), fit_all=dict(after=dict(n=10, exact=8, first=8)))
+    same, text = run(rec, json.loads(json.dumps(rec)))
+    assert same and "Result: identical to the record." in text
+    noise = json.loads(json.dumps(rec))                                     # 学習のあとの数だけが違う = 方式 B のゆらぎ
+    noise["eval"]["after"]["exact"] = 4
+    same, text = run(rec, noise)
+    assert not same and "(input)" not in text and "not deterministic, so small differences are expected" in text
+    moved = json.loads(json.dumps(noise))                                   # 学習の前の数と、学習に使った動画の数も違う = 材料か、保存してある結果が変わった
+    moved["eval"]["before"]["exact"] = 1
+    moved["n_items"] = moved["n_crops"] = 9
+    same, text = run(rec, moved)
+    assert not same and text.count("<- differs (input)") == 3 and "have changed since the model was trained" in text
+    assert "also not deterministic" in text and "small differences are expected" not in text
+    lines = {ln.split("  ")[1].strip(): ln for ln in text.split("\n") if ln.startswith("  ") and "/" in ln}
+    assert lines["agreement after training"].rstrip().endswith("<- differs")                 # 学習のあとの行には、(input) を付けない
+    a = dict(rec, kind="A")
+    same, text = run(a, dict(moved, kind="A"))
+    assert not same and "(input)" in text and "also not deterministic" not in text
+
+
 def test_compare_records():
     a = dict(kind="A", n_items=10, n_crops=10, classes=["deer", "boar"],
              eval=dict(n_items=4, before=dict(n=4, exact=2, first=2), after=dict(n=4, exact=4, first=4)), fit_all=dict(after=dict(n=10, exact=10, first=10)))
