@@ -176,9 +176,9 @@ def make_shortcut(ed: str = "public") -> int:
     r = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps],
                        capture_output=True, text=True, encoding="utf-8", errors="replace")
     if r.returncode != 0:
-        print("ショートカットを作れません:", r.stderr.strip())
+        print("ショートカットを作れません (could not create the shortcut):", r.stderr.strip())
         return 1
-    print("ショートカットを作りました:", r.stdout.strip())
+    print("ショートカットを作りました (shortcut created):", r.stdout.strip())       # インストーラの記録にも出るので、英語も添える
     return 0
 
 

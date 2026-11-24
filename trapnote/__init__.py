@@ -2,6 +2,12 @@
 
 areacheck（有効範囲の確認）と同じ作り: Python の aiohttp サーバーがローカルで待ち受け、ブラウザに画面を出す。
 """
+import os as _os
+
+# Apple の GPU（MPS）にまだない演算があっても、止まらずに、その演算だけを CPU で計算する（Mac でだけ効く。torch を読み込む前に決めておく必要がある。
+# GitHub の Mac では MPS が使えず、この経路を自動では確かめられないので、備えとして入れてある。確認事項 160 回目）。利用者が自分で決めた値は変えない
+_os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
+
 APP_NAME = "TrapNote"
 APP_ID = "trapnote"
 VERSION = "0.4.1"

@@ -592,6 +592,10 @@ YOLO の書き出しは `tests/test_yolo_export.py`（OpenCV で作る小さな 
   追加学習（方式 A。本物のモデルでは方式 B も 1 エポック）、書き出し（CSV、MegaDetector の JSON、YOLO）、再現用のスクリプトの書き出しと実行、ふつうの起動（ブラウザを開く。Windows では pythonw.exe）を順に行う。
   動画は、SpeciesNet のリポジトリ（google/cameratrapai）の試験用の写真（CDLA-Permissive-1.0）から、その場で作る（このリポジトリには入れていない）。フォルダの名前には、空白、日本語、アクセント付きの文字を入れてある。
   判定のスクリプトは、同じ動画の写しで作った 2 つ目のプロジェクトにかけて、画面での自動判定と同じ結果になるかを見る。手元でも、`python tests/e2e/run_e2e.py --work <空のフォルダ> --fake` で流せる。
+- 2026年11月24日（版 0.4.1）: Windows Server 2025・2022（インストーラ）、macOS 26・15（Apple シリコン）、Ubuntu 26.04・22.04 で、通しの確認がすべて通り、
+  同じ入力に対する自動判定の結果（ファイルごとの第 1 候補の種と、枠の数）が 6 つの環境で一致した。Intel の Mac では、`torch>=2.6` が配られていないので、環境を作れない（確かめた）。
+- ここで確かめられないこと: NVIDIA の GPU での動作、Apple の GPU（MPS）での動作（GitHub の Mac では MPS が使えない。実機の Mac では、既定の「自動」で MPS が選ばれる）、
+  Windows 10・11 の机上の PC での新規のインストール、画面（ブラウザ）の操作。MPS にない演算で止まらないように、`trapnote/__init__.py` で `PYTORCH_ENABLE_MPS_FALLBACK=1` を既定にしてある。
 
 ## ライセンス
 
