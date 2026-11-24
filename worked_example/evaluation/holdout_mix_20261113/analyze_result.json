@@ -1,0 +1,4801 @@
+{
+ "1": {
+  "n": 628,
+  "groups": {
+   "rodent": {
+    "n": 42,
+    "acc": {
+     "sn_closed": 61.9,
+     "sn_asis": 33.3,
+     "sn_closed_top": 35.7,
+     "app_0.3": 97.6,
+     "app_0.2": 97.6,
+     "app_0.1": 97.6,
+     "app_0.0": 97.6,
+     "top_0.3": 85.7,
+     "top_0.2": 85.7,
+     "top_0.1": 88.1,
+     "top_0.0": 88.1
+    },
+    "cnt": {
+     "sn_closed": 26,
+     "sn_asis": 14,
+     "sn_closed_top": 15,
+     "app_0.3": 41,
+     "app_0.2": 41,
+     "app_0.1": 41,
+     "app_0.0": 41,
+     "top_0.3": 36,
+     "top_0.2": 36,
+     "top_0.1": 37,
+     "top_0.0": 37
+    },
+    "diff_app": [
+     0.0,
+     0.0,
+     0.0,
+     32
+    ],
+    "diff_top": [
+     2.38,
+     0.0,
+     7.89,
+     32
+    ],
+    "sn_true_closed": 0.37,
+    "sn_true_asis": 0.251,
+    "head_true": 0.845,
+    "head_top_true": 0.862,
+    "sn_listed": 0.784,
+    "up": 0,
+    "down": 0,
+    "ans_03": {
+     "rodent": 41,
+     "weasel": 1
+    },
+    "ans_00": {
+     "rodent": 41,
+     "weasel": 1
+    },
+    "ans_sn": {
+     "rodent": 26,
+     "empty": 11,
+     "(low)": 5
+    },
+    "ans_sn_asis": {
+     "rodent": 14,
+     "(low)": 13,
+     "mammal": 8,
+     "empty": 7
+    }
+   },
+   "civet": {
+    "n": 40,
+    "acc": {
+     "sn_closed": 85.0,
+     "sn_asis": 87.5,
+     "sn_closed_top": 82.5,
+     "app_0.3": 92.5,
+     "app_0.2": 97.5,
+     "app_0.1": 97.5,
+     "app_0.0": 97.5,
+     "top_0.3": 97.5,
+     "top_0.2": 97.5,
+     "top_0.1": 97.5,
+     "top_0.0": 97.5
+    },
+    "cnt": {
+     "sn_closed": 34,
+     "sn_asis": 35,
+     "sn_closed_top": 33,
+     "app_0.3": 37,
+     "app_0.2": 39,
+     "app_0.1": 39,
+     "app_0.0": 39,
+     "top_0.3": 39,
+     "top_0.2": 39,
+     "top_0.1": 39,
+     "top_0.0": 39
+    },
+    "diff_app": [
+     5.0,
+     0.0,
+     13.16,
+     30
+    ],
+    "diff_top": [
+     0.0,
+     0.0,
+     0.0,
+     30
+    ],
+    "sn_true_closed": 0.609,
+    "sn_true_asis": 0.577,
+    "head_true": 0.887,
+    "head_top_true": 0.9,
+    "sn_listed": 0.909,
+    "up": 2,
+    "down": 0,
+    "ans_03": {
+     "civet": 37,
+     "raccoon_dog": 1,
+     "raccoon": 1,
+     "(low)": 1
+    },
+    "ans_00": {
+     "civet": 39,
+     "raccoon_dog": 1
+    },
+    "ans_sn": {
+     "civet": 34,
+     "raccoon": 3,
+     "empty": 2,
+     "marten": 1
+    },
+    "ans_sn_asis": {
+     "civet": 35,
+     "raccoon": 3,
+     "(low)": 1,
+     "empty": 1
+    }
+   },
+   "raccoon_dog": {
+    "n": 39,
+    "acc": {
+     "sn_closed": 5.1,
+     "sn_asis": 5.1,
+     "sn_closed_top": 15.4,
+     "app_0.3": 87.2,
+     "app_0.2": 87.2,
+     "app_0.1": 94.9,
+     "app_0.0": 94.9,
+     "top_0.3": 89.7,
+     "top_0.2": 89.7,
+     "top_0.1": 92.3,
+     "top_0.0": 92.3
+    },
+    "cnt": {
+     "sn_closed": 2,
+     "sn_asis": 2,
+     "sn_closed_top": 6,
+     "app_0.3": 34,
+     "app_0.2": 34,
+     "app_0.1": 37,
+     "app_0.0": 37,
+     "top_0.3": 35,
+     "top_0.2": 35,
+     "top_0.1": 36,
+     "top_0.0": 36
+    },
+    "diff_app": [
+     7.69,
+     0.0,
+     16.22,
+     26
+    ],
+    "diff_top": [
+     2.56,
+     0.0,
+     8.11,
+     26
+    ],
+    "sn_true_closed": 0.155,
+    "sn_true_asis": 0.133,
+    "head_true": 0.82,
+    "head_top_true": 0.832,
+    "sn_listed": 0.855,
+    "up": 3,
+    "down": 0,
+    "ans_03": {
+     "raccoon_dog": 34,
+     "badger": 2,
+     "marten": 2,
+     "raccoon": 1
+    },
+    "ans_00": {
+     "raccoon_dog": 37,
+     "badger": 1,
+     "marten": 1
+    },
+    "ans_sn": {
+     "raccoon": 15,
+     "badger": 14,
+     "marten": 3,
+     "cat": 2,
+     "raccoon_dog": 2,
+     "boar": 1,
+     "squirrel": 1,
+     "(low)": 1
+    },
+    "ans_sn_asis": {
+     "raccoon": 14,
+     "badger": 12,
+     "marten": 3,
+     "raccoon_dog": 2,
+     "fox": 2,
+     "(low)": 2,
+     "cat": 1,
+     "muntjac": 1,
+     "boar": 1,
+     "squirrel": 1
+    }
+   },
+   "marten": {
+    "n": 39,
+    "acc": {
+     "sn_closed": 76.9,
+     "sn_asis": 74.4,
+     "sn_closed_top": 51.3,
+     "app_0.3": 82.1,
+     "app_0.2": 82.1,
+     "app_0.1": 82.1,
+     "app_0.0": 76.9,
+     "top_0.3": 71.8,
+     "top_0.2": 74.4,
+     "top_0.1": 74.4,
+     "top_0.0": 71.8
+    },
+    "cnt": {
+     "sn_closed": 30,
+     "sn_asis": 29,
+     "sn_closed_top": 20,
+     "app_0.3": 32,
+     "app_0.2": 32,
+     "app_0.1": 32,
+     "app_0.0": 30,
+     "top_0.3": 28,
+     "top_0.2": 29,
+     "top_0.1": 29,
+     "top_0.0": 28
+    },
+    "diff_app": [
+     -5.13,
+     -15.79,
+     4.88,
+     26
+    ],
+    "diff_top": [
+     0.0,
+     -7.32,
+     7.89,
+     26
+    ],
+    "sn_true_closed": 0.422,
+    "sn_true_asis": 0.343,
+    "head_true": 0.62,
+    "head_top_true": 0.626,
+    "sn_listed": 0.834,
+    "up": 1,
+    "down": 3,
+    "ans_03": {
+     "marten": 32,
+     "weasel": 3,
+     "badger": 2,
+     "boar": 1,
+     "bird": 1
+    },
+    "ans_00": {
+     "marten": 30,
+     "weasel": 6,
+     "macaque": 1,
+     "boar": 1,
+     "squirrel": 1
+    },
+    "ans_sn": {
+     "marten": 30,
+     "empty": 3,
+     "(low)": 3,
+     "squirrel": 1,
+     "boar": 1,
+     "badger": 1
+    },
+    "ans_sn_asis": {
+     "marten": 29,
+     "(low)": 5,
+     "squirrel": 1,
+     "fox": 1,
+     "mammal": 1,
+     "raccoon": 1,
+     "empty": 1
+    }
+   },
+   "muntjac": {
+    "n": 37,
+    "acc": {
+     "sn_closed": 91.9,
+     "sn_asis": 91.9,
+     "sn_closed_top": 89.2,
+     "app_0.3": 97.3,
+     "app_0.2": 97.3,
+     "app_0.1": 94.6,
+     "app_0.0": 94.6,
+     "top_0.3": 91.9,
+     "top_0.2": 89.2,
+     "top_0.1": 89.2,
+     "top_0.0": 89.2
+    },
+    "cnt": {
+     "sn_closed": 34,
+     "sn_asis": 34,
+     "sn_closed_top": 33,
+     "app_0.3": 36,
+     "app_0.2": 36,
+     "app_0.1": 35,
+     "app_0.0": 35,
+     "top_0.3": 34,
+     "top_0.2": 33,
+     "top_0.1": 33,
+     "top_0.0": 33
+    },
+    "diff_app": [
+     -2.7,
+     -8.57,
+     0.0,
+     21
+    ],
+    "diff_top": [
+     -2.7,
+     -8.57,
+     0.0,
+     21
+    ],
+    "sn_true_closed": 0.765,
+    "sn_true_asis": 0.743,
+    "head_true": 0.854,
+    "head_top_true": 0.853,
+    "sn_listed": 0.952,
+    "up": 0,
+    "down": 1,
+    "ans_03": {
+     "muntjac": 36,
+     "empty": 1
+    },
+    "ans_00": {
+     "muntjac": 35,
+     "deer": 2
+    },
+    "ans_sn": {
+     "muntjac": 34,
+     "(low)": 1,
+     "boar": 1,
+     "bird": 1
+    },
+    "ans_sn_asis": {
+     "muntjac": 34,
+     "(low)": 1,
+     "boar": 1,
+     "bird": 1
+    }
+   },
+   "macaque": {
+    "n": 37,
+    "acc": {
+     "sn_closed": 91.9,
+     "sn_asis": 91.9,
+     "sn_closed_top": 86.5,
+     "app_0.3": 94.6,
+     "app_0.2": 94.6,
+     "app_0.1": 94.6,
+     "app_0.0": 94.6,
+     "top_0.3": 89.2,
+     "top_0.2": 91.9,
+     "top_0.1": 91.9,
+     "top_0.0": 94.6
+    },
+    "cnt": {
+     "sn_closed": 34,
+     "sn_asis": 34,
+     "sn_closed_top": 32,
+     "app_0.3": 35,
+     "app_0.2": 35,
+     "app_0.1": 35,
+     "app_0.0": 35,
+     "top_0.3": 33,
+     "top_0.2": 34,
+     "top_0.1": 34,
+     "top_0.0": 35
+    },
+    "diff_app": [
+     0.0,
+     0.0,
+     0.0,
+     22
+    ],
+    "diff_top": [
+     5.41,
+     0.0,
+     13.89,
+     22
+    ],
+    "sn_true_closed": 0.749,
+    "sn_true_asis": 0.743,
+    "head_true": 0.848,
+    "head_top_true": 0.848,
+    "sn_listed": 0.982,
+    "up": 0,
+    "down": 0,
+    "ans_03": {
+     "macaque": 35,
+     "(low)": 1,
+     "empty": 1
+    },
+    "ans_00": {
+     "macaque": 35,
+     "weasel": 1,
+     "empty": 1
+    },
+    "ans_sn": {
+     "macaque": 34,
+     "squirrel": 2,
+     "empty": 1
+    },
+    "ans_sn_asis": {
+     "macaque": 34,
+     "empty": 2,
+     "squirrel": 1
+    }
+   },
+   "squirrel": {
+    "n": 36,
+    "acc": {
+     "sn_closed": 69.4,
+     "sn_asis": 69.4,
+     "sn_closed_top": 44.4,
+     "app_0.3": 91.7,
+     "app_0.2": 91.7,
+     "app_0.1": 91.7,
+     "app_0.0": 91.7,
+     "top_0.3": 83.3,
+     "top_0.2": 83.3,
+     "top_0.1": 83.3,
+     "top_0.0": 88.9
+    },
+    "cnt": {
+     "sn_closed": 25,
+     "sn_asis": 25,
+     "sn_closed_top": 16,
+     "app_0.3": 33,
+     "app_0.2": 33,
+     "app_0.1": 33,
+     "app_0.0": 33,
+     "top_0.3": 30,
+     "top_0.2": 30,
+     "top_0.1": 30,
+     "top_0.0": 32
+    },
+    "diff_app": [
+     0.0,
+     0.0,
+     0.0,
+     22
+    ],
+    "diff_top": [
+     5.56,
+     0.0,
+     14.29,
+     22
+    ],
+    "sn_true_closed": 0.407,
+    "sn_true_asis": 0.404,
+    "head_true": 0.785,
+    "head_top_true": 0.783,
+    "sn_listed": 0.989,
+    "up": 0,
+    "down": 0,
+    "ans_03": {
+     "squirrel": 33,
+     "weasel": 2,
+     "empty": 1
+    },
+    "ans_00": {
+     "squirrel": 33,
+     "weasel": 2,
+     "empty": 1
+    },
+    "ans_sn": {
+     "squirrel": 25,
+     "empty": 9,
+     "(low)": 2
+    },
+    "ans_sn_asis": {
+     "squirrel": 25,
+     "empty": 9,
+     "(low)": 2
+    }
+   },
+   "deer": {
+    "n": 34,
+    "acc": {
+     "sn_closed": 88.2,
+     "sn_asis": 70.6,
+     "sn_closed_top": 82.4,
+     "app_0.3": 97.1,
+     "app_0.2": 97.1,
+     "app_0.1": 97.1,
+     "app_0.0": 97.1,
+     "top_0.3": 94.1,
+     "top_0.2": 94.1,
+     "top_0.1": 94.1,
+     "top_0.0": 94.1
+    },
+    "cnt": {
+     "sn_closed": 30,
+     "sn_asis": 24,
+     "sn_closed_top": 28,
+     "app_0.3": 33,
+     "app_0.2": 33,
+     "app_0.1": 33,
+     "app_0.0": 33,
+     "top_0.3": 32,
+     "top_0.2": 32,
+     "top_0.1": 32,
+     "top_0.0": 32
+    },
+    "diff_app": [
+     0.0,
+     0.0,
+     0.0,
+     20
+    ],
+    "diff_top": [
+     0.0,
+     0.0,
+     0.0,
+     20
+    ],
+    "sn_true_closed": 0.694,
+    "sn_true_asis": 0.53,
+    "head_true": 0.913,
+    "head_top_true": 0.911,
+    "sn_listed": 0.737,
+    "up": 0,
+    "down": 0,
+    "ans_03": {
+     "deer": 33,
+     "muntjac": 1
+    },
+    "ans_00": {
+     "deer": 33,
+     "muntjac": 1
+    },
+    "ans_sn": {
+     "deer": 30,
+     "boar": 2,
+     "empty": 1,
+     "hare": 1
+    },
+    "ans_sn_asis": {
+     "deer": 24,
+     "mammal": 6,
+     "(low)": 2,
+     "boar": 2
+    }
+   },
+   "bird": {
+    "n": 34,
+    "acc": {
+     "sn_closed": 73.5,
+     "sn_asis": 73.5,
+     "sn_closed_top": 32.4,
+     "app_0.3": 97.1,
+     "app_0.2": 100.0,
+     "app_0.1": 100.0,
+     "app_0.0": 100.0,
+     "top_0.3": 88.2,
+     "top_0.2": 88.2,
+     "top_0.1": 91.2,
+     "top_0.0": 91.2
+    },
+    "cnt": {
+     "sn_closed": 25,
+     "sn_asis": 25,
+     "sn_closed_top": 11,
+     "app_0.3": 33,
+     "app_0.2": 34,
+     "app_0.1": 34,
+     "app_0.0": 34,
+     "top_0.3": 30,
+     "top_0.2": 30,
+     "top_0.1": 31,
+     "top_0.0": 31
+    },
+    "diff_app": [
+     2.94,
+     0.0,
+     9.68,
+     26
+    ],
+    "diff_top": [
+     2.94,
+     0.0,
+     9.68,
+     26
+    ],
+    "sn_true_closed": 0.394,
+    "sn_true_asis": 0.392,
+    "head_true": 0.859,
+    "head_top_true": 0.864,
+    "sn_listed": 0.996,
+    "up": 1,
+    "down": 0,
+    "ans_03": {
+     "bird": 33,
+     "(low)": 1
+    },
+    "ans_00": {
+     "bird": 34
+    },
+    "ans_sn": {
+     "bird": 25,
+     "empty": 9
+    },
+    "ans_sn_asis": {
+     "bird": 25,
+     "empty": 9
+    }
+   },
+   "boar": {
+    "n": 34,
+    "acc": {
+     "sn_closed": 94.1,
+     "sn_asis": 94.1,
+     "sn_closed_top": 91.2,
+     "app_0.3": 97.1,
+     "app_0.2": 97.1,
+     "app_0.1": 97.1,
+     "app_0.0": 97.1,
+     "top_0.3": 94.1,
+     "top_0.2": 94.1,
+     "top_0.1": 94.1,
+     "top_0.0": 94.1
+    },
+    "cnt": {
+     "sn_closed": 32,
+     "sn_asis": 32,
+     "sn_closed_top": 31,
+     "app_0.3": 33,
+     "app_0.2": 33,
+     "app_0.1": 33,
+     "app_0.0": 33,
+     "top_0.3": 32,
+     "top_0.2": 32,
+     "top_0.1": 32,
+     "top_0.0": 32
+    },
+    "diff_app": [
+     0.0,
+     0.0,
+     0.0,
+     25
+    ],
+    "diff_top": [
+     0.0,
+     0.0,
+     0.0,
+     25
+    ],
+    "sn_true_closed": 0.831,
+    "sn_true_asis": 0.823,
+    "head_true": 0.877,
+    "head_top_true": 0.882,
+    "sn_listed": 0.981,
+    "up": 0,
+    "down": 0,
+    "ans_03": {
+     "boar": 33,
+     "empty": 1
+    },
+    "ans_00": {
+     "boar": 33,
+     "empty": 1
+    },
+    "ans_sn": {
+     "boar": 32,
+     "bird": 1,
+     "empty": 1
+    },
+    "ans_sn_asis": {
+     "boar": 32,
+     "bird": 1,
+     "empty": 1
+    }
+   },
+   "weasel": {
+    "n": 34,
+    "acc": {
+     "sn_closed": 11.8,
+     "sn_asis": 11.8,
+     "sn_closed_top": 8.8,
+     "app_0.3": 85.3,
+     "app_0.2": 88.2,
+     "app_0.1": 94.1,
+     "app_0.0": 97.1,
+     "top_0.3": 91.2,
+     "top_0.2": 97.1,
+     "top_0.1": 97.1,
+     "top_0.0": 97.1
+    },
+    "cnt": {
+     "sn_closed": 4,
+     "sn_asis": 4,
+     "sn_closed_top": 3,
+     "app_0.3": 29,
+     "app_0.2": 30,
+     "app_0.1": 32,
+     "app_0.0": 33,
+     "top_0.3": 31,
+     "top_0.2": 33,
+     "top_0.1": 33,
+     "top_0.0": 33
+    },
+    "diff_app": [
+     11.76,
+     2.94,
+     22.22,
+     27
+    ],
+    "diff_top": [
+     5.88,
+     0.0,
+     15.15,
+     27
+    ],
+    "sn_true_closed": 0.098,
+    "sn_true_asis": 0.077,
+    "head_true": 0.853,
+    "head_top_true": 0.871,
+    "sn_listed": 0.855,
+    "up": 4,
+    "down": 0,
+    "ans_03": {
+     "weasel": 29,
+     "rodent": 2,
+     "badger": 1,
+     "squirrel": 1,
+     "marten": 1
+    },
+    "ans_00": {
+     "weasel": 33,
+     "squirrel": 1
+    },
+    "ans_sn": {
+     "rodent": 11,
+     "empty": 6,
+     "(low)": 6,
+     "weasel": 4,
+     "squirrel": 4,
+     "marten": 3
+    },
+    "ans_sn_asis": {
+     "(low)": 9,
+     "rodent": 7,
+     "empty": 5,
+     "mammal": 4,
+     "weasel": 4,
+     "squirrel": 4,
+     "marten": 1
+    }
+   },
+   "cat": {
+    "n": 33,
+    "acc": {
+     "sn_closed": 97.0,
+     "sn_asis": 97.0,
+     "sn_closed_top": 90.9,
+     "app_0.3": 100.0,
+     "app_0.2": 100.0,
+     "app_0.1": 100.0,
+     "app_0.0": 93.9,
+     "top_0.3": 97.0,
+     "top_0.2": 97.0,
+     "top_0.1": 97.0,
+     "top_0.0": 97.0
+    },
+    "cnt": {
+     "sn_closed": 32,
+     "sn_asis": 32,
+     "sn_closed_top": 30,
+     "app_0.3": 33,
+     "app_0.2": 33,
+     "app_0.1": 33,
+     "app_0.0": 31,
+     "top_0.3": 32,
+     "top_0.2": 32,
+     "top_0.1": 32,
+     "top_0.0": 32
+    },
+    "diff_app": [
+     -6.06,
+     -15.15,
+     0.0,
+     24
+    ],
+    "diff_top": [
+     0.0,
+     0.0,
+     0.0,
+     24
+    ],
+    "sn_true_closed": 0.8,
+    "sn_true_asis": 0.776,
+    "head_true": 0.838,
+    "head_top_true": 0.848,
+    "sn_listed": 0.956,
+    "up": 0,
+    "down": 2,
+    "ans_03": {
+     "cat": 33
+    },
+    "ans_00": {
+     "cat": 31,
+     "muntjac": 1,
+     "civet": 1
+    },
+    "ans_sn": {
+     "cat": 32,
+     "empty": 1
+    },
+    "ans_sn_asis": {
+     "cat": 32,
+     "empty": 1
+    }
+   },
+   "hare": {
+    "n": 32,
+    "acc": {
+     "sn_closed": 90.6,
+     "sn_asis": 90.6,
+     "sn_closed_top": 84.4,
+     "app_0.3": 93.8,
+     "app_0.2": 93.8,
+     "app_0.1": 93.8,
+     "app_0.0": 93.8,
+     "top_0.3": 90.6,
+     "top_0.2": 93.8,
+     "top_0.1": 93.8,
+     "top_0.0": 93.8
+    },
+    "cnt": {
+     "sn_closed": 29,
+     "sn_asis": 29,
+     "sn_closed_top": 27,
+     "app_0.3": 30,
+     "app_0.2": 30,
+     "app_0.1": 30,
+     "app_0.0": 30,
+     "top_0.3": 29,
+     "top_0.2": 30,
+     "top_0.1": 30,
+     "top_0.0": 30
+    },
+    "diff_app": [
+     0.0,
+     0.0,
+     0.0,
+     24
+    ],
+    "diff_top": [
+     3.12,
+     0.0,
+     10.34,
+     24
+    ],
+    "sn_true_closed": 0.62,
+    "sn_true_asis": 0.554,
+    "head_true": 0.859,
+    "head_top_true": 0.866,
+    "sn_listed": 0.884,
+    "up": 0,
+    "down": 0,
+    "ans_03": {
+     "hare": 30,
+     "rodent": 1,
+     "weasel": 1
+    },
+    "ans_00": {
+     "hare": 30,
+     "rodent": 1,
+     "weasel": 1
+    },
+    "ans_sn": {
+     "hare": 29,
+     "empty": 2,
+     "squirrel": 1
+    },
+    "ans_sn_asis": {
+     "hare": 29,
+     "empty": 2,
+     "mammal": 1
+    }
+   },
+   "raccoon": {
+    "n": 32,
+    "acc": {
+     "sn_closed": 100.0,
+     "sn_asis": 100.0,
+     "sn_closed_top": 96.9,
+     "app_0.3": 100.0,
+     "app_0.2": 100.0,
+     "app_0.1": 100.0,
+     "app_0.0": 96.9,
+     "top_0.3": 96.9,
+     "top_0.2": 93.8,
+     "top_0.1": 93.8,
+     "top_0.0": 93.8
+    },
+    "cnt": {
+     "sn_closed": 32,
+     "sn_asis": 32,
+     "sn_closed_top": 31,
+     "app_0.3": 32,
+     "app_0.2": 32,
+     "app_0.1": 32,
+     "app_0.0": 31,
+     "top_0.3": 31,
+     "top_0.2": 30,
+     "top_0.1": 30,
+     "top_0.0": 30
+    },
+    "diff_app": [
+     -3.12,
+     -10.71,
+     0.0,
+     21
+    ],
+    "diff_top": [
+     -3.12,
+     -10.71,
+     0.0,
+     21
+    ],
+    "sn_true_closed": 0.881,
+    "sn_true_asis": 0.871,
+    "head_true": 0.876,
+    "head_top_true": 0.878,
+    "sn_listed": 0.979,
+    "up": 0,
+    "down": 1,
+    "ans_03": {
+     "raccoon": 32
+    },
+    "ans_00": {
+     "raccoon": 31,
+     "cat": 1
+    },
+    "ans_sn": {
+     "raccoon": 32
+    },
+    "ans_sn_asis": {
+     "raccoon": 32
+    }
+   },
+   "badger": {
+    "n": 31,
+    "acc": {
+     "sn_closed": 71.0,
+     "sn_asis": 74.2,
+     "sn_closed_top": 61.3,
+     "app_0.3": 93.5,
+     "app_0.2": 96.8,
+     "app_0.1": 96.8,
+     "app_0.0": 96.8,
+     "top_0.3": 90.3,
+     "top_0.2": 90.3,
+     "top_0.1": 90.3,
+     "top_0.0": 90.3
+    },
+    "cnt": {
+     "sn_closed": 22,
+     "sn_asis": 23,
+     "sn_closed_top": 19,
+     "app_0.3": 29,
+     "app_0.2": 30,
+     "app_0.1": 30,
+     "app_0.0": 30,
+     "top_0.3": 28,
+     "top_0.2": 28,
+     "top_0.1": 28,
+     "top_0.0": 28
+    },
+    "diff_app": [
+     3.23,
+     0.0,
+     10.71,
+     26
+    ],
+    "diff_top": [
+     0.0,
+     0.0,
+     0.0,
+     26
+    ],
+    "sn_true_closed": 0.446,
+    "sn_true_asis": 0.416,
+    "head_true": 0.743,
+    "head_top_true": 0.752,
+    "sn_listed": 0.872,
+    "up": 1,
+    "down": 0,
+    "ans_03": {
+     "badger": 29,
+     "boar": 1,
+     "raccoon": 1
+    },
+    "ans_00": {
+     "badger": 30,
+     "weasel": 1
+    },
+    "ans_sn": {
+     "badger": 22,
+     "boar": 3,
+     "marten": 3,
+     "weasel": 1,
+     "empty": 1,
+     "rodent": 1
+    },
+    "ans_sn_asis": {
+     "badger": 23,
+     "boar": 3,
+     "(low)": 1,
+     "mammal": 1,
+     "marten": 1,
+     "fox": 1,
+     "empty": 1
+    }
+   },
+   "dog": {
+    "n": 5,
+    "acc": {
+     "sn_closed": 100.0,
+     "sn_asis": 100.0,
+     "sn_closed_top": 100.0,
+     "app_0.3": 100.0,
+     "app_0.2": 100.0,
+     "app_0.1": 100.0,
+     "app_0.0": 100.0,
+     "top_0.3": 100.0,
+     "top_0.2": 100.0,
+     "top_0.1": 100.0,
+     "top_0.0": 100.0
+    },
+    "cnt": {
+     "sn_closed": 5,
+     "sn_asis": 5,
+     "sn_closed_top": 5,
+     "app_0.3": 5,
+     "app_0.2": 5,
+     "app_0.1": 5,
+     "app_0.0": 5,
+     "top_0.3": 5,
+     "top_0.2": 5,
+     "top_0.1": 5,
+     "top_0.0": 5
+    },
+    "diff_app": [
+     0.0,
+     0.0,
+     0.0,
+     4
+    ],
+    "diff_top": [
+     0.0,
+     0.0,
+     0.0,
+     4
+    ],
+    "sn_true_closed": 0.886,
+    "sn_true_asis": 0.846,
+    "head_true": 0.969,
+    "head_top_true": 0.964,
+    "sn_listed": 0.951,
+    "up": 0,
+    "down": 0,
+    "ans_03": {
+     "dog": 5
+    },
+    "ans_00": {
+     "dog": 5
+    },
+    "ans_sn": {
+     "dog": 5
+    },
+    "ans_sn_asis": {
+     "dog": 5
+    }
+   },
+   "__animal__": {
+    "n": 539,
+    "acc": {
+     "sn_closed": 73.5,
+     "sn_asis": 70.3,
+     "sn_closed_top": 63.1,
+     "app_0.3": 93.7,
+     "app_0.2": 94.6,
+     "app_0.1": 95.4,
+     "app_0.0": 94.6,
+     "top_0.3": 90.0,
+     "top_0.2": 90.5,
+     "top_0.1": 91.1,
+     "top_0.0": 91.5
+    },
+    "cnt": {
+     "sn_closed": 396,
+     "sn_asis": 379,
+     "sn_closed_top": 340,
+     "app_0.3": 505,
+     "app_0.2": 510,
+     "app_0.1": 514,
+     "app_0.0": 510,
+     "top_0.3": 485,
+     "top_0.2": 488,
+     "top_0.1": 491,
+     "top_0.0": 493
+    },
+    "diff_app": [
+     0.93,
+     -0.77,
+     2.74,
+     43
+    ],
+    "diff_top": [
+     1.48,
+     0.34,
+     2.72,
+     43
+    ],
+    "sn_true_closed": 0.546,
+    "sn_true_asis": 0.505,
+    "head_true": 0.832,
+    "head_top_true": 0.839,
+    "sn_listed": 0.903,
+    "up": 12,
+    "down": 7,
+    "ans_03": {
+     "rodent": 44,
+     "muntjac": 37,
+     "civet": 37,
+     "weasel": 36,
+     "raccoon_dog": 35,
+     "marten": 35,
+     "raccoon": 35,
+     "boar": 35,
+     "macaque": 35,
+     "badger": 34,
+     "bird": 34,
+     "squirrel": 34,
+     "deer": 33,
+     "cat": 33,
+     "hare": 30,
+     "dog": 5,
+     "empty": 4,
+     "(low)": 3
+    },
+    "ans_00": {
+     "weasel": 45,
+     "rodent": 42,
+     "civet": 40,
+     "raccoon_dog": 38,
+     "muntjac": 37,
+     "macaque": 36,
+     "deer": 35,
+     "squirrel": 35,
+     "bird": 34,
+     "boar": 34,
+     "cat": 32,
+     "badger": 31,
+     "marten": 31,
+     "raccoon": 31,
+     "hare": 30,
+     "dog": 5,
+     "empty": 3
+    },
+    "ans_sn": {
+     "raccoon": 50,
+     "empty": 47,
+     "marten": 40,
+     "boar": 40,
+     "rodent": 38,
+     "badger": 37,
+     "muntjac": 34,
+     "cat": 34,
+     "civet": 34,
+     "macaque": 34,
+     "squirrel": 34,
+     "hare": 30,
+     "deer": 30,
+     "bird": 27,
+     "(low)": 18,
+     "dog": 5,
+     "weasel": 5,
+     "raccoon_dog": 2
+    },
+    "ans_sn_asis": {
+     "raccoon": 50,
+     "boar": 39,
+     "empty": 39,
+     "(low)": 36,
+     "badger": 35,
+     "muntjac": 35,
+     "civet": 35,
+     "marten": 34,
+     "macaque": 34,
+     "cat": 33,
+     "squirrel": 32,
+     "hare": 29,
+     "bird": 27,
+     "deer": 24,
+     "mammal": 21,
+     "rodent": 21,
+     "dog": 5,
+     "fox": 4,
+     "weasel": 4,
+     "raccoon_dog": 2
+    }
+   },
+   "empty": {
+    "n": 89,
+    "acc": {
+     "sn_closed": 96.6,
+     "sn_asis": 95.5,
+     "sn_closed_top": 100.0,
+     "app_0.3": 74.2,
+     "app_0.2": 74.2,
+     "app_0.1": 71.9,
+     "app_0.0": 70.8,
+     "top_0.3": 95.5,
+     "top_0.2": 94.4,
+     "top_0.1": 94.4,
+     "top_0.0": 93.3
+    },
+    "cnt": {
+     "sn_closed": 86,
+     "sn_asis": 85,
+     "sn_closed_top": 89,
+     "app_0.3": 66,
+     "app_0.2": 66,
+     "app_0.1": 64,
+     "app_0.0": 63,
+     "top_0.3": 85,
+     "top_0.2": 84,
+     "top_0.1": 84,
+     "top_0.0": 83
+    },
+    "diff_app": [
+     -3.37,
+     -7.69,
+     0.0,
+     42
+    ],
+    "diff_top": [
+     -2.25,
+     -5.68,
+     0.0,
+     42
+    ],
+    "sn_true_closed": 0.963,
+    "sn_true_asis": 0.946,
+    "head_true": 0.846,
+    "head_top_true": 0.888,
+    "sn_listed": 0.974,
+    "up": 0,
+    "down": 3,
+    "ans_03": {
+     "empty": 66,
+     "squirrel": 5,
+     "bird": 4,
+     "weasel": 4,
+     "(low)": 4,
+     "rodent": 4,
+     "marten": 1,
+     "boar": 1
+    },
+    "ans_00": {
+     "empty": 63,
+     "weasel": 6,
+     "squirrel": 5,
+     "rodent": 5,
+     "bird": 4,
+     "(low)": 2,
+     "boar": 2,
+     "marten": 1,
+     "dog": 1
+    },
+    "ans_sn": {
+     "empty": 86,
+     "(low)": 2,
+     "rodent": 1
+    },
+    "ans_sn_asis": {
+     "empty": 85,
+     "fox": 1,
+     "mammal": 1,
+     "rodent": 1,
+     "(low)": 1
+    }
+   },
+   "__all__": {
+    "n": 628,
+    "acc": {
+     "sn_closed": 76.8,
+     "sn_asis": 73.9,
+     "sn_closed_top": 68.3,
+     "app_0.3": 90.9,
+     "app_0.2": 91.7,
+     "app_0.1": 92.0,
+     "app_0.0": 91.2,
+     "top_0.3": 90.8,
+     "top_0.2": 91.1,
+     "top_0.1": 91.6,
+     "top_0.0": 91.7
+    },
+    "cnt": {
+     "sn_closed": 482,
+     "sn_asis": 464,
+     "sn_closed_top": 429,
+     "app_0.3": 571,
+     "app_0.2": 576,
+     "app_0.1": 578,
+     "app_0.0": 573,
+     "top_0.3": 570,
+     "top_0.2": 572,
+     "top_0.1": 575,
+     "top_0.0": 576
+    },
+    "diff_app": [
+     0.32,
+     -1.15,
+     1.83,
+     67
+    ],
+    "diff_top": [
+     0.96,
+     -0.17,
+     2.07,
+     67
+    ],
+    "sn_true_closed": 0.605,
+    "sn_true_asis": 0.567,
+    "head_true": 0.834,
+    "head_top_true": 0.846,
+    "sn_listed": 0.913,
+    "up": 12,
+    "down": 10,
+    "ans_03": {
+     "empty": 70,
+     "rodent": 48,
+     "weasel": 40,
+     "squirrel": 39,
+     "bird": 38,
+     "muntjac": 37,
+     "civet": 37,
+     "marten": 36,
+     "boar": 36,
+     "raccoon_dog": 35,
+     "raccoon": 35,
+     "macaque": 35,
+     "badger": 34,
+     "deer": 33,
+     "cat": 33,
+     "hare": 30,
+     "(low)": 7,
+     "dog": 5
+    },
+    "ans_00": {
+     "empty": 66,
+     "weasel": 51,
+     "rodent": 47,
+     "civet": 40,
+     "squirrel": 40,
+     "raccoon_dog": 38,
+     "bird": 38,
+     "muntjac": 37,
+     "boar": 36,
+     "macaque": 36,
+     "deer": 35,
+     "marten": 32,
+     "cat": 32,
+     "badger": 31,
+     "raccoon": 31,
+     "hare": 30,
+     "dog": 6,
+     "(low)": 2
+    },
+    "ans_sn": {
+     "empty": 133,
+     "raccoon": 50,
+     "marten": 40,
+     "boar": 40,
+     "rodent": 39,
+     "badger": 37,
+     "muntjac": 34,
+     "cat": 34,
+     "civet": 34,
+     "macaque": 34,
+     "squirrel": 34,
+     "hare": 30,
+     "deer": 30,
+     "bird": 27,
+     "(low)": 20,
+     "dog": 5,
+     "weasel": 5,
+     "raccoon_dog": 2
+    },
+    "ans_sn_asis": {
+     "empty": 124,
+     "raccoon": 50,
+     "boar": 39,
+     "(low)": 37,
+     "badger": 35,
+     "muntjac": 35,
+     "civet": 35,
+     "marten": 34,
+     "macaque": 34,
+     "cat": 33,
+     "squirrel": 32,
+     "hare": 29,
+     "bird": 27,
+     "deer": 24,
+     "mammal": 22,
+     "rodent": 22,
+     "dog": 5,
+     "fox": 5,
+     "weasel": 4,
+     "raccoon_dog": 2
+    }
+   }
+  }
+ },
+ "2": {
+  "n": 2098,
+  "groups": {
+   "bird": {
+    "n": 156,
+    "acc": {
+     "sn_closed": 68.6,
+     "sn_asis": 68.6,
+     "sn_closed_top": 40.4,
+     "app_0.3": 97.4,
+     "app_0.2": 97.4,
+     "app_0.1": 97.4,
+     "app_0.0": 98.1,
+     "top_0.3": 88.5,
+     "top_0.2": 89.7,
+     "top_0.1": 90.4,
+     "top_0.0": 92.9
+    },
+    "cnt": {
+     "sn_closed": 107,
+     "sn_asis": 107,
+     "sn_closed_top": 63,
+     "app_0.3": 152,
+     "app_0.2": 152,
+     "app_0.1": 152,
+     "app_0.0": 153,
+     "top_0.3": 138,
+     "top_0.2": 140,
+     "top_0.1": 141,
+     "top_0.0": 145
+    },
+    "diff_app": [
+     0.64,
+     0.0,
+     2.1,
+     63
+    ],
+    "diff_top": [
+     4.49,
+     1.69,
+     7.69,
+     63
+    ],
+    "sn_true_closed": 0.418,
+    "sn_true_asis": 0.415,
+    "head_true": 0.855,
+    "head_top_true": 0.861,
+    "sn_listed": 0.994,
+    "up": 1,
+    "down": 0,
+    "ans_03": {
+     "bird": 152,
+     "empty": 3,
+     "muntjac": 1
+    },
+    "ans_00": {
+     "bird": 153,
+     "muntjac": 1,
+     "(low)": 1,
+     "empty": 1
+    },
+    "ans_sn": {
+     "bird": 107,
+     "empty": 47,
+     "(low)": 2
+    },
+    "ans_sn_asis": {
+     "bird": 107,
+     "empty": 45,
+     "(low)": 4
+    }
+   },
+   "cat": {
+    "n": 144,
+    "acc": {
+     "sn_closed": 97.2,
+     "sn_asis": 97.9,
+     "sn_closed_top": 93.1,
+     "app_0.3": 97.2,
+     "app_0.2": 96.5,
+     "app_0.1": 96.5,
+     "app_0.0": 94.4,
+     "top_0.3": 95.1,
+     "top_0.2": 93.8,
+     "top_0.1": 93.1,
+     "top_0.0": 93.1
+    },
+    "cnt": {
+     "sn_closed": 140,
+     "sn_asis": 141,
+     "sn_closed_top": 134,
+     "app_0.3": 140,
+     "app_0.2": 139,
+     "app_0.1": 139,
+     "app_0.0": 136,
+     "top_0.3": 137,
+     "top_0.2": 135,
+     "top_0.1": 134,
+     "top_0.0": 134
+    },
+    "diff_app": [
+     -2.78,
+     -6.33,
+     0.0,
+     45
+    ],
+    "diff_top": [
+     -2.08,
+     -4.41,
+     0.0,
+     45
+    ],
+    "sn_true_closed": 0.814,
+    "sn_true_asis": 0.784,
+    "head_true": 0.851,
+    "head_top_true": 0.858,
+    "sn_listed": 0.948,
+    "up": 0,
+    "down": 4,
+    "ans_03": {
+     "cat": 140,
+     "civet": 1,
+     "rodent": 1,
+     "marten": 1,
+     "muntjac": 1
+    },
+    "ans_00": {
+     "cat": 136,
+     "civet": 3,
+     "rodent": 1,
+     "hare": 1,
+     "marten": 1,
+     "raccoon_dog": 1,
+     "dog": 1
+    },
+    "ans_sn": {
+     "cat": 140,
+     "rodent": 2,
+     "empty": 2
+    },
+    "ans_sn_asis": {
+     "cat": 141,
+     "empty": 2,
+     "rodent": 1
+    }
+   },
+   "muntjac": {
+    "n": 140,
+    "acc": {
+     "sn_closed": 93.6,
+     "sn_asis": 92.1,
+     "sn_closed_top": 88.6,
+     "app_0.3": 96.4,
+     "app_0.2": 96.4,
+     "app_0.1": 97.1,
+     "app_0.0": 96.4,
+     "top_0.3": 94.3,
+     "top_0.2": 94.3,
+     "top_0.1": 94.3,
+     "top_0.0": 94.3
+    },
+    "cnt": {
+     "sn_closed": 131,
+     "sn_asis": 129,
+     "sn_closed_top": 124,
+     "app_0.3": 135,
+     "app_0.2": 135,
+     "app_0.1": 136,
+     "app_0.0": 135,
+     "top_0.3": 132,
+     "top_0.2": 132,
+     "top_0.1": 132,
+     "top_0.0": 132
+    },
+    "diff_app": [
+     0.0,
+     -2.14,
+     2.13,
+     56
+    ],
+    "diff_top": [
+     0.0,
+     0.0,
+     0.0,
+     56
+    ],
+    "sn_true_closed": 0.804,
+    "sn_true_asis": 0.778,
+    "head_true": 0.898,
+    "head_top_true": 0.901,
+    "sn_listed": 0.952,
+    "up": 1,
+    "down": 1,
+    "ans_03": {
+     "muntjac": 135,
+     "deer": 2,
+     "boar": 1,
+     "badger": 1,
+     "squirrel": 1
+    },
+    "ans_00": {
+     "muntjac": 135,
+     "deer": 2,
+     "hare": 1,
+     "badger": 1,
+     "squirrel": 1
+    },
+    "ans_sn": {
+     "muntjac": 131,
+     "(low)": 3,
+     "boar": 2,
+     "deer": 2,
+     "empty": 1,
+     "bird": 1
+    },
+    "ans_sn_asis": {
+     "muntjac": 129,
+     "(low)": 3,
+     "boar": 2,
+     "deer": 2,
+     "mammal": 1,
+     "macaque": 1,
+     "empty": 1,
+     "bird": 1
+    }
+   },
+   "civet": {
+    "n": 137,
+    "acc": {
+     "sn_closed": 80.3,
+     "sn_asis": 78.1,
+     "sn_closed_top": 77.4,
+     "app_0.3": 97.8,
+     "app_0.2": 97.8,
+     "app_0.1": 97.8,
+     "app_0.0": 97.8,
+     "top_0.3": 92.7,
+     "top_0.2": 94.2,
+     "top_0.1": 94.2,
+     "top_0.0": 94.9
+    },
+    "cnt": {
+     "sn_closed": 110,
+     "sn_asis": 107,
+     "sn_closed_top": 106,
+     "app_0.3": 134,
+     "app_0.2": 134,
+     "app_0.1": 134,
+     "app_0.0": 134,
+     "top_0.3": 127,
+     "top_0.2": 129,
+     "top_0.1": 129,
+     "top_0.0": 130
+    },
+    "diff_app": [
+     0.0,
+     0.0,
+     0.0,
+     56
+    ],
+    "diff_top": [
+     2.19,
+     0.0,
+     4.93,
+     56
+    ],
+    "sn_true_closed": 0.56,
+    "sn_true_asis": 0.527,
+    "head_true": 0.851,
+    "head_top_true": 0.862,
+    "sn_listed": 0.907,
+    "up": 0,
+    "down": 0,
+    "ans_03": {
+     "civet": 134,
+     "marten": 1,
+     "cat": 1,
+     "weasel": 1
+    },
+    "ans_00": {
+     "civet": 134,
+     "marten": 1,
+     "cat": 1,
+     "weasel": 1
+    },
+    "ans_sn": {
+     "civet": 110,
+     "raccoon": 6,
+     "empty": 6,
+     "marten": 5,
+     "cat": 5,
+     "rodent": 2,
+     "(low)": 2,
+     "bird": 1
+    },
+    "ans_sn_asis": {
+     "civet": 107,
+     "cat": 7,
+     "raccoon": 6,
+     "empty": 6,
+     "mammal": 5,
+     "marten": 2,
+     "(low)": 2,
+     "bird": 2
+    }
+   },
+   "raccoon": {
+    "n": 131,
+    "acc": {
+     "sn_closed": 99.2,
+     "sn_asis": 99.2,
+     "sn_closed_top": 96.2,
+     "app_0.3": 99.2,
+     "app_0.2": 98.5,
+     "app_0.1": 98.5,
+     "app_0.0": 97.7,
+     "top_0.3": 96.2,
+     "top_0.2": 96.2,
+     "top_0.1": 96.2,
+     "top_0.0": 96.2
+    },
+    "cnt": {
+     "sn_closed": 130,
+     "sn_asis": 130,
+     "sn_closed_top": 126,
+     "app_0.3": 130,
+     "app_0.2": 129,
+     "app_0.1": 129,
+     "app_0.0": 128,
+     "top_0.3": 126,
+     "top_0.2": 126,
+     "top_0.1": 126,
+     "top_0.0": 126
+    },
+    "diff_app": [
+     -1.53,
+     -3.82,
+     0.0,
+     46
+    ],
+    "diff_top": [
+     0.0,
+     -2.22,
+     2.22,
+     46
+    ],
+    "sn_true_closed": 0.883,
+    "sn_true_asis": 0.875,
+    "head_true": 0.86,
+    "head_top_true": 0.867,
+    "sn_listed": 0.982,
+    "up": 0,
+    "down": 2,
+    "ans_03": {
+     "raccoon": 130,
+     "civet": 1
+    },
+    "ans_00": {
+     "raccoon": 128,
+     "civet": 2,
+     "boar": 1
+    },
+    "ans_sn": {
+     "raccoon": 130,
+     "cat": 1
+    },
+    "ans_sn_asis": {
+     "raccoon": 130,
+     "cat": 1
+    }
+   },
+   "raccoon_dog": {
+    "n": 128,
+    "acc": {
+     "sn_closed": 3.1,
+     "sn_asis": 3.1,
+     "sn_closed_top": 8.6,
+     "app_0.3": 78.9,
+     "app_0.2": 82.0,
+     "app_0.1": 85.2,
+     "app_0.0": 90.6,
+     "top_0.3": 85.2,
+     "top_0.2": 85.9,
+     "top_0.1": 87.5,
+     "top_0.0": 88.3
+    },
+    "cnt": {
+     "sn_closed": 4,
+     "sn_asis": 4,
+     "sn_closed_top": 11,
+     "app_0.3": 101,
+     "app_0.2": 105,
+     "app_0.1": 109,
+     "app_0.0": 116,
+     "top_0.3": 109,
+     "top_0.2": 110,
+     "top_0.1": 112,
+     "top_0.0": 113
+    },
+    "diff_app": [
+     11.72,
+     6.02,
+     17.83,
+     54
+    ],
+    "diff_top": [
+     3.12,
+     0.74,
+     6.3,
+     54
+    ],
+    "sn_true_closed": 0.11,
+    "sn_true_asis": 0.094,
+    "head_true": 0.769,
+    "head_top_true": 0.778,
+    "sn_listed": 0.843,
+    "up": 17,
+    "down": 2,
+    "ans_03": {
+     "raccoon_dog": 101,
+     "badger": 8,
+     "raccoon": 8,
+     "civet": 4,
+     "cat": 2,
+     "boar": 2,
+     "marten": 1,
+     "muntjac": 1,
+     "empty": 1
+    },
+    "ans_00": {
+     "raccoon_dog": 116,
+     "badger": 3,
+     "marten": 2,
+     "raccoon": 2,
+     "rodent": 1,
+     "cat": 1,
+     "macaque": 1,
+     "muntjac": 1,
+     "civet": 1
+    },
+    "ans_sn": {
+     "raccoon": 54,
+     "badger": 31,
+     "cat": 11,
+     "boar": 6,
+     "marten": 6,
+     "civet": 6,
+     "squirrel": 4,
+     "raccoon_dog": 4,
+     "(low)": 2,
+     "empty": 2,
+     "bird": 1,
+     "muntjac": 1
+    },
+    "ans_sn_asis": {
+     "raccoon": 49,
+     "badger": 29,
+     "marten": 8,
+     "fox": 7,
+     "cat": 6,
+     "boar": 5,
+     "mammal": 4,
+     "(low)": 4,
+     "squirrel": 4,
+     "civet": 4,
+     "raccoon_dog": 4,
+     "empty": 2,
+     "bird": 1,
+     "muntjac": 1
+    }
+   },
+   "badger": {
+    "n": 127,
+    "acc": {
+     "sn_closed": 70.1,
+     "sn_asis": 69.3,
+     "sn_closed_top": 59.8,
+     "app_0.3": 92.1,
+     "app_0.2": 92.1,
+     "app_0.1": 93.7,
+     "app_0.0": 95.3,
+     "top_0.3": 93.7,
+     "top_0.2": 93.7,
+     "top_0.1": 94.5,
+     "top_0.0": 94.5
+    },
+    "cnt": {
+     "sn_closed": 89,
+     "sn_asis": 88,
+     "sn_closed_top": 76,
+     "app_0.3": 117,
+     "app_0.2": 117,
+     "app_0.1": 119,
+     "app_0.0": 121,
+     "top_0.3": 119,
+     "top_0.2": 119,
+     "top_0.1": 120,
+     "top_0.0": 120
+    },
+    "diff_app": [
+     3.15,
+     0.0,
+     6.82,
+     60
+    ],
+    "diff_top": [
+     0.79,
+     0.0,
+     2.48,
+     60
+    ],
+    "sn_true_closed": 0.447,
+    "sn_true_asis": 0.41,
+    "head_true": 0.81,
+    "head_top_true": 0.823,
+    "sn_listed": 0.849,
+    "up": 5,
+    "down": 1,
+    "ans_03": {
+     "badger": 117,
+     "boar": 3,
+     "rodent": 2,
+     "squirrel": 1,
+     "marten": 1,
+     "macaque": 1,
+     "(low)": 1,
+     "civet": 1
+    },
+    "ans_00": {
+     "badger": 121,
+     "raccoon_dog": 2,
+     "civet": 2,
+     "marten": 1,
+     "rodent": 1
+    },
+    "ans_sn": {
+     "badger": 89,
+     "marten": 18,
+     "boar": 11,
+     "raccoon": 3,
+     "rodent": 3,
+     "muntjac": 2,
+     "empty": 1
+    },
+    "ans_sn_asis": {
+     "badger": 88,
+     "marten": 11,
+     "boar": 7,
+     "(low)": 6,
+     "mammal": 5,
+     "fox": 5,
+     "empty": 1,
+     "squirrel": 1,
+     "raccoon": 1,
+     "muntjac": 1,
+     "rodent": 1
+    }
+   },
+   "boar": {
+    "n": 127,
+    "acc": {
+     "sn_closed": 98.4,
+     "sn_asis": 96.9,
+     "sn_closed_top": 93.7,
+     "app_0.3": 98.4,
+     "app_0.2": 98.4,
+     "app_0.1": 97.6,
+     "app_0.0": 95.3,
+     "top_0.3": 95.3,
+     "top_0.2": 94.5,
+     "top_0.1": 94.5,
+     "top_0.0": 93.7
+    },
+    "cnt": {
+     "sn_closed": 125,
+     "sn_asis": 123,
+     "sn_closed_top": 119,
+     "app_0.3": 125,
+     "app_0.2": 125,
+     "app_0.1": 124,
+     "app_0.0": 121,
+     "top_0.3": 121,
+     "top_0.2": 120,
+     "top_0.1": 120,
+     "top_0.0": 119
+    },
+    "diff_app": [
+     -3.15,
+     -6.61,
+     -0.73,
+     55
+    ],
+    "diff_top": [
+     -1.57,
+     -4.13,
+     0.0,
+     55
+    ],
+    "sn_true_closed": 0.866,
+    "sn_true_asis": 0.85,
+    "head_true": 0.882,
+    "head_top_true": 0.886,
+    "sn_listed": 0.973,
+    "up": 0,
+    "down": 4,
+    "ans_03": {
+     "boar": 125,
+     "(low)": 1,
+     "empty": 1
+    },
+    "ans_00": {
+     "boar": 121,
+     "hare": 1,
+     "raccoon": 1,
+     "deer": 1,
+     "rodent": 1,
+     "empty": 1,
+     "muntjac": 1
+    },
+    "ans_sn": {
+     "boar": 125,
+     "bird": 1,
+     "empty": 1
+    },
+    "ans_sn_asis": {
+     "boar": 123,
+     "rodent": 1,
+     "bird": 1,
+     "empty": 1,
+     "(low)": 1
+    }
+   },
+   "hare": {
+    "n": 123,
+    "acc": {
+     "sn_closed": 81.3,
+     "sn_asis": 81.3,
+     "sn_closed_top": 65.0,
+     "app_0.3": 96.7,
+     "app_0.2": 97.6,
+     "app_0.1": 96.7,
+     "app_0.0": 97.6,
+     "top_0.3": 88.6,
+     "top_0.2": 90.2,
+     "top_0.1": 90.2,
+     "top_0.0": 91.1
+    },
+    "cnt": {
+     "sn_closed": 100,
+     "sn_asis": 100,
+     "sn_closed_top": 80,
+     "app_0.3": 119,
+     "app_0.2": 120,
+     "app_0.1": 119,
+     "app_0.0": 120,
+     "top_0.3": 109,
+     "top_0.2": 111,
+     "top_0.1": 111,
+     "top_0.0": 112
+    },
+    "diff_app": [
+     0.81,
+     -1.75,
+     3.6,
+     42
+    ],
+    "diff_top": [
+     2.44,
+     0.0,
+     5.41,
+     42
+    ],
+    "sn_true_closed": 0.544,
+    "sn_true_asis": 0.487,
+    "head_true": 0.82,
+    "head_top_true": 0.822,
+    "sn_listed": 0.877,
+    "up": 2,
+    "down": 1,
+    "ans_03": {
+     "hare": 118,
+     "empty": 1,
+     "rodent": 1,
+     "macaque": 1,
+     "muntjac": 1,
+     "boar": 1
+    },
+    "ans_00": {
+     "hare": 119,
+     "empty": 1,
+     "civet": 1,
+     "muntjac": 1,
+     "boar": 1
+    },
+    "ans_sn": {
+     "hare": 99,
+     "rodent": 14,
+     "boar": 3,
+     "empty": 2,
+     "(low)": 2,
+     "cat": 1,
+     "squirrel": 1,
+     "muntjac": 1
+    },
+    "ans_sn_asis": {
+     "hare": 99,
+     "rodent": 10,
+     "boar": 4,
+     "mammal": 3,
+     "(low)": 3,
+     "empty": 2,
+     "squirrel": 1,
+     "muntjac": 1
+    }
+   },
+   "deer": {
+    "n": 121,
+    "acc": {
+     "sn_closed": 82.6,
+     "sn_asis": 66.1,
+     "sn_closed_top": 73.6,
+     "app_0.3": 95.0,
+     "app_0.2": 95.9,
+     "app_0.1": 95.9,
+     "app_0.0": 97.5,
+     "top_0.3": 96.7,
+     "top_0.2": 96.7,
+     "top_0.1": 96.7,
+     "top_0.0": 96.7
+    },
+    "cnt": {
+     "sn_closed": 100,
+     "sn_asis": 80,
+     "sn_closed_top": 89,
+     "app_0.3": 115,
+     "app_0.2": 116,
+     "app_0.1": 116,
+     "app_0.0": 118,
+     "top_0.3": 117,
+     "top_0.2": 117,
+     "top_0.1": 117,
+     "top_0.0": 117
+    },
+    "diff_app": [
+     2.48,
+     0.0,
+     5.26,
+     45
+    ],
+    "diff_top": [
+     0.0,
+     0.0,
+     0.0,
+     45
+    ],
+    "sn_true_closed": 0.626,
+    "sn_true_asis": 0.475,
+    "head_true": 0.922,
+    "head_top_true": 0.926,
+    "sn_listed": 0.702,
+    "up": 3,
+    "down": 0,
+    "ans_03": {
+     "deer": 115,
+     "muntjac": 2,
+     "boar": 2,
+     "empty": 1,
+     "cat": 1
+    },
+    "ans_00": {
+     "deer": 118,
+     "muntjac": 1,
+     "rodent": 1,
+     "empty": 1
+    },
+    "ans_sn": {
+     "deer": 100,
+     "muntjac": 6,
+     "empty": 4,
+     "bird": 4,
+     "boar": 2,
+     "(low)": 1,
+     "dog": 1,
+     "hare": 1,
+     "raccoon": 1,
+     "rodent": 1
+    },
+    "ans_sn_asis": {
+     "deer": 80,
+     "mammal": 27,
+     "muntjac": 5,
+     "(low)": 2,
+     "boar": 2,
+     "empty": 2,
+     "raccoon": 1,
+     "bird": 1,
+     "rodent": 1
+    }
+   },
+   "rodent": {
+    "n": 120,
+    "acc": {
+     "sn_closed": 71.7,
+     "sn_asis": 41.7,
+     "sn_closed_top": 30.0,
+     "app_0.3": 97.5,
+     "app_0.2": 97.5,
+     "app_0.1": 97.5,
+     "app_0.0": 97.5,
+     "top_0.3": 90.0,
+     "top_0.2": 91.7,
+     "top_0.1": 92.5,
+     "top_0.0": 92.5
+    },
+    "cnt": {
+     "sn_closed": 86,
+     "sn_asis": 50,
+     "sn_closed_top": 36,
+     "app_0.3": 117,
+     "app_0.2": 117,
+     "app_0.1": 117,
+     "app_0.0": 117,
+     "top_0.3": 108,
+     "top_0.2": 110,
+     "top_0.1": 111,
+     "top_0.0": 111
+    },
+    "diff_app": [
+     0.0,
+     0.0,
+     0.0,
+     60
+    ],
+    "diff_top": [
+     2.5,
+     0.0,
+     5.6,
+     60
+    ],
+    "sn_true_closed": 0.378,
+    "sn_true_asis": 0.269,
+    "head_true": 0.905,
+    "head_top_true": 0.909,
+    "sn_listed": 0.796,
+    "up": 0,
+    "down": 0,
+    "ans_03": {
+     "rodent": 117,
+     "(low)": 2,
+     "empty": 1
+    },
+    "ans_00": {
+     "rodent": 117,
+     "(low)": 2,
+     "empty": 1
+    },
+    "ans_sn": {
+     "rodent": 86,
+     "empty": 23,
+     "(low)": 11
+    },
+    "ans_sn_asis": {
+     "rodent": 50,
+     "(low)": 30,
+     "empty": 21,
+     "mammal": 19
+    }
+   },
+   "squirrel": {
+    "n": 117,
+    "acc": {
+     "sn_closed": 70.1,
+     "sn_asis": 70.1,
+     "sn_closed_top": 41.9,
+     "app_0.3": 94.9,
+     "app_0.2": 94.9,
+     "app_0.1": 95.7,
+     "app_0.0": 95.7,
+     "top_0.3": 84.6,
+     "top_0.2": 86.3,
+     "top_0.1": 87.2,
+     "top_0.0": 89.7
+    },
+    "cnt": {
+     "sn_closed": 82,
+     "sn_asis": 82,
+     "sn_closed_top": 49,
+     "app_0.3": 111,
+     "app_0.2": 111,
+     "app_0.1": 112,
+     "app_0.0": 112,
+     "top_0.3": 99,
+     "top_0.2": 101,
+     "top_0.1": 102,
+     "top_0.0": 105
+    },
+    "diff_app": [
+     0.85,
+     0.0,
+     2.68,
+     40
+    ],
+    "diff_top": [
+     5.13,
+     1.83,
+     8.91,
+     40
+    ],
+    "sn_true_closed": 0.417,
+    "sn_true_asis": 0.414,
+    "head_true": 0.813,
+    "head_top_true": 0.82,
+    "sn_listed": 0.99,
+    "up": 1,
+    "down": 0,
+    "ans_03": {
+     "squirrel": 111,
+     "rodent": 3,
+     "empty": 1,
+     "macaque": 1,
+     "bird": 1
+    },
+    "ans_00": {
+     "squirrel": 112,
+     "rodent": 2,
+     "empty": 1,
+     "macaque": 1,
+     "bird": 1
+    },
+    "ans_sn": {
+     "squirrel": 82,
+     "empty": 30,
+     "(low)": 4,
+     "rodent": 1
+    },
+    "ans_sn_asis": {
+     "squirrel": 82,
+     "empty": 29,
+     "(low)": 5,
+     "rodent": 1
+    }
+   },
+   "macaque": {
+    "n": 117,
+    "acc": {
+     "sn_closed": 91.5,
+     "sn_asis": 90.6,
+     "sn_closed_top": 81.2,
+     "app_0.3": 97.4,
+     "app_0.2": 97.4,
+     "app_0.1": 97.4,
+     "app_0.0": 95.7,
+     "top_0.3": 92.3,
+     "top_0.2": 92.3,
+     "top_0.1": 92.3,
+     "top_0.0": 93.2
+    },
+    "cnt": {
+     "sn_closed": 107,
+     "sn_asis": 106,
+     "sn_closed_top": 95,
+     "app_0.3": 114,
+     "app_0.2": 114,
+     "app_0.1": 114,
+     "app_0.0": 112,
+     "top_0.3": 108,
+     "top_0.2": 108,
+     "top_0.1": 108,
+     "top_0.0": 109
+    },
+    "diff_app": [
+     -1.71,
+     -4.27,
+     0.0,
+     41
+    ],
+    "diff_top": [
+     0.85,
+     0.0,
+     2.86,
+     41
+    ],
+    "sn_true_closed": 0.66,
+    "sn_true_asis": 0.653,
+    "head_true": 0.863,
+    "head_top_true": 0.865,
+    "sn_listed": 0.977,
+    "up": 0,
+    "down": 2,
+    "ans_03": {
+     "macaque": 114,
+     "hare": 1,
+     "(low)": 1,
+     "empty": 1
+    },
+    "ans_00": {
+     "macaque": 112,
+     "hare": 2,
+     "squirrel": 1,
+     "weasel": 1,
+     "empty": 1
+    },
+    "ans_sn": {
+     "macaque": 106,
+     "squirrel": 6,
+     "(low)": 2,
+     "boar": 1,
+     "bird": 1,
+     "empty": 1
+    },
+    "ans_sn_asis": {
+     "macaque": 105,
+     "squirrel": 6,
+     "(low)": 2,
+     "hare": 1,
+     "boar": 1,
+     "bird": 1,
+     "empty": 1
+    }
+   },
+   "marten": {
+    "n": 108,
+    "acc": {
+     "sn_closed": 80.6,
+     "sn_asis": 74.1,
+     "sn_closed_top": 62.0,
+     "app_0.3": 83.3,
+     "app_0.2": 81.5,
+     "app_0.1": 82.4,
+     "app_0.0": 81.5,
+     "top_0.3": 78.7,
+     "top_0.2": 79.6,
+     "top_0.1": 80.6,
+     "top_0.0": 78.7
+    },
+    "cnt": {
+     "sn_closed": 87,
+     "sn_asis": 80,
+     "sn_closed_top": 67,
+     "app_0.3": 90,
+     "app_0.2": 88,
+     "app_0.1": 89,
+     "app_0.0": 88,
+     "top_0.3": 85,
+     "top_0.2": 86,
+     "top_0.1": 87,
+     "top_0.0": 85
+    },
+    "diff_app": [
+     -1.85,
+     -7.81,
+     1.69,
+     34
+    ],
+    "diff_top": [
+     0.0,
+     -3.28,
+     3.23,
+     34
+    ],
+    "sn_true_closed": 0.494,
+    "sn_true_asis": 0.424,
+    "head_true": 0.637,
+    "head_top_true": 0.64,
+    "sn_listed": 0.863,
+    "up": 3,
+    "down": 5,
+    "ans_03": {
+     "marten": 90,
+     "weasel": 8,
+     "badger": 3,
+     "hare": 2,
+     "squirrel": 2,
+     "macaque": 1,
+     "rodent": 1,
+     "cat": 1
+    },
+    "ans_00": {
+     "marten": 88,
+     "weasel": 9,
+     "hare": 4,
+     "macaque": 2,
+     "badger": 2,
+     "civet": 1,
+     "squirrel": 1,
+     "raccoon_dog": 1
+    },
+    "ans_sn": {
+     "marten": 87,
+     "empty": 7,
+     "rodent": 4,
+     "squirrel": 3,
+     "(low)": 3,
+     "boar": 2,
+     "badger": 2
+    },
+    "ans_sn_asis": {
+     "marten": 80,
+     "empty": 7,
+     "(low)": 6,
+     "squirrel": 3,
+     "badger": 3,
+     "fox": 2,
+     "boar": 2,
+     "mammal": 2,
+     "rodent": 2,
+     "cat": 1
+    }
+   },
+   "weasel": {
+    "n": 42,
+    "acc": {
+     "sn_closed": 9.5,
+     "sn_asis": 9.5,
+     "sn_closed_top": 7.1,
+     "app_0.3": 90.5,
+     "app_0.2": 90.5,
+     "app_0.1": 92.9,
+     "app_0.0": 92.9,
+     "top_0.3": 78.6,
+     "top_0.2": 83.3,
+     "top_0.1": 85.7,
+     "top_0.0": 88.1
+    },
+    "cnt": {
+     "sn_closed": 4,
+     "sn_asis": 4,
+     "sn_closed_top": 3,
+     "app_0.3": 38,
+     "app_0.2": 38,
+     "app_0.1": 39,
+     "app_0.0": 39,
+     "top_0.3": 33,
+     "top_0.2": 35,
+     "top_0.1": 36,
+     "top_0.0": 37
+    },
+    "diff_app": [
+     2.38,
+     0.0,
+     7.89,
+     32
+    ],
+    "diff_top": [
+     9.52,
+     2.27,
+     19.51,
+     32
+    ],
+    "sn_true_closed": 0.106,
+    "sn_true_asis": 0.085,
+    "head_true": 0.762,
+    "head_top_true": 0.771,
+    "sn_listed": 0.864,
+    "up": 1,
+    "down": 0,
+    "ans_03": {
+     "weasel": 38,
+     "rodent": 3,
+     "empty": 1
+    },
+    "ans_00": {
+     "weasel": 39,
+     "rodent": 2,
+     "empty": 1
+    },
+    "ans_sn": {
+     "rodent": 13,
+     "empty": 9,
+     "(low)": 8,
+     "marten": 7,
+     "weasel": 4,
+     "squirrel": 1
+    },
+    "ans_sn_asis": {
+     "(low)": 10,
+     "empty": 8,
+     "mammal": 7,
+     "marten": 6,
+     "rodent": 6,
+     "weasel": 4,
+     "squirrel": 1
+    }
+   },
+   "dog": {
+    "n": 15,
+    "acc": {
+     "sn_closed": 93.3,
+     "sn_asis": 93.3,
+     "sn_closed_top": 93.3,
+     "app_0.3": 93.3,
+     "app_0.2": 93.3,
+     "app_0.1": 86.7,
+     "app_0.0": 86.7,
+     "top_0.3": 93.3,
+     "top_0.2": 93.3,
+     "top_0.1": 93.3,
+     "top_0.0": 93.3
+    },
+    "cnt": {
+     "sn_closed": 14,
+     "sn_asis": 14,
+     "sn_closed_top": 14,
+     "app_0.3": 14,
+     "app_0.2": 14,
+     "app_0.1": 13,
+     "app_0.0": 13,
+     "top_0.3": 14,
+     "top_0.2": 14,
+     "top_0.1": 14,
+     "top_0.0": 14
+    },
+    "diff_app": [
+     -6.67,
+     -27.27,
+     0.0,
+     10
+    ],
+    "diff_top": [
+     0.0,
+     0.0,
+     0.0,
+     10
+    ],
+    "sn_true_closed": 0.793,
+    "sn_true_asis": 0.763,
+    "head_true": 0.73,
+    "head_top_true": 0.727,
+    "sn_listed": 0.945,
+    "up": 0,
+    "down": 1,
+    "ans_03": {
+     "dog": 14,
+     "(low)": 1
+    },
+    "ans_00": {
+     "dog": 13,
+     "macaque": 1,
+     "cat": 1
+    },
+    "ans_sn": {
+     "dog": 14,
+     "boar": 1
+    },
+    "ans_sn_asis": {
+     "dog": 14,
+     "boar": 1
+    }
+   },
+   "__animal__": {
+    "n": 1853,
+    "acc": {
+     "sn_closed": 76.4,
+     "sn_asis": 72.6,
+     "sn_closed_top": 64.3,
+     "app_0.3": 94.5,
+     "app_0.2": 94.7,
+     "app_0.1": 95.0,
+     "app_0.0": 95.1,
+     "top_0.3": 90.8,
+     "top_0.2": 91.4,
+     "top_0.1": 91.7,
+     "top_0.0": 92.2
+    },
+    "cnt": {
+     "sn_closed": 1416,
+     "sn_asis": 1345,
+     "sn_closed_top": 1192,
+     "app_0.3": 1752,
+     "app_0.2": 1754,
+     "app_0.1": 1761,
+     "app_0.0": 1763,
+     "top_0.3": 1682,
+     "top_0.2": 1693,
+     "top_0.1": 1700,
+     "top_0.0": 1709
+    },
+    "diff_app": [
+     0.59,
+     -0.2,
+     1.38,
+     85
+    ],
+    "diff_top": [
+     1.46,
+     0.88,
+     2.09,
+     85
+    ],
+    "sn_true_closed": 0.568,
+    "sn_true_asis": 0.529,
+    "head_true": 0.838,
+    "head_top_true": 0.844,
+    "sn_listed": 0.906,
+    "up": 34,
+    "down": 23,
+    "ans_03": {
+     "bird": 153,
+     "cat": 145,
+     "civet": 141,
+     "muntjac": 141,
+     "raccoon": 138,
+     "boar": 134,
+     "badger": 129,
+     "rodent": 128,
+     "hare": 121,
+     "macaque": 118,
+     "deer": 117,
+     "squirrel": 115,
+     "raccoon_dog": 101,
+     "marten": 94,
+     "weasel": 47,
+     "dog": 14,
+     "empty": 11,
+     "(low)": 6
+    },
+    "ans_00": {
+     "bird": 154,
+     "civet": 144,
+     "muntjac": 140,
+     "cat": 139,
+     "raccoon": 131,
+     "hare": 128,
+     "badger": 127,
+     "rodent": 126,
+     "boar": 123,
+     "deer": 121,
+     "raccoon_dog": 120,
+     "macaque": 117,
+     "squirrel": 115,
+     "marten": 93,
+     "weasel": 50,
+     "dog": 14,
+     "empty": 8,
+     "(low)": 3
+    },
+    "ans_sn": {
+     "raccoon": 194,
+     "cat": 158,
+     "boar": 153,
+     "muntjac": 141,
+     "empty": 136,
+     "rodent": 126,
+     "marten": 123,
+     "badger": 122,
+     "bird": 116,
+     "civet": 116,
+     "macaque": 106,
+     "deer": 102,
+     "hare": 100,
+     "squirrel": 97,
+     "(low)": 40,
+     "dog": 15,
+     "weasel": 4,
+     "raccoon_dog": 4
+    },
+    "ans_sn_asis": {
+     "raccoon": 187,
+     "cat": 156,
+     "boar": 147,
+     "muntjac": 137,
+     "empty": 128,
+     "badger": 120,
+     "bird": 114,
+     "civet": 111,
+     "marten": 107,
+     "macaque": 106,
+     "hare": 100,
+     "squirrel": 98,
+     "deer": 82,
+     "(low)": 78,
+     "mammal": 73,
+     "rodent": 73,
+     "dog": 14,
+     "fox": 14,
+     "weasel": 4,
+     "raccoon_dog": 4
+    }
+   },
+   "empty": {
+    "n": 245,
+    "acc": {
+     "sn_closed": 94.7,
+     "sn_asis": 93.1,
+     "sn_closed_top": 99.6,
+     "app_0.3": 73.9,
+     "app_0.2": 72.2,
+     "app_0.1": 70.2,
+     "app_0.0": 69.0,
+     "top_0.3": 95.5,
+     "top_0.2": 95.1,
+     "top_0.1": 92.2,
+     "top_0.0": 91.4
+    },
+    "cnt": {
+     "sn_closed": 232,
+     "sn_asis": 228,
+     "sn_closed_top": 244,
+     "app_0.3": 181,
+     "app_0.2": 177,
+     "app_0.1": 172,
+     "app_0.0": 169,
+     "top_0.3": 234,
+     "top_0.2": 233,
+     "top_0.1": 226,
+     "top_0.0": 224
+    },
+    "diff_app": [
+     -4.9,
+     -8.24,
+     -1.98,
+     89
+    ],
+    "diff_top": [
+     -4.08,
+     -6.96,
+     -1.67,
+     89
+    ],
+    "sn_true_closed": 0.961,
+    "sn_true_asis": 0.95,
+    "head_true": 0.838,
+    "head_top_true": 0.873,
+    "sn_listed": 0.986,
+    "up": 0,
+    "down": 12,
+    "ans_03": {
+     "empty": 181,
+     "rodent": 13,
+     "bird": 10,
+     "weasel": 10,
+     "squirrel": 9,
+     "(low)": 7,
+     "badger": 3,
+     "deer": 3,
+     "marten": 3,
+     "civet": 2,
+     "muntjac": 1,
+     "cat": 1,
+     "hare": 1,
+     "raccoon": 1
+    },
+    "ans_00": {
+     "empty": 169,
+     "rodent": 15,
+     "bird": 15,
+     "weasel": 12,
+     "squirrel": 10,
+     "(low)": 5,
+     "badger": 3,
+     "marten": 3,
+     "deer": 3,
+     "raccoon_dog": 2,
+     "macaque": 2,
+     "civet": 2,
+     "muntjac": 1,
+     "cat": 1,
+     "hare": 1,
+     "raccoon": 1
+    },
+    "ans_sn": {
+     "empty": 232,
+     "(low)": 7,
+     "bird": 3,
+     "raccoon": 2,
+     "squirrel": 1
+    },
+    "ans_sn_asis": {
+     "empty": 228,
+     "(low)": 9,
+     "bird": 3,
+     "raccoon": 2,
+     "mammal": 1,
+     "fox": 1,
+     "squirrel": 1
+    }
+   },
+   "__all__": {
+    "n": 2098,
+    "acc": {
+     "sn_closed": 78.6,
+     "sn_asis": 75.0,
+     "sn_closed_top": 68.4,
+     "app_0.3": 92.1,
+     "app_0.2": 92.0,
+     "app_0.1": 92.1,
+     "app_0.0": 92.1,
+     "top_0.3": 91.3,
+     "top_0.2": 91.8,
+     "top_0.1": 91.8,
+     "top_0.0": 92.1
+    },
+    "cnt": {
+     "sn_closed": 1648,
+     "sn_asis": 1573,
+     "sn_closed_top": 1436,
+     "app_0.3": 1933,
+     "app_0.2": 1931,
+     "app_0.1": 1933,
+     "app_0.0": 1932,
+     "top_0.3": 1916,
+     "top_0.2": 1926,
+     "top_0.1": 1926,
+     "top_0.0": 1933
+    },
+    "diff_app": [
+     -0.05,
+     -0.86,
+     0.71,
+     119
+    ],
+    "diff_top": [
+     0.81,
+     0.22,
+     1.39,
+     119
+    ],
+    "sn_true_closed": 0.614,
+    "sn_true_asis": 0.578,
+    "head_true": 0.838,
+    "head_top_true": 0.848,
+    "sn_listed": 0.916,
+    "up": 34,
+    "down": 35,
+    "ans_03": {
+     "empty": 192,
+     "bird": 163,
+     "cat": 146,
+     "civet": 143,
+     "muntjac": 142,
+     "rodent": 141,
+     "raccoon": 139,
+     "boar": 134,
+     "badger": 132,
+     "squirrel": 124,
+     "hare": 122,
+     "deer": 120,
+     "macaque": 118,
+     "raccoon_dog": 101,
+     "marten": 97,
+     "weasel": 57,
+     "dog": 14,
+     "(low)": 13
+    },
+    "ans_00": {
+     "empty": 177,
+     "bird": 169,
+     "civet": 146,
+     "muntjac": 141,
+     "rodent": 141,
+     "cat": 140,
+     "raccoon": 132,
+     "badger": 130,
+     "hare": 129,
+     "squirrel": 125,
+     "deer": 124,
+     "boar": 123,
+     "raccoon_dog": 122,
+     "macaque": 119,
+     "marten": 96,
+     "weasel": 62,
+     "dog": 14,
+     "(low)": 8
+    },
+    "ans_sn": {
+     "empty": 368,
+     "raccoon": 196,
+     "cat": 158,
+     "boar": 153,
+     "muntjac": 141,
+     "rodent": 126,
+     "marten": 123,
+     "badger": 122,
+     "bird": 119,
+     "civet": 116,
+     "macaque": 106,
+     "deer": 102,
+     "hare": 100,
+     "squirrel": 98,
+     "(low)": 47,
+     "dog": 15,
+     "weasel": 4,
+     "raccoon_dog": 4
+    },
+    "ans_sn_asis": {
+     "empty": 356,
+     "raccoon": 189,
+     "cat": 156,
+     "boar": 147,
+     "muntjac": 137,
+     "badger": 120,
+     "bird": 117,
+     "civet": 111,
+     "marten": 107,
+     "macaque": 106,
+     "hare": 100,
+     "squirrel": 99,
+     "(low)": 87,
+     "deer": 82,
+     "mammal": 74,
+     "rodent": 73,
+     "fox": 15,
+     "dog": 14,
+     "weasel": 4,
+     "raccoon_dog": 4
+    }
+   }
+  }
+ },
+ "3": {
+  "n": 4029,
+  "groups": {
+   "bird": {
+    "n": 296,
+    "acc": {
+     "sn_closed": 61.5,
+     "sn_asis": 61.5,
+     "sn_closed_top": 42.6,
+     "app_0.3": 96.6,
+     "app_0.2": 96.6,
+     "app_0.1": 96.6,
+     "app_0.0": 96.3,
+     "top_0.3": 85.8,
+     "top_0.2": 87.8,
+     "top_0.1": 88.5,
+     "top_0.0": 89.9
+    },
+    "cnt": {
+     "sn_closed": 182,
+     "sn_asis": 182,
+     "sn_closed_top": 126,
+     "app_0.3": 286,
+     "app_0.2": 286,
+     "app_0.1": 286,
+     "app_0.0": 285,
+     "top_0.3": 254,
+     "top_0.2": 260,
+     "top_0.1": 262,
+     "top_0.0": 266
+    },
+    "diff_app": [
+     -0.34,
+     -1.61,
+     0.7,
+     91
+    ],
+    "diff_top": [
+     4.05,
+     1.71,
+     6.57,
+     91
+    ],
+    "sn_true_closed": 0.408,
+    "sn_true_asis": 0.405,
+    "head_true": 0.854,
+    "head_top_true": 0.867,
+    "sn_listed": 0.994,
+    "up": 1,
+    "down": 2,
+    "ans_03": {
+     "bird": 286,
+     "squirrel": 4,
+     "empty": 3,
+     "(low)": 2,
+     "muntjac": 1
+    },
+    "ans_00": {
+     "bird": 285,
+     "squirrel": 8,
+     "empty": 2,
+     "muntjac": 1
+    },
+    "ans_sn": {
+     "bird": 182,
+     "empty": 104,
+     "(low)": 10
+    },
+    "ans_sn_asis": {
+     "bird": 182,
+     "empty": 102,
+     "(low)": 12
+    }
+   },
+   "raccoon": {
+    "n": 270,
+    "acc": {
+     "sn_closed": 98.9,
+     "sn_asis": 98.9,
+     "sn_closed_top": 95.6,
+     "app_0.3": 98.5,
+     "app_0.2": 98.9,
+     "app_0.1": 98.1,
+     "app_0.0": 95.6,
+     "top_0.3": 95.9,
+     "top_0.2": 95.9,
+     "top_0.1": 95.6,
+     "top_0.0": 94.4
+    },
+    "cnt": {
+     "sn_closed": 267,
+     "sn_asis": 267,
+     "sn_closed_top": 258,
+     "app_0.3": 266,
+     "app_0.2": 267,
+     "app_0.1": 265,
+     "app_0.0": 258,
+     "top_0.3": 259,
+     "top_0.2": 259,
+     "top_0.1": 258,
+     "top_0.0": 255
+    },
+    "diff_app": [
+     -2.96,
+     -4.91,
+     -1.18,
+     80
+    ],
+    "diff_top": [
+     -1.48,
+     -2.9,
+     -0.36,
+     80
+    ],
+    "sn_true_closed": 0.886,
+    "sn_true_asis": 0.878,
+    "head_true": 0.866,
+    "head_top_true": 0.879,
+    "sn_listed": 0.985,
+    "up": 1,
+    "down": 9,
+    "ans_03": {
+     "raccoon": 266,
+     "boar": 1,
+     "macaque": 1,
+     "raccoon_dog": 1,
+     "squirrel": 1
+    },
+    "ans_00": {
+     "raccoon": 258,
+     "raccoon_dog": 6,
+     "boar": 2,
+     "macaque": 1,
+     "dog": 1,
+     "deer": 1,
+     "squirrel": 1
+    },
+    "ans_sn": {
+     "raccoon": 267,
+     "boar": 1,
+     "squirrel": 1,
+     "empty": 1
+    },
+    "ans_sn_asis": {
+     "raccoon": 267,
+     "boar": 1,
+     "squirrel": 1,
+     "empty": 1
+    }
+   },
+   "muntjac": {
+    "n": 257,
+    "acc": {
+     "sn_closed": 91.8,
+     "sn_asis": 89.1,
+     "sn_closed_top": 86.8,
+     "app_0.3": 96.1,
+     "app_0.2": 96.1,
+     "app_0.1": 95.7,
+     "app_0.0": 95.7,
+     "top_0.3": 93.0,
+     "top_0.2": 93.4,
+     "top_0.1": 93.4,
+     "top_0.0": 94.6
+    },
+    "cnt": {
+     "sn_closed": 236,
+     "sn_asis": 229,
+     "sn_closed_top": 223,
+     "app_0.3": 247,
+     "app_0.2": 247,
+     "app_0.1": 246,
+     "app_0.0": 246,
+     "top_0.3": 239,
+     "top_0.2": 240,
+     "top_0.1": 240,
+     "top_0.0": 243
+    },
+    "diff_app": [
+     -0.39,
+     -1.27,
+     0.0,
+     84
+    ],
+    "diff_top": [
+     1.56,
+     0.37,
+     3.19,
+     84
+    ],
+    "sn_true_closed": 0.778,
+    "sn_true_asis": 0.755,
+    "head_true": 0.884,
+    "head_top_true": 0.886,
+    "sn_listed": 0.948,
+    "up": 0,
+    "down": 1,
+    "ans_03": {
+     "muntjac": 247,
+     "hare": 5,
+     "deer": 1,
+     "weasel": 1,
+     "rodent": 1,
+     "squirrel": 1,
+     "dog": 1
+    },
+    "ans_00": {
+     "muntjac": 246,
+     "hare": 6,
+     "deer": 1,
+     "weasel": 1,
+     "squirrel": 1,
+     "dog": 1,
+     "raccoon_dog": 1
+    },
+    "ans_sn": {
+     "muntjac": 236,
+     "empty": 10,
+     "rodent": 4,
+     "(low)": 4,
+     "deer": 1,
+     "boar": 1,
+     "bird": 1
+    },
+    "ans_sn_asis": {
+     "muntjac": 229,
+     "mammal": 7,
+     "empty": 7,
+     "(low)": 7,
+     "fox": 2,
+     "rodent": 2,
+     "deer": 1,
+     "boar": 1,
+     "bird": 1
+    }
+   },
+   "macaque": {
+    "n": 257,
+    "acc": {
+     "sn_closed": 90.3,
+     "sn_asis": 89.9,
+     "sn_closed_top": 85.6,
+     "app_0.3": 96.9,
+     "app_0.2": 97.3,
+     "app_0.1": 97.3,
+     "app_0.0": 97.3,
+     "top_0.3": 93.8,
+     "top_0.2": 94.6,
+     "top_0.1": 94.9,
+     "top_0.0": 95.3
+    },
+    "cnt": {
+     "sn_closed": 232,
+     "sn_asis": 231,
+     "sn_closed_top": 220,
+     "app_0.3": 249,
+     "app_0.2": 250,
+     "app_0.1": 250,
+     "app_0.0": 250,
+     "top_0.3": 241,
+     "top_0.2": 243,
+     "top_0.1": 244,
+     "top_0.0": 245
+    },
+    "diff_app": [
+     0.39,
+     0.0,
+     1.26,
+     66
+    ],
+    "diff_top": [
+     1.56,
+     0.37,
+     3.09,
+     66
+    ],
+    "sn_true_closed": 0.706,
+    "sn_true_asis": 0.697,
+    "head_true": 0.883,
+    "head_top_true": 0.887,
+    "sn_listed": 0.975,
+    "up": 1,
+    "down": 0,
+    "ans_03": {
+     "macaque": 248,
+     "marten": 2,
+     "squirrel": 2,
+     "muntjac": 2,
+     "empty": 1,
+     "hare": 1,
+     "raccoon_dog": 1
+    },
+    "ans_00": {
+     "macaque": 249,
+     "marten": 2,
+     "muntjac": 2,
+     "empty": 1,
+     "hare": 1,
+     "squirrel": 1,
+     "raccoon_dog": 1
+    },
+    "ans_sn": {
+     "macaque": 232,
+     "squirrel": 9,
+     "empty": 7,
+     "boar": 3,
+     "(low)": 2,
+     "bird": 2,
+     "muntjac": 1,
+     "raccoon": 1
+    },
+    "ans_sn_asis": {
+     "macaque": 230,
+     "empty": 8,
+     "squirrel": 7,
+     "(low)": 5,
+     "boar": 2,
+     "muntjac": 2,
+     "hare": 1,
+     "bear": 1,
+     "raccoon": 1
+    }
+   },
+   "civet": {
+    "n": 252,
+    "acc": {
+     "sn_closed": 81.3,
+     "sn_asis": 78.6,
+     "sn_closed_top": 76.2,
+     "app_0.3": 93.3,
+     "app_0.2": 94.0,
+     "app_0.1": 94.4,
+     "app_0.0": 94.8,
+     "top_0.3": 91.7,
+     "top_0.2": 92.1,
+     "top_0.1": 92.5,
+     "top_0.0": 92.9
+    },
+    "cnt": {
+     "sn_closed": 205,
+     "sn_asis": 198,
+     "sn_closed_top": 192,
+     "app_0.3": 235,
+     "app_0.2": 237,
+     "app_0.1": 238,
+     "app_0.0": 239,
+     "top_0.3": 231,
+     "top_0.2": 232,
+     "top_0.1": 233,
+     "top_0.0": 234
+    },
+    "diff_app": [
+     1.59,
+     0.0,
+     3.54,
+     89
+    ],
+    "diff_top": [
+     1.19,
+     0.0,
+     2.69,
+     89
+    ],
+    "sn_true_closed": 0.556,
+    "sn_true_asis": 0.525,
+    "head_true": 0.848,
+    "head_top_true": 0.853,
+    "sn_listed": 0.91,
+    "up": 5,
+    "down": 1,
+    "ans_03": {
+     "civet": 234,
+     "raccoon": 5,
+     "marten": 2,
+     "(low)": 2,
+     "empty": 2,
+     "hare": 2,
+     "cat": 1,
+     "rodent": 1,
+     "raccoon_dog": 1,
+     "badger": 1,
+     "macaque": 1
+    },
+    "ans_00": {
+     "civet": 238,
+     "raccoon": 3,
+     "marten": 2,
+     "raccoon_dog": 2,
+     "(low)": 2,
+     "hare": 2,
+     "rodent": 1,
+     "empty": 1,
+     "macaque": 1
+    },
+    "ans_sn": {
+     "civet": 204,
+     "marten": 10,
+     "empty": 10,
+     "rodent": 9,
+     "cat": 7,
+     "(low)": 7,
+     "raccoon": 3,
+     "badger": 1,
+     "hare": 1
+    },
+    "ans_sn_asis": {
+     "civet": 197,
+     "(low)": 14,
+     "cat": 9,
+     "rodent": 8,
+     "mammal": 6,
+     "marten": 6,
+     "empty": 6,
+     "raccoon": 4,
+     "badger": 1,
+     "hare": 1
+    }
+   },
+   "boar": {
+    "n": 250,
+    "acc": {
+     "sn_closed": 97.6,
+     "sn_asis": 96.8,
+     "sn_closed_top": 93.6,
+     "app_0.3": 98.4,
+     "app_0.2": 98.4,
+     "app_0.1": 98.4,
+     "app_0.0": 98.0,
+     "top_0.3": 95.2,
+     "top_0.2": 95.6,
+     "top_0.1": 96.0,
+     "top_0.0": 95.6
+    },
+    "cnt": {
+     "sn_closed": 244,
+     "sn_asis": 242,
+     "sn_closed_top": 234,
+     "app_0.3": 246,
+     "app_0.2": 246,
+     "app_0.1": 246,
+     "app_0.0": 245,
+     "top_0.3": 238,
+     "top_0.2": 239,
+     "top_0.1": 240,
+     "top_0.0": 239
+    },
+    "diff_app": [
+     -0.4,
+     -1.26,
+     0.0,
+     90
+    ],
+    "diff_top": [
+     0.4,
+     -0.82,
+     1.82,
+     90
+    ],
+    "sn_true_closed": 0.864,
+    "sn_true_asis": 0.848,
+    "head_true": 0.897,
+    "head_top_true": 0.899,
+    "sn_listed": 0.974,
+    "up": 0,
+    "down": 1,
+    "ans_03": {
+     "boar": 245,
+     "cat": 1,
+     "empty": 1,
+     "macaque": 1,
+     "muntjac": 1,
+     "bird": 1
+    },
+    "ans_00": {
+     "boar": 244,
+     "macaque": 2,
+     "cat": 1,
+     "empty": 1,
+     "muntjac": 1,
+     "bird": 1
+    },
+    "ans_sn": {
+     "boar": 243,
+     "empty": 3,
+     "(low)": 1,
+     "cat": 1,
+     "muntjac": 1,
+     "bird": 1
+    },
+    "ans_sn_asis": {
+     "boar": 241,
+     "(low)": 3,
+     "empty": 2,
+     "cat": 1,
+     "raccoon": 1,
+     "muntjac": 1,
+     "bird": 1
+    }
+   },
+   "cat": {
+    "n": 249,
+    "acc": {
+     "sn_closed": 96.4,
+     "sn_asis": 96.4,
+     "sn_closed_top": 92.4,
+     "app_0.3": 97.6,
+     "app_0.2": 97.6,
+     "app_0.1": 97.2,
+     "app_0.0": 95.6,
+     "top_0.3": 92.8,
+     "top_0.2": 93.2,
+     "top_0.1": 92.8,
+     "top_0.0": 93.2
+    },
+    "cnt": {
+     "sn_closed": 240,
+     "sn_asis": 240,
+     "sn_closed_top": 230,
+     "app_0.3": 243,
+     "app_0.2": 243,
+     "app_0.1": 242,
+     "app_0.0": 238,
+     "top_0.3": 231,
+     "top_0.2": 232,
+     "top_0.1": 231,
+     "top_0.0": 232
+    },
+    "diff_app": [
+     -2.01,
+     -3.83,
+     -0.42,
+     76
+    ],
+    "diff_top": [
+     0.4,
+     -0.86,
+     1.81,
+     76
+    ],
+    "sn_true_closed": 0.796,
+    "sn_true_asis": 0.774,
+    "head_true": 0.832,
+    "head_top_true": 0.836,
+    "sn_listed": 0.957,
+    "up": 0,
+    "down": 5,
+    "ans_03": {
+     "cat": 242,
+     "hare": 2,
+     "weasel": 1,
+     "empty": 1,
+     "bird": 1,
+     "squirrel": 1,
+     "raccoon": 1
+    },
+    "ans_00": {
+     "cat": 237,
+     "dog": 3,
+     "marten": 1,
+     "hare": 1,
+     "empty": 1,
+     "weasel": 1,
+     "bird": 1,
+     "squirrel": 1,
+     "civet": 1,
+     "raccoon": 1,
+     "muntjac": 1
+    },
+    "ans_sn": {
+     "cat": 239,
+     "empty": 3,
+     "(low)": 2,
+     "squirrel": 2,
+     "marten": 1,
+     "raccoon": 1,
+     "bird": 1
+    },
+    "ans_sn_asis": {
+     "cat": 239,
+     "(low)": 3,
+     "empty": 2,
+     "squirrel": 2,
+     "fox": 1,
+     "raccoon": 1,
+     "bird": 1
+    }
+   },
+   "badger": {
+    "n": 247,
+    "acc": {
+     "sn_closed": 66.8,
+     "sn_asis": 67.2,
+     "sn_closed_top": 61.1,
+     "app_0.3": 90.3,
+     "app_0.2": 90.7,
+     "app_0.1": 91.9,
+     "app_0.0": 93.9,
+     "top_0.3": 89.1,
+     "top_0.2": 89.1,
+     "top_0.1": 89.1,
+     "top_0.0": 89.5
+    },
+    "cnt": {
+     "sn_closed": 165,
+     "sn_asis": 166,
+     "sn_closed_top": 151,
+     "app_0.3": 223,
+     "app_0.2": 224,
+     "app_0.1": 227,
+     "app_0.0": 232,
+     "top_0.3": 220,
+     "top_0.2": 220,
+     "top_0.1": 220,
+     "top_0.0": 221
+    },
+    "diff_app": [
+     3.64,
+     0.0,
+     7.63,
+     85
+    ],
+    "diff_top": [
+     0.4,
+     0.0,
+     1.29,
+     85
+    ],
+    "sn_true_closed": 0.467,
+    "sn_true_asis": 0.437,
+    "head_true": 0.789,
+    "head_top_true": 0.799,
+    "sn_listed": 0.87,
+    "up": 14,
+    "down": 5,
+    "ans_03": {
+     "badger": 223,
+     "marten": 9,
+     "raccoon": 5,
+     "raccoon_dog": 4,
+     "boar": 3,
+     "weasel": 1,
+     "muntjac": 1,
+     "squirrel": 1
+    },
+    "ans_00": {
+     "badger": 232,
+     "raccoon_dog": 8,
+     "marten": 4,
+     "raccoon": 1,
+     "weasel": 1,
+     "squirrel": 1
+    },
+    "ans_sn": {
+     "badger": 165,
+     "marten": 32,
+     "boar": 16,
+     "squirrel": 6,
+     "(low)": 5,
+     "rodent": 5,
+     "raccoon": 5,
+     "empty": 4,
+     "bird": 3,
+     "weasel": 2,
+     "raccoon_dog": 1,
+     "cat": 1,
+     "muntjac": 1,
+     "civet": 1
+    },
+    "ans_sn_asis": {
+     "badger": 166,
+     "marten": 21,
+     "boar": 12,
+     "(low)": 12,
+     "mammal": 9,
+     "fox": 8,
+     "squirrel": 5,
+     "raccoon": 4,
+     "rodent": 2,
+     "bird": 2,
+     "muntjac": 2,
+     "empty": 2,
+     "raccoon_dog": 1,
+     "civet": 1
+    }
+   },
+   "raccoon_dog": {
+    "n": 242,
+    "acc": {
+     "sn_closed": 5.8,
+     "sn_asis": 6.2,
+     "sn_closed_top": 13.6,
+     "app_0.3": 79.3,
+     "app_0.2": 82.2,
+     "app_0.1": 85.1,
+     "app_0.0": 95.5,
+     "top_0.3": 93.4,
+     "top_0.2": 94.2,
+     "top_0.1": 94.6,
+     "top_0.0": 95.0
+    },
+    "cnt": {
+     "sn_closed": 14,
+     "sn_asis": 15,
+     "sn_closed_top": 33,
+     "app_0.3": 192,
+     "app_0.2": 199,
+     "app_0.1": 206,
+     "app_0.0": 231,
+     "top_0.3": 226,
+     "top_0.2": 228,
+     "top_0.1": 229,
+     "top_0.0": 230
+    },
+    "diff_app": [
+     16.12,
+     11.36,
+     20.95,
+     88
+    ],
+    "diff_top": [
+     1.65,
+     0.39,
+     3.43,
+     88
+    ],
+    "sn_true_closed": 0.129,
+    "sn_true_asis": 0.11,
+    "head_true": 0.848,
+    "head_top_true": 0.857,
+    "sn_listed": 0.839,
+    "up": 40,
+    "down": 1,
+    "ans_03": {
+     "raccoon_dog": 192,
+     "raccoon": 13,
+     "badger": 13,
+     "boar": 12,
+     "marten": 4,
+     "cat": 4,
+     "civet": 3,
+     "hare": 1
+    },
+    "ans_00": {
+     "raccoon_dog": 231,
+     "marten": 4,
+     "badger": 4,
+     "civet": 2,
+     "hare": 1
+    },
+    "ans_sn": {
+     "raccoon": 78,
+     "badger": 66,
+     "boar": 22,
+     "cat": 21,
+     "marten": 16,
+     "raccoon_dog": 14,
+     "civet": 10,
+     "(low)": 8,
+     "squirrel": 3,
+     "muntjac": 1,
+     "empty": 1,
+     "rodent": 1,
+     "dog": 1
+    },
+    "ans_sn_asis": {
+     "raccoon": 76,
+     "badger": 64,
+     "cat": 18,
+     "boar": 18,
+     "raccoon_dog": 15,
+     "fox": 13,
+     "marten": 11,
+     "(low)": 8,
+     "civet": 7,
+     "squirrel": 4,
+     "mammal": 4,
+     "muntjac": 2,
+     "empty": 1,
+     "dog": 1
+    }
+   },
+   "hare": {
+    "n": 233,
+    "acc": {
+     "sn_closed": 82.0,
+     "sn_asis": 81.1,
+     "sn_closed_top": 72.5,
+     "app_0.3": 98.3,
+     "app_0.2": 98.3,
+     "app_0.1": 97.9,
+     "app_0.0": 97.0,
+     "top_0.3": 89.3,
+     "top_0.2": 89.7,
+     "top_0.1": 91.0,
+     "top_0.0": 93.6
+    },
+    "cnt": {
+     "sn_closed": 191,
+     "sn_asis": 189,
+     "sn_closed_top": 169,
+     "app_0.3": 229,
+     "app_0.2": 229,
+     "app_0.1": 228,
+     "app_0.0": 226,
+     "top_0.3": 208,
+     "top_0.2": 209,
+     "top_0.1": 212,
+     "top_0.0": 218
+    },
+    "diff_app": [
+     -1.29,
+     -2.8,
+     0.0,
+     72
+    ],
+    "diff_top": [
+     4.29,
+     1.69,
+     7.08,
+     72
+    ],
+    "sn_true_closed": 0.58,
+    "sn_true_asis": 0.521,
+    "head_true": 0.844,
+    "head_top_true": 0.852,
+    "sn_listed": 0.879,
+    "up": 0,
+    "down": 3,
+    "ans_03": {
+     "hare": 229,
+     "muntjac": 2,
+     "empty": 1,
+     "(low)": 1
+    },
+    "ans_00": {
+     "hare": 226,
+     "muntjac": 3,
+     "empty": 1,
+     "deer": 1,
+     "weasel": 1,
+     "badger": 1
+    },
+    "ans_sn": {
+     "hare": 191,
+     "rodent": 26,
+     "empty": 6,
+     "boar": 2,
+     "muntjac": 2,
+     "(low)": 1,
+     "bird": 1,
+     "squirrel": 1,
+     "deer": 1,
+     "raccoon": 1,
+     "macaque": 1
+    },
+    "ans_sn_asis": {
+     "hare": 189,
+     "rodent": 18,
+     "mammal": 7,
+     "empty": 6,
+     "(low)": 3,
+     "boar": 2,
+     "squirrel": 2,
+     "muntjac": 2,
+     "bird": 1,
+     "deer": 1,
+     "raccoon": 1,
+     "macaque": 1
+    }
+   },
+   "deer": {
+    "n": 231,
+    "acc": {
+     "sn_closed": 83.1,
+     "sn_asis": 62.8,
+     "sn_closed_top": 77.5,
+     "app_0.3": 93.5,
+     "app_0.2": 93.9,
+     "app_0.1": 95.2,
+     "app_0.0": 95.2,
+     "top_0.3": 92.6,
+     "top_0.2": 92.6,
+     "top_0.1": 92.2,
+     "top_0.0": 91.8
+    },
+    "cnt": {
+     "sn_closed": 192,
+     "sn_asis": 145,
+     "sn_closed_top": 179,
+     "app_0.3": 216,
+     "app_0.2": 217,
+     "app_0.1": 220,
+     "app_0.0": 220,
+     "top_0.3": 214,
+     "top_0.2": 214,
+     "top_0.1": 213,
+     "top_0.0": 212
+    },
+    "diff_app": [
+     1.73,
+     0.0,
+     3.91,
+     74
+    ],
+    "diff_top": [
+     -0.87,
+     -2.25,
+     0.0,
+     74
+    ],
+    "sn_true_closed": 0.643,
+    "sn_true_asis": 0.484,
+    "head_true": 0.894,
+    "head_top_true": 0.899,
+    "sn_listed": 0.699,
+    "up": 5,
+    "down": 1,
+    "ans_03": {
+     "deer": 216,
+     "muntjac": 7,
+     "boar": 3,
+     "empty": 2,
+     "hare": 2,
+     "raccoon_dog": 1
+    },
+    "ans_00": {
+     "deer": 220,
+     "muntjac": 7,
+     "empty": 2,
+     "hare": 1,
+     "raccoon_dog": 1
+    },
+    "ans_sn": {
+     "deer": 192,
+     "muntjac": 15,
+     "empty": 8,
+     "(low)": 8,
+     "bird": 4,
+     "boar": 2,
+     "rodent": 1,
+     "dog": 1
+    },
+    "ans_sn_asis": {
+     "deer": 145,
+     "mammal": 57,
+     "muntjac": 12,
+     "empty": 5,
+     "(low)": 5,
+     "boar": 2,
+     "serow": 2,
+     "bird": 1,
+     "fox": 1,
+     "raccoon": 1
+    }
+   },
+   "squirrel": {
+    "n": 219,
+    "acc": {
+     "sn_closed": 73.5,
+     "sn_asis": 73.5,
+     "sn_closed_top": 42.0,
+     "app_0.3": 95.4,
+     "app_0.2": 95.0,
+     "app_0.1": 95.0,
+     "app_0.0": 94.5,
+     "top_0.3": 89.5,
+     "top_0.2": 90.0,
+     "top_0.1": 90.0,
+     "top_0.0": 90.4
+    },
+    "cnt": {
+     "sn_closed": 161,
+     "sn_asis": 161,
+     "sn_closed_top": 92,
+     "app_0.3": 209,
+     "app_0.2": 208,
+     "app_0.1": 208,
+     "app_0.0": 207,
+     "top_0.3": 196,
+     "top_0.2": 197,
+     "top_0.1": 197,
+     "top_0.0": 198
+    },
+    "diff_app": [
+     -0.91,
+     -2.3,
+     0.0,
+     68
+    ],
+    "diff_top": [
+     0.91,
+     0.0,
+     2.42,
+     68
+    ],
+    "sn_true_closed": 0.41,
+    "sn_true_asis": 0.406,
+    "head_true": 0.865,
+    "head_top_true": 0.873,
+    "sn_listed": 0.99,
+    "up": 0,
+    "down": 2,
+    "ans_03": {
+     "squirrel": 209,
+     "civet": 2,
+     "empty": 2,
+     "hare": 2,
+     "(low)": 1,
+     "macaque": 1,
+     "bird": 1,
+     "marten": 1
+    },
+    "ans_00": {
+     "squirrel": 207,
+     "bird": 2,
+     "macaque": 2,
+     "empty": 2,
+     "hare": 2,
+     "(low)": 1,
+     "civet": 1,
+     "marten": 1,
+     "weasel": 1
+    },
+    "ans_sn": {
+     "squirrel": 161,
+     "empty": 46,
+     "(low)": 9,
+     "rodent": 3
+    },
+    "ans_sn_asis": {
+     "squirrel": 161,
+     "empty": 44,
+     "(low)": 11,
+     "rodent": 3
+    }
+   },
+   "weasel": {
+    "n": 211,
+    "acc": {
+     "sn_closed": 9.5,
+     "sn_asis": 6.6,
+     "sn_closed_top": 6.2,
+     "app_0.3": 68.7,
+     "app_0.2": 70.6,
+     "app_0.1": 72.5,
+     "app_0.0": 71.6,
+     "top_0.3": 62.6,
+     "top_0.2": 64.5,
+     "top_0.1": 65.9,
+     "top_0.0": 68.7
+    },
+    "cnt": {
+     "sn_closed": 20,
+     "sn_asis": 14,
+     "sn_closed_top": 13,
+     "app_0.3": 145,
+     "app_0.2": 149,
+     "app_0.1": 153,
+     "app_0.0": 151,
+     "top_0.3": 132,
+     "top_0.2": 136,
+     "top_0.1": 139,
+     "top_0.0": 145
+    },
+    "diff_app": [
+     2.84,
+     -1.08,
+     8.24,
+     62
+    ],
+    "diff_top": [
+     6.16,
+     2.86,
+     9.36,
+     62
+    ],
+    "sn_true_closed": 0.109,
+    "sn_true_asis": 0.084,
+    "head_true": 0.517,
+    "head_top_true": 0.526,
+    "sn_listed": 0.847,
+    "up": 13,
+    "down": 7,
+    "ans_03": {
+     "weasel": 145,
+     "marten": 25,
+     "squirrel": 14,
+     "(low)": 6,
+     "bird": 5,
+     "empty": 5,
+     "rodent": 4,
+     "hare": 3,
+     "badger": 1,
+     "civet": 1,
+     "raccoon": 1,
+     "macaque": 1
+    },
+    "ans_00": {
+     "weasel": 151,
+     "marten": 26,
+     "squirrel": 13,
+     "hare": 5,
+     "bird": 4,
+     "rodent": 3,
+     "empty": 3,
+     "(low)": 2,
+     "badger": 2,
+     "macaque": 1,
+     "civet": 1
+    },
+    "ans_sn": {
+     "rodent": 75,
+     "marten": 35,
+     "empty": 34,
+     "weasel": 20,
+     "(low)": 20,
+     "squirrel": 17,
+     "bird": 7,
+     "boar": 2,
+     "raccoon": 1
+    },
+    "ans_sn_asis": {
+     "rodent": 55,
+     "(low)": 49,
+     "empty": 33,
+     "marten": 23,
+     "squirrel": 17,
+     "weasel": 14,
+     "mammal": 10,
+     "bird": 5,
+     "raccoon": 2,
+     "boar": 2,
+     "fox": 1
+    }
+   },
+   "marten": {
+    "n": 203,
+    "acc": {
+     "sn_closed": 78.3,
+     "sn_asis": 71.4,
+     "sn_closed_top": 59.1,
+     "app_0.3": 90.1,
+     "app_0.2": 91.1,
+     "app_0.1": 89.2,
+     "app_0.0": 88.7,
+     "top_0.3": 79.3,
+     "top_0.2": 79.8,
+     "top_0.1": 80.8,
+     "top_0.0": 80.8
+    },
+    "cnt": {
+     "sn_closed": 159,
+     "sn_asis": 145,
+     "sn_closed_top": 120,
+     "app_0.3": 183,
+     "app_0.2": 185,
+     "app_0.1": 181,
+     "app_0.0": 180,
+     "top_0.3": 161,
+     "top_0.2": 162,
+     "top_0.1": 164,
+     "top_0.0": 164
+    },
+    "diff_app": [
+     -1.48,
+     -5.33,
+     2.21,
+     58
+    ],
+    "diff_top": [
+     1.48,
+     -1.27,
+     3.95,
+     58
+    ],
+    "sn_true_closed": 0.45,
+    "sn_true_asis": 0.378,
+    "head_true": 0.702,
+    "head_top_true": 0.712,
+    "sn_listed": 0.859,
+    "up": 5,
+    "down": 8,
+    "ans_03": {
+     "marten": 183,
+     "raccoon": 5,
+     "weasel": 5,
+     "squirrel": 3,
+     "bird": 1,
+     "civet": 1,
+     "cat": 1,
+     "empty": 1,
+     "rodent": 1,
+     "(low)": 1,
+     "boar": 1
+    },
+    "ans_00": {
+     "marten": 180,
+     "weasel": 8,
+     "civet": 4,
+     "raccoon": 3,
+     "squirrel": 2,
+     "raccoon_dog": 2,
+     "bird": 1,
+     "hare": 1,
+     "rodent": 1,
+     "badger": 1
+    },
+    "ans_sn": {
+     "marten": 159,
+     "empty": 13,
+     "rodent": 9,
+     "squirrel": 6,
+     "(low)": 5,
+     "raccoon": 4,
+     "badger": 2,
+     "civet": 2,
+     "boar": 1,
+     "bird": 1,
+     "cat": 1
+    },
+    "ans_sn_asis": {
+     "marten": 145,
+     "(low)": 18,
+     "empty": 13,
+     "squirrel": 7,
+     "rodent": 6,
+     "raccoon": 5,
+     "fox": 4,
+     "mammal": 2,
+     "bird": 1,
+     "cat": 1,
+     "badger": 1
+    }
+   },
+   "rodent": {
+    "n": 198,
+    "acc": {
+     "sn_closed": 69.7,
+     "sn_asis": 35.4,
+     "sn_closed_top": 33.3,
+     "app_0.3": 92.4,
+     "app_0.2": 91.9,
+     "app_0.1": 91.9,
+     "app_0.0": 92.4,
+     "top_0.3": 82.8,
+     "top_0.2": 84.3,
+     "top_0.1": 84.3,
+     "top_0.0": 85.9
+    },
+    "cnt": {
+     "sn_closed": 138,
+     "sn_asis": 70,
+     "sn_closed_top": 66,
+     "app_0.3": 183,
+     "app_0.2": 182,
+     "app_0.1": 182,
+     "app_0.0": 183,
+     "top_0.3": 164,
+     "top_0.2": 167,
+     "top_0.1": 167,
+     "top_0.0": 170
+    },
+    "diff_app": [
+     0.0,
+     -1.44,
+     1.52,
+     84
+    ],
+    "diff_top": [
+     3.03,
+     0.53,
+     5.94,
+     84
+    ],
+    "sn_true_closed": 0.376,
+    "sn_true_asis": 0.266,
+    "head_true": 0.808,
+    "head_top_true": 0.826,
+    "sn_listed": 0.797,
+    "up": 1,
+    "down": 1,
+    "ans_03": {
+     "rodent": 183,
+     "empty": 9,
+     "(low)": 4,
+     "hare": 1,
+     "squirrel": 1
+    },
+    "ans_00": {
+     "rodent": 183,
+     "empty": 8,
+     "hare": 2,
+     "(low)": 1,
+     "bird": 1,
+     "deer": 1,
+     "marten": 1,
+     "squirrel": 1
+    },
+    "ans_sn": {
+     "rodent": 138,
+     "empty": 45,
+     "(low)": 15
+    },
+    "ans_sn_asis": {
+     "rodent": 70,
+     "(low)": 65,
+     "empty": 34,
+     "mammal": 29
+    }
+   },
+   "dog": {
+    "n": 17,
+    "acc": {
+     "sn_closed": 100.0,
+     "sn_asis": 94.1,
+     "sn_closed_top": 100.0,
+     "app_0.3": 100.0,
+     "app_0.2": 100.0,
+     "app_0.1": 100.0,
+     "app_0.0": 100.0,
+     "top_0.3": 100.0,
+     "top_0.2": 100.0,
+     "top_0.1": 100.0,
+     "top_0.0": 100.0
+    },
+    "cnt": {
+     "sn_closed": 17,
+     "sn_asis": 16,
+     "sn_closed_top": 17,
+     "app_0.3": 17,
+     "app_0.2": 17,
+     "app_0.1": 17,
+     "app_0.0": 17,
+     "top_0.3": 17,
+     "top_0.2": 17,
+     "top_0.1": 17,
+     "top_0.0": 17
+    },
+    "diff_app": [
+     0.0,
+     0.0,
+     0.0,
+     9
+    ],
+    "diff_top": [
+     0.0,
+     0.0,
+     0.0,
+     9
+    ],
+    "sn_true_closed": 0.816,
+    "sn_true_asis": 0.735,
+    "head_true": 0.825,
+    "head_top_true": 0.841,
+    "sn_listed": 0.886,
+    "up": 0,
+    "down": 0,
+    "ans_03": {
+     "dog": 17
+    },
+    "ans_00": {
+     "dog": 17
+    },
+    "ans_sn": {
+     "dog": 17
+    },
+    "ans_sn_asis": {
+     "dog": 16,
+     "fox": 1
+    }
+   },
+   "__animal__": {
+    "n": 3632,
+    "acc": {
+     "sn_closed": 73.3,
+     "sn_asis": 69.1,
+     "sn_closed_top": 64.0,
+     "app_0.3": 92.8,
+     "app_0.2": 93.2,
+     "app_0.1": 93.5,
+     "app_0.0": 93.8,
+     "top_0.3": 89.0,
+     "top_0.2": 89.6,
+     "top_0.1": 89.9,
+     "top_0.0": 90.6
+    },
+    "cnt": {
+     "sn_closed": 2663,
+     "sn_asis": 2510,
+     "sn_closed_top": 2323,
+     "app_0.3": 3369,
+     "app_0.2": 3386,
+     "app_0.1": 3395,
+     "app_0.0": 3408,
+     "top_0.3": 3231,
+     "top_0.2": 3255,
+     "top_0.1": 3266,
+     "top_0.0": 3289
+    },
+    "diff_app": [
+     1.07,
+     0.5,
+     1.65,
+     106
+    ],
+    "diff_top": [
+     1.6,
+     1.14,
+     2.05,
+     106
+    ],
+    "sn_true_closed": 0.555,
+    "sn_true_asis": 0.518,
+    "head_true": 0.827,
+    "head_top_true": 0.835,
+    "sn_listed": 0.906,
+    "up": 86,
+    "down": 47,
+    "ans_03": {
+     "raccoon": 296,
+     "bird": 295,
+     "boar": 265,
+     "muntjac": 261,
+     "macaque": 253,
+     "cat": 249,
+     "hare": 248,
+     "civet": 241,
+     "badger": 238,
+     "squirrel": 237,
+     "marten": 226,
+     "deer": 217,
+     "raccoon_dog": 200,
+     "rodent": 190,
+     "weasel": 153,
+     "empty": 28,
+     "dog": 18,
+     "(low)": 17
+    },
+    "ans_00": {
+     "bird": 295,
+     "raccoon": 266,
+     "muntjac": 261,
+     "macaque": 256,
+     "raccoon_dog": 252,
+     "hare": 248,
+     "civet": 247,
+     "boar": 246,
+     "badger": 240,
+     "cat": 238,
+     "squirrel": 236,
+     "deer": 224,
+     "marten": 221,
+     "rodent": 188,
+     "weasel": 164,
+     "dog": 22,
+     "empty": 22,
+     "(low)": 6
+    },
+    "ans_sn": {
+     "raccoon": 361,
+     "empty": 295,
+     "boar": 293,
+     "rodent": 271,
+     "cat": 270,
+     "muntjac": 257,
+     "marten": 253,
+     "badger": 234,
+     "macaque": 233,
+     "civet": 217,
+     "squirrel": 206,
+     "bird": 203,
+     "deer": 194,
+     "hare": 192,
+     "(low)": 97,
+     "weasel": 22,
+     "dog": 19,
+     "raccoon_dog": 15
+    },
+    "ans_sn_asis": {
+     "raccoon": 363,
+     "boar": 281,
+     "cat": 268,
+     "empty": 266,
+     "muntjac": 250,
+     "badger": 232,
+     "macaque": 231,
+     "(low)": 215,
+     "squirrel": 206,
+     "marten": 206,
+     "civet": 205,
+     "bird": 195,
+     "hare": 191,
+     "rodent": 164,
+     "deer": 147,
+     "mammal": 131,
+     "fox": 31,
+     "dog": 17,
+     "raccoon_dog": 16,
+     "weasel": 14,
+     "serow": 2,
+     "bear": 1
+    }
+   },
+   "empty": {
+    "n": 397,
+    "acc": {
+     "sn_closed": 95.2,
+     "sn_asis": 93.5,
+     "sn_closed_top": 99.0,
+     "app_0.3": 75.8,
+     "app_0.2": 74.1,
+     "app_0.1": 72.5,
+     "app_0.0": 71.3,
+     "top_0.3": 96.7,
+     "top_0.2": 95.2,
+     "top_0.1": 94.0,
+     "top_0.0": 93.5
+    },
+    "cnt": {
+     "sn_closed": 378,
+     "sn_asis": 371,
+     "sn_closed_top": 393,
+     "app_0.3": 301,
+     "app_0.2": 294,
+     "app_0.1": 288,
+     "app_0.0": 283,
+     "top_0.3": 384,
+     "top_0.2": 378,
+     "top_0.1": 373,
+     "top_0.0": 371
+    },
+    "diff_app": [
+     -4.53,
+     -6.39,
+     -2.76,
+     113
+    ],
+    "diff_top": [
+     -3.27,
+     -5.25,
+     -1.64,
+     113
+    ],
+    "sn_true_closed": 0.959,
+    "sn_true_asis": 0.946,
+    "head_true": 0.848,
+    "head_top_true": 0.893,
+    "sn_listed": 0.983,
+    "up": 1,
+    "down": 19,
+    "ans_03": {
+     "empty": 301,
+     "(low)": 29,
+     "squirrel": 24,
+     "bird": 17,
+     "marten": 5,
+     "badger": 4,
+     "macaque": 3,
+     "muntjac": 3,
+     "raccoon": 3,
+     "dog": 2,
+     "boar": 2,
+     "hare": 1,
+     "rodent": 1,
+     "raccoon_dog": 1,
+     "deer": 1
+    },
+    "ans_00": {
+     "empty": 283,
+     "squirrel": 30,
+     "(low)": 24,
+     "bird": 20,
+     "marten": 7,
+     "muntjac": 6,
+     "badger": 6,
+     "macaque": 5,
+     "civet": 3,
+     "boar": 3,
+     "deer": 3,
+     "dog": 2,
+     "hare": 1,
+     "cat": 1,
+     "rodent": 1,
+     "raccoon": 1,
+     "raccoon_dog": 1
+    },
+    "ans_sn": {
+     "empty": 378,
+     "(low)": 6,
+     "bird": 3,
+     "rodent": 2,
+     "raccoon": 2,
+     "boar": 2,
+     "badger": 1,
+     "squirrel": 1,
+     "cat": 1,
+     "marten": 1
+    },
+    "ans_sn_asis": {
+     "empty": 371,
+     "(low)": 14,
+     "bird": 3,
+     "mammal": 2,
+     "raccoon": 2,
+     "boar": 2,
+     "badger": 1,
+     "squirrel": 1,
+     "marten": 1
+    }
+   },
+   "__all__": {
+    "n": 4029,
+    "acc": {
+     "sn_closed": 75.5,
+     "sn_asis": 71.5,
+     "sn_closed_top": 67.4,
+     "app_0.3": 91.1,
+     "app_0.2": 91.3,
+     "app_0.1": 91.4,
+     "app_0.0": 91.6,
+     "top_0.3": 89.7,
+     "top_0.2": 90.2,
+     "top_0.1": 90.3,
+     "top_0.0": 90.8
+    },
+    "cnt": {
+     "sn_closed": 3041,
+     "sn_asis": 2881,
+     "sn_closed_top": 2716,
+     "app_0.3": 3670,
+     "app_0.2": 3680,
+     "app_0.1": 3683,
+     "app_0.0": 3691,
+     "top_0.3": 3615,
+     "top_0.2": 3633,
+     "top_0.1": 3639,
+     "top_0.0": 3660
+    },
+    "diff_app": [
+     0.52,
+     -0.02,
+     1.06,
+     140
+    ],
+    "diff_top": [
+     1.12,
+     0.68,
+     1.55,
+     140
+    ],
+    "sn_true_closed": 0.595,
+    "sn_true_asis": 0.56,
+    "head_true": 0.829,
+    "head_top_true": 0.841,
+    "sn_listed": 0.914,
+    "up": 87,
+    "down": 66,
+    "ans_03": {
+     "empty": 329,
+     "bird": 312,
+     "raccoon": 299,
+     "boar": 267,
+     "muntjac": 264,
+     "squirrel": 261,
+     "macaque": 256,
+     "cat": 249,
+     "hare": 249,
+     "badger": 242,
+     "civet": 241,
+     "marten": 231,
+     "deer": 218,
+     "raccoon_dog": 201,
+     "rodent": 191,
+     "weasel": 153,
+     "(low)": 46,
+     "dog": 20
+    },
+    "ans_00": {
+     "bird": 315,
+     "empty": 305,
+     "raccoon": 267,
+     "muntjac": 267,
+     "squirrel": 266,
+     "macaque": 261,
+     "raccoon_dog": 253,
+     "civet": 250,
+     "hare": 249,
+     "boar": 249,
+     "badger": 246,
+     "cat": 239,
+     "marten": 228,
+     "deer": 227,
+     "rodent": 189,
+     "weasel": 164,
+     "(low)": 30,
+     "dog": 24
+    },
+    "ans_sn": {
+     "empty": 673,
+     "raccoon": 363,
+     "boar": 295,
+     "rodent": 273,
+     "cat": 271,
+     "muntjac": 257,
+     "marten": 254,
+     "badger": 235,
+     "macaque": 233,
+     "civet": 217,
+     "squirrel": 207,
+     "bird": 206,
+     "deer": 194,
+     "hare": 192,
+     "(low)": 103,
+     "weasel": 22,
+     "dog": 19,
+     "raccoon_dog": 15
+    },
+    "ans_sn_asis": {
+     "empty": 637,
+     "raccoon": 365,
+     "boar": 283,
+     "cat": 268,
+     "muntjac": 250,
+     "badger": 233,
+     "macaque": 231,
+     "(low)": 229,
+     "squirrel": 207,
+     "marten": 207,
+     "civet": 205,
+     "bird": 198,
+     "hare": 191,
+     "rodent": 164,
+     "deer": 147,
+     "mammal": 133,
+     "fox": 31,
+     "dog": 17,
+     "raccoon_dog": 16,
+     "weasel": 14,
+     "serow": 2,
+     "bear": 1
+    }
+   }
+  }
+ }
+}

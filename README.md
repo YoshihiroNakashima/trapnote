@@ -72,6 +72,7 @@ Once you have verified enough videos, "Retrain" adapts the AI to your study site
 | [User manual](docs/manual.md) ([Japanese](docs/manual.ja.md)) | How to use the app: installation, verification, retraining, export, keyboard shortcuts and troubleshooting |
 | [Technical notes](docs/technical-notes.md) (in Japanese) | Thresholds of the judgement rules, procedures of the research edition, storage format, program structure and testing |
 | [確認事項.md](確認事項.md) (in Japanese) | Change log |
+| [worked_example/](worked_example/README.md) | Material of the worked example in the paper: analysis code, lists of the evaluation videos with the output of each model, and the reproducibility scripts |
 
 ## Citation
 
