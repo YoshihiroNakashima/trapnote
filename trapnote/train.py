@@ -1220,7 +1220,12 @@ def finetune(model, device: str, samples: list, paths: dict, n_classes: int, opt
     cnt = np.bincount([s[2] for s in samples], minlength=n_classes).astype(np.float64)
     cw = torch.tensor(np.sqrt(cnt.sum() / (n_classes * np.maximum(cnt, 1))), dtype=torch.float32, device=device)
     use_amp = device == "cuda"
-    scaler = torch.cuda.amp.GradScaler() if use_amp else None
+    scaler = None
+    if use_amp:
+        try:
+            scaler = torch.amp.GradScaler("cuda")           # torch 2.3 以降の書き方。torch.cuda.amp.GradScaler() は、やめる予定で、FutureWarning が出る（確認事項 160 回目）
+        except (AttributeError, TypeError):
+            scaler = torch.cuda.amp.GradScaler()
     model.eval()                     # BatchNorm の統計は動かさない（少ないデータで壊さないため）
     hist = []
     best = (float("inf"), None, 0)

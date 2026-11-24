@@ -1,0 +1,182 @@
+# TrapNote を、説明書きのとおりに入れて、本物のモデル（MegaDetector と SpeciesNet）で、はじめから終わりまで動かす。
+#   Windows: インストーラを作り、画面なしで入れる（専用の Miniforge と環境 trapnote ができる）
+#   macOS と Linux: README の手順（conda env create と pip install --no-deps megadetector）
+# 動かす中身は tests/e2e/run_e2e.py（プロジェクトの作成、自動判定、再生、確認、追加学習、書き出し、再現用のスクリプト、ふつうの起動）。
+# 1 回に 20〜40 分かかるので、main に上げるたびには流さない。版のタグ（v*）を付けたときと、手で流したときに動く。
+# 試験用の写真は、SpeciesNet のリポジトリ（google/cameratrapai）の test_data（CDLA-Permissive-1.0）を、その場で取ってくる（このリポジトリには入れない）。
+# GitHub の計算機には GPU がないので、CPU で動かす。
+# Intel の Mac は入れていない: PyTorch 2.6 以降が Intel の Mac 用に配られていないので、環境を作れない（2026-11-24 に macos-15-intel で確かめた。
+#   conda env create が「No matching distribution found for torch>=2.6」で止まる）。
+name: install and run
+
+on:
+  push:
+    branches: ["ci/**"]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PHOTOS_REF: 2effbee40d2430cbad24711dfe72e0e707a50fcd      # google/cameratrapai のコミット（2026-11-16）
+
+jobs:
+  windows:
+    name: installer (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, windows-2022]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get the test photographs
+        uses: actions/checkout@v4
+        with:
+          repository: google/cameratrapai
+          ref: ${{ env.PHOTOS_REF }}
+          path: photos
+          sparse-checkout: test_data
+
+      - name: Build the installer
+        shell: pwsh
+        run: |
+          python installer/build_installer.py --out dist
+          Get-ChildItem dist\*.exe | Format-Table Name, Length
+
+      - name: Install TrapNote with the installer (no interaction)
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem dist\TrapNote-Setup-*.exe | Select-Object -First 1).FullName
+          $p = Start-Process -FilePath $exe -ArgumentList '/silent', '/dir=C:\TrapNote', '/ownconda', '/lang=en' -PassThru
+          $null = $p.Handle
+          $log = 'C:\TrapNote\install.log'
+          $n = 0
+          while (-not $p.HasExited) {
+            Start-Sleep -Seconds 15
+            if (Test-Path $log) {
+              $lines = @(Get-Content $log -Encoding UTF8)
+              if ($lines.Count -gt $n) { $lines[$n..($lines.Count - 1)]; $n = $lines.Count }
+            }
+          }
+          if (Test-Path $log) {
+            $lines = @(Get-Content $log -Encoding UTF8)
+            if ($lines.Count -gt $n) { $lines[$n..($lines.Count - 1)] }
+          }
+          Write-Host "exit code of the installer: $($p.ExitCode)"
+          if ($p.ExitCode -ne 0) { throw "The installer failed" }
+
+      - name: Show what was installed
+        shell: pwsh
+        run: |
+          $py = 'C:\TrapNote\miniforge3\envs\trapnote\python.exe'
+          & $py --version
+          & $py -m pip list
+          $lnk = Join-Path ([Environment]::GetFolderPath('Desktop')) 'TrapNote.lnk'
+          if (-not (Test-Path $lnk)) { throw "The desktop icon was not created: $lnk" }
+          Write-Host "desktop icon: $lnk"
+          Get-PSDrive C | Format-Table Name, Used, Free
+
+      - name: Run TrapNote from start to finish with the real models (CPU)
+        shell: pwsh
+        run: |
+          $py = 'C:\TrapNote\miniforge3\envs\trapnote\python.exe'
+          & $py tests\e2e\run_e2e.py --app C:\TrapNote --work C:\e2e --start-check `
+            --image "Ursus americanus=photos\test_data\american_black_bear.jpg" `
+            --image "Bos taurus=photos\test_data\domestic_cattle.jpg" `
+            --image "Canis familiaris=photos\test_data\domestic_dog.jpg" `
+            --image "Leopardus pardalis=photos\test_data\ocelot.jpg" `
+            --image "empty=photos\test_data\blank.jpg" `
+            --image "human=photos\test_data\human.jpg" `
+            --image "vehicle=photos\test_data\vehicle.jpg"
+
+      - name: Keep the logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-${{ matrix.os }}
+          if-no-files-found: ignore
+          path: |
+            C:\TrapNote\install.log
+            C:\e2e\server.log
+            C:\e2e\appdata\app.log
+            C:\e2e\*.csv
+            C:\e2e\*.py
+
+  unix:
+    name: README steps (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, macos-15, ubuntu-latest, ubuntu-22.04]
+    defaults:
+      run:
+        shell: bash
+    env:
+      PIP_NO_CACHE_DIR: "1"          # 取ってきたファイルの控えを残さない（GitHub の計算機のディスクを空けておくため。入るものは変わらない）
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get the test photographs
+        uses: actions/checkout@v4
+        with:
+          repository: google/cameratrapai
+          ref: ${{ env.PHOTOS_REF }}
+          path: photos
+          sparse-checkout: test_data
+
+      - name: Install conda (Miniforge)
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/miniforge.sh" "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh"
+          bash "$RUNNER_TEMP/miniforge.sh" -b -p "$HOME/miniforge3"
+          df -h "$HOME" | tail -1
+
+      - name: Install TrapNote as written in the README
+        run: |
+          source "$HOME/miniforge3/etc/profile.d/conda.sh"
+          conda env create -f env/trapnote-env.yml
+          conda activate trapnote
+          pip install --no-deps megadetector==10.0.28
+
+      - name: Show what was installed
+        run: |
+          source "$HOME/miniforge3/etc/profile.d/conda.sh"
+          conda activate trapnote
+          python --version
+          pip list
+          python -c "import torch; print('torch', torch.__version__, '| CUDA', torch.cuda.is_available(), '| MPS', bool(getattr(torch.backends, 'mps', None) and torch.backends.mps.is_available()))"
+          df -h "$HOME" | tail -1
+
+      # GitHub の Mac は、GPU（MPS）が使えず、メモリーも少ない（7 GB）ので、CPU での微調整（方式 B）に 10〜15 分、そのモデルでの判定に 1 本 15 秒ほどかかる
+      # （2026-11-24 に、macOS 15 と 26 で最後まで動くことは確かめた）。ふだんは、Mac では微調整を省く。Windows と Linux では行う
+      - name: Run TrapNote from start to finish with the real models (CPU)
+        run: |
+          source "$HOME/miniforge3/etc/profile.d/conda.sh"
+          conda activate trapnote
+          EXTRA=""
+          if [ "$RUNNER_OS" = "macOS" ]; then EXTRA="--skip-finetune"; fi
+          python tests/e2e/run_e2e.py --work "$RUNNER_TEMP/e2e" --start-check $EXTRA \
+            --image "Ursus americanus=photos/test_data/american_black_bear.jpg" \
+            --image "Bos taurus=photos/test_data/domestic_cattle.jpg" \
+            --image "Canis familiaris=photos/test_data/domestic_dog.jpg" \
+            --image "Leopardus pardalis=photos/test_data/ocelot.jpg" \
+            --image "empty=photos/test_data/blank.jpg" \
+            --image "human=photos/test_data/human.jpg" \
+            --image "vehicle=photos/test_data/vehicle.jpg"
+
+      - name: Keep the logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-${{ matrix.os }}
+          if-no-files-found: ignore
+          path: |
+            ${{ runner.temp }}/e2e/server.log
+            ${{ runner.temp }}/e2e/appdata/app.log
+            ${{ runner.temp }}/e2e/*.csv
+            ${{ runner.temp }}/e2e/*.py

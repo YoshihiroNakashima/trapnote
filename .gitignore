@@ -10,6 +10,8 @@ build/
 *.log
 # 試験で作ったもの
 shots/
+.coverage
+.pytest_cache/
 # インストーラ（TrapNote-Setup.exe）が入れる Miniforge と、その記録
 miniforge3/
 install.log

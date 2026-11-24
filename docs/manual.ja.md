@@ -2,7 +2,7 @@
 
 # TrapNote 取扱説明書
 
-この説明書は、TrapNote v0.4.0 の公開版（ふつうのアイコンから起動する版）の使い方をまとめたものです。
+この説明書は、TrapNote v0.4.1 の公開版（ふつうのアイコンから起動する版）の使い方をまとめたものです。
 はじめての方は 1〜4 章を順に読めば、動画を開いて CSV に書き出すところまで進めます。5 章からあとは、必要になったときに読んでください。
 
 ## 目次
@@ -53,7 +53,7 @@ AI を使わずに、目視だけで記録することもできます。
 
 | 項目 | 内容 |
 |---|---|
-| OS | Windows（インストーラあり）。macOS はコマンドで入れます |
+| OS | Windows（インストーラあり）。macOS（Apple シリコン）と Linux は、コマンドで入れます。Intel の Mac では使えません（いまの PyTorch が、Intel の Mac 用に配られていないため） |
 | ブラウザ | Edge または Chrome |
 | ディスク | 約 10 GB（Python の環境と AI のモデル） |
 | ネットワーク | インストールのときと、はじめて AI を使うときだけ |
@@ -71,9 +71,9 @@ AI を使わずに、目視だけで記録することもできます。
 
 はじめて「自動判定」か「検出のみ」を使うときに、AI のモデル（合わせて 300 MB ほど）を取ってきます。このときもインターネットが要ります。
 
-### 2.3 macOS に入れる
+### 2.3 macOS と Linux に入れる
 
-conda（Miniforge など）が入っている状態で、ターミナルから次を実行します。
+macOS では、Apple シリコンの Mac（M1 以降）が要ります。conda が入っている状態で（[Miniforge](https://github.com/conda-forge/miniforge) で足ります）、ターミナルから次を実行します。
 
 ```
 git clone https://github.com/YoshihiroNakashima/trapnote.git
@@ -84,11 +84,16 @@ pip install --no-deps megadetector==10.0.28
 python app.py
 ```
 
-2 回目からは `conda activate trapnote` のあと `python app.py` で起動します。
+2 回目からは、`trapnote` のフォルダで、`conda activate trapnote` のあと `python app.py` で起動します。
+
+- macOS では、Chrome か Edge が入っていれば、専用の窓に画面が開きます。入っていないときと、Linux では、既定のブラウザに開きます。
+- フォルダを選ぶ窓が出ないとき（デスクトップのない計算機など）は、「プロジェクトを開く」の横の欄にフォルダのパスを貼り付けて、Enter を押します。
+- ほかの版（[15 章](#15-3-つの版)）で起動するには、`python app.py` に `--edition lite` か `--edition research` を付けます。
+- 「自動判定」の窓に、GPU を使えるかどうかが出ます。「CUDA ✓」は NVIDIA の GPU、「Apple MPS ✓」は Apple シリコンの Mac の GPU、「CUDA ✗」は CPU で動くことを表します。
 
 ### 2.4 起動と終了
 
-- **起動**: デスクトップの「TrapNote」のアイコンをダブルクリックします。専用の窓に画面が開きます。
+- **起動**: Windows では、デスクトップの「TrapNote」のアイコンをダブルクリックします。専用の窓に画面が開きます。macOS と Linux では、ターミナルから起動します（[2.3](#23-macos-と-linux-に入れる)）。
 - **終了**: 画面の右上の「終了」を押します。窓を閉じるだけでは、プログラムは裏で動いたままです（もう一度アイコンを押せば、画面がまた開きます）。
 - 画面の言語は、右上の「EN」（英語の画面では「日本語」）か、「設定」の「言語」で切り替えます。
 
@@ -96,6 +101,7 @@ python app.py
 
 - **新しい版にする**: 新しい `TrapNote-Setup-….exe` を実行して、同じフォルダを指定します。プログラムだけが入れ替わり、設定、モデル、これまでの判定はそのまま残ります。
 - **消す**: デスクトップのアイコンと、入れたフォルダ（`C:\TrapNote`）を消します。動画のフォルダの中の `TrapNote` フォルダ（判定の結果）は、自分で消さない限り残ります。
+- **macOS と Linux**: 新しい版にするには、`trapnote` のフォルダで `git pull` を実行します。消すには、`trapnote` のフォルダを消し、`conda env remove -n trapnote` で Python の環境を消します。
 - **うまく入らないとき**: [16 章](#16-困ったとき) を見てください。
 
 ---
@@ -703,11 +709,12 @@ TrapNote には、同じプログラムを使う 3 つの版があります。�
 
 | 版 | 起動のしかた | 内容 |
 |---|---|---|
-| 公開版 | 「TrapNote」のアイコン（`起動.bat`） | この説明書の内容 |
-| Lite | 「TrapNote Lite」のアイコン（`起動（Lite）.bat`） | 検出（MegaDetector）と目視の確認まで。種の AI、一致率、追加学習はありません |
-| 研究用 | `起動（研究用）.bat` | 公開版に加えて、大量の動画からの無作為の取り出し、評価用の組を使った正答率の測定など。手順は [詳細仕様と開発メモ](technical-notes.md) にあります |
+| 公開版 | 「TrapNote」のアイコン（`起動.bat`）、または `python app.py` | この説明書の内容 |
+| Lite | 「TrapNote Lite」のアイコン（`起動（Lite）.bat`）、または `python app.py --edition lite` | 検出（MegaDetector）と目視の確認まで。種の AI、一致率、追加学習はありません |
+| 研究用 | `起動（研究用）.bat`、または `python app.py --edition research` | 公開版に加えて、大量の動画からの無作為の取り出し、評価用の組を使った正答率の測定など。手順は [詳細仕様と開発メモ](technical-notes.md) にあります |
 
 Lite のアイコンは、インストールのときに「TrapNote Lite のアイコンも作る」にチェックを付けるとできます。
+`python app.py` で始まる命令は、入れたフォルダで、TrapNote の Python の環境を使って実行します（Windows では、ふつうは、入れたフォルダの `miniforge3\envs\trapnote\python.exe`。macOS と Linux では、`conda activate trapnote` のあと）。`.bat` のファイルは、日本語の Windows 用です。
 別の版が動いているときに起動すると、処理が走っていなければ、止めてから起動し直します。処理が走っているときは止めずに、その旨を知らせます。
 
 ---
@@ -718,6 +725,7 @@ Lite のアイコンは、インストールのときに「TrapNote Lite のア�
 |---|---|
 | インストーラを実行すると「Windows によって PC が保護されました」と出る | 「詳細情報」→「実行」を押します（インストーラに署名を付けていないためです） |
 | インストールが途中で失敗する | 入れたフォルダの `install.log` に記録があります。前に作った Python の環境が原因と思われるときは、インストーラの「前に作った Python の環境（trapnote）があっても使わず、専用の Miniforge に作る」にチェックを付けて、やり直します |
+| Mac で、`conda env create` が「No matching distribution found for torch」と出て止まる | Intel の Mac です。TrapNote には、Apple シリコンの Mac（M1 以降）が要ります（いまの PyTorch が、Intel の Mac 用に配られていないため） |
 | 一覧に何も出ない | 件数の横の「絞り込み中 n ✕」を押して、絞り込みを外します。フォルダの木で別のフォルダを選んでいないかも確かめます |
 | 動画を足したのに一覧に出ない | 「更新」を押します |
 | 「自動判定」の窓に「torch / megadetector / speciesnet が入っていません」と出る | AI を動かす部品が入っていません。インストーラをもう一度実行してください |

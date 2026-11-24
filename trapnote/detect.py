@@ -131,6 +131,13 @@ def download(url: str, dst: str, progress=None, md5: str | None = None, stop=Non
     return dst
 
 
+def _quiet_pkg_resources() -> None:
+    """yolov5 が pkg_resources を読み込むときの警告（「やめる予定」の知らせ）を出さない。env/trapnote-env.yml で setuptools<81 にしてあるので動く。
+    利用者にできることがなく、再現用のスクリプトの出力に混ざるだけなので、消す（確認事項 160 回目）。ほかの警告は、そのまま出す"""
+    import warnings
+    warnings.filterwarnings("ignore", message="pkg_resources is deprecated as an API", category=UserWarning)
+
+
 # ---------- フレームの抜き出し ----------
 def frame_times(duration: float | None, first_sec: float, first_fps: float, interval: float) -> list[float]:
     d = float(duration or 0)
@@ -321,6 +328,7 @@ class ModelHub:
             path = self.md_file(real, progress, stop)
             self.loading = f"{real} を読み込み中"
             try:
+                _quiet_pkg_resources()
                 from megadetector.detection import run_detector
                 dev = self.ensure_device()
                 det = run_detector.load_detector(path, force_cpu=(dev == "cpu"))
@@ -351,6 +359,7 @@ class ModelHub:
             os.environ.setdefault("HF_HOME", os.path.join(self.models_dir, "huggingface"))
             self.loading = f"SpeciesNet {name} を取得・読み込み中"
             try:
+                _quiet_pkg_resources()
                 from speciesnet.classifier import SpeciesNetClassifier
                 dev = self.ensure_device()
                 clf = SpeciesNetClassifier(name, device=dev)

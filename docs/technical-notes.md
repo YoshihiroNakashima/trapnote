@@ -34,7 +34,8 @@
 - **Windows**: `起動.bat` をダブルクリック（conda 環境 `trapnote` の pythonw.exe で app.py を動かし、Edge か Chrome の専用の窓に画面を開く）。
   `ショートカットを作る.bat` を一度ダブルクリックすると、デスクトップに「TrapNote」のアイコンができる。
   環境がまだなければ `インストール.bat`（既にある conda で `env/trapnote-env.yml` から環境を作る）。
-- **Mac / コマンドから**: `conda env create -f env/trapnote-env.yml` → `conda activate trapnote` → `pip install --no-deps megadetector==10.0.28` のあと `python app.py`
+- **Mac（Apple シリコン）・Linux / コマンドから**: `conda env create -f env/trapnote-env.yml` → `conda activate trapnote` → `pip install --no-deps megadetector==10.0.28` のあと `python app.py`
+  （Intel の Mac では、環境を作れない。`env/trapnote-env.yml` の `torch>=2.6` にあたる PyTorch が、Intel の Mac 用に配られていないため。2026-11-24 に GitHub の Intel の Mac で確かめた）
   （megadetector は依存の衝突を避けるため依存なしで入れる。インストール.bat は同じことをする）。
   `--no-browser` で画面を開かず URL を出す。`--port 8766` でポートを変える。`--data-dir <フォルダ>` で設定・状態・ログの置き場所を変える（試験用）。
   `--project <フォルダ>` で起動時に開くプロジェクトを指定する。
@@ -579,7 +580,18 @@ ffprobe がない PC でのメタデータの取得は `tests/test_meta_no_ffpro
 種リストと種の登録は `tests/test_species_list.py`（はじめの中身、CSV のひな形と読み込み、SpeciesNet の種の一覧 = 小さな偽物のファイルで、API）、
 Windows の電力の絞り込みから外すことは `tests/test_power_throttling.py`（指定が「絞らない」になる、子プロセスには引き継がれない、設定 `full_speed`）、
 YOLO の書き出しは `tests/test_yolo_export.py`（OpenCV で作る小さな MJPEG と偽のモデルで、学習フレーム・全フレーム・名前の重なり・背景・class 番号）。
+フォルダの走査が OS による違いに左右されないことは `tests/test_scan_names.py`（フォルダの中のファイルを名前順に登録する、大文字と小文字だけが違う名前があっても登録が失敗しない、ルートと名前の前半が同じ隣のフォルダをルートの中とみなさない）。
 `bench/bench_catalog.py 1200000` で 120 万行の種名 CSV での読み込み・カタログ・当て直し・ランダム選択の時間を測れる。
+
+### Windows・macOS・Linux での確認（GitHub Actions。確認事項 160 回目）
+
+- `.github/workflows/tests.yml`: main に上げるたびに、Windows・macOS（Apple シリコン）・Linux で、`python -m pytest tests` と、偽のモデルでの通しの確認（下の台本に `--fake`）を流す。数分で終わる。
+- `.github/workflows/install.yml`: 説明書きのとおりに入れて、本物のモデル（MegaDetector と SpeciesNet）で、はじめから終わりまで動かす。Windows は、インストーラを作って画面なしで入れる（`/silent`）。
+  macOS と Linux は、README の手順（`conda env create` と `pip install --no-deps megadetector`）。1 回に 20〜40 分かかるので、版のタグ（`v*`）を付けたときと、手で流したときにだけ動く。GPU はないので、CPU で動かす。
+- 通しの確認の台本は `tests/e2e/run_e2e.py`（pytest の試験ではない）。画面が使うのと同じ HTTP の API で、プロジェクトの作成、種の登録、自動判定、サムネイルと再生、目視の確認、
+  追加学習（方式 A。本物のモデルでは方式 B も 1 エポック）、書き出し（CSV、MegaDetector の JSON、YOLO）、再現用のスクリプトの書き出しと実行、ふつうの起動（ブラウザを開く。Windows では pythonw.exe）を順に行う。
+  動画は、SpeciesNet のリポジトリ（google/cameratrapai）の試験用の写真（CDLA-Permissive-1.0）から、その場で作る（このリポジトリには入れていない）。フォルダの名前には、空白、日本語、アクセント付きの文字を入れてある。
+  判定のスクリプトは、同じ動画の写しで作った 2 つ目のプロジェクトにかけて、画面での自動判定と同じ結果になるかを見る。手元でも、`python tests/e2e/run_e2e.py --work <空のフォルダ> --fake` で流せる。
 
 ## ライセンス
 

@@ -22,7 +22,7 @@ AI（MegaDetector と SpeciesNet）が付けた種の候補を人が確認し、
 
 | 項目 | 内容 |
 |---|---|
-| OS | Windows（インストーラあり）。macOS はコマンドで入れます |
+| OS | Windows（インストーラあり）。macOS（Apple シリコン）と Linux は、コマンドで入れます。Intel の Mac では使えません |
 | ブラウザ | Edge または Chrome |
 | ディスク | 約 10 GB（Python の環境と AI のモデル） |
 | ネットワーク | インストールのときと、はじめて AI を使うときだけ |
@@ -37,7 +37,9 @@ AI（MegaDetector と SpeciesNet）が付けた種の候補を人が確認し、
 2. 入れるフォルダ（既定は `C:\TrapNote`）を確かめて、「インストール」を押します。10〜30 分かかります。
 3. デスクトップにできた「TrapNote」のアイコンから起動します。
 
-### macOS
+### macOS（Apple シリコン）と Linux
+
+conda が入っていなければ、先に入れます（[Miniforge](https://github.com/conda-forge/miniforge) で足ります）。そのあと、ターミナルで次を実行します。
 
 ```
 git clone https://github.com/YoshihiroNakashima/trapnote.git
@@ -47,6 +49,8 @@ conda activate trapnote
 pip install --no-deps megadetector==10.0.28
 python app.py
 ```
+
+2 回目からは、`trapnote` のフォルダで、`conda activate trapnote` のあと `python app.py` で起動します。
 
 新しい版への入れ替え、アンインストール、うまく入らないときの対処は、[取扱説明書の 2 章](docs/manual.ja.md#2-インストールと起動) にあります。
 
@@ -71,7 +75,7 @@ python app.py
 
 ## 引用
 
-論文を準備中です。公表までは、このリポジトリの URL と、使った版（v0.4.0 など）を記してください。
+論文を準備中です。公表までは、このリポジトリの URL と、使った版（v0.4.1 など）を記してください。
 
 ## ライセンス
 

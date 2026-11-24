@@ -1174,5 +1174,6 @@ class ScanJob(Job):
         res = scan_mod.register(project, found)
         self.total = res["found"]
         self.done = res["found"]
-        self.message = f"{res['found']} 件（追加 {res['added']}、変更 {res['changed']}、見つからない {res['gone']}）"
+        self.message = (f"{res['found']} 件（追加 {res['added']}、変更 {res['changed']}、見つからない {res['gone']}"
+                        + (f"、大文字と小文字だけが違う名前のため登録しない {res['same_name']}" if res.get("same_name") else "") + "）")
         ctx.after_scan(res)

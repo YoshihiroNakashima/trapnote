@@ -42,7 +42,11 @@ def kind_of(p) -> str | None:
 def rel_of(path: str, root: str) -> str:
     """ルートからの相対パス（/ 区切り）。ルートの外ならそのまま絶対パス（areacheck の staytime.rel_of と同じ）"""
     p, r = norm(path), norm(root).rstrip("/")
-    if key(p).startswith(key(r + "/")):
+    # 区切りを / にそろえ、終わりに / を付けてから比べる。key(r + "/") は終わりの / が落ちるので、そのまま前方一致で比べると、
+    # 名前の前半が同じ隣のフォルダ（ルートが /data/N18 のときの /data/N181220）まで「ルートの中」になっていた（確認事項 160 回目）
+    kp = key(p).replace("\\", "/").rstrip("/") + "/"
+    kr = key(r + "/").replace("\\", "/").rstrip("/") + "/"
+    if kp.startswith(kr):
         return p[len(r) + 1:]
     return p
 

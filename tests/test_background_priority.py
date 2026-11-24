@@ -32,8 +32,16 @@ def _in_thread(fn):
     return out["v"]
 
 
+def _need_normal_start():
+    """プロセスが、はじめから低いディスクの優先度で動いている所（GitHub の Windows の機械など）では、
+    「新しいスレッドは、ふつうの優先度」が成り立たないので、確かめを飛ばす"""
+    if WIN and paths.thread_io_priority() != paths.IO_PRIORITY_NORMAL:
+        pytest.skip("このプロセスは、ふつうのディスクの優先度で始まっていない")
+
+
 @pytest.mark.skipif(not WIN, reason="Windows だけ")
 def test_background_thread_lowers_io_priority():
+    _need_normal_start()
     def body():
         before = paths.thread_io_priority()
         on = paths.background_thread()
@@ -72,6 +80,7 @@ def _copy(tmp_path, name):
 
 
 def test_copy_many_lowers_only_while_viewing(tmp_path, monkeypatch):
+    _need_normal_start()
     # 人が見ていない（画面側の読み出しがない）: 写すスレッドは、ふつうの優先度のまま（下げたままだと、写す速さが半分になるため）
     monkeypatch.setattr(paths, "_fg_last", 0.0)
     assert _copy(tmp_path, "idle") == ({paths.IO_PRIORITY_NORMAL} if WIN else {None})

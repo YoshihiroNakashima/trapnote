@@ -264,6 +264,7 @@ class Runner:
         state = dict(phase="", last=0.0)
 
         def prog(phase, a, b, msg):
+            msg = {"準備中": "preparing"}.get(msg, msg)          # スクリプトの出力は英語
             now = time.time()
             if phase != state["phase"] or now - state["last"] > 10:
                 state.update(phase=phase, last=now)

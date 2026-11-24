@@ -22,7 +22,7 @@ The AI (MegaDetector and SpeciesNet) suggests a species for each video, a person
 
 | Item | Details |
 |---|---|
-| OS | Windows (installer available). On macOS, install from the command line |
+| OS | Windows (installer available). macOS on Apple silicon and Linux: install from the command line. Intel Macs are not supported |
 | Browser | Edge or Chrome |
 | Disk | About 10 GB (Python environment and AI models) |
 | Network | Only during installation and the first time the AI is used |
@@ -37,7 +37,9 @@ The AI (MegaDetector and SpeciesNet) suggests a species for each video, a person
 2. Check the install folder (default `C:\TrapNote`) and click "Install". Installation takes 10–30 minutes.
 3. Start TrapNote from the "TrapNote" icon on the desktop.
 
-### macOS
+### macOS (Apple silicon) and Linux
+
+Install conda first if you do not have it ([Miniforge](https://github.com/conda-forge/miniforge) is enough). Then run the following in a terminal:
 
 ```
 git clone https://github.com/YoshihiroNakashima/trapnote.git
@@ -47,6 +49,8 @@ conda activate trapnote
 pip install --no-deps megadetector==10.0.28
 python app.py
 ```
+
+From the second time on, start TrapNote with `conda activate trapnote` followed by `python app.py` in the `trapnote` folder.
 
 Updating to a new version, uninstalling and fixing installation problems are covered in [chapter 2 of the user manual](docs/manual.md#2-installing-and-starting).
 
@@ -71,7 +75,7 @@ Once you have verified enough videos, "Retrain" adapts the AI to your study site
 
 ## Citation
 
-A paper is in preparation. Until it is published, please cite the URL of this repository and the version you used (for example, v0.4.0).
+A paper is in preparation. Until it is published, please cite the URL of this repository and the version you used (for example, v0.4.1).
 
 ## License
 

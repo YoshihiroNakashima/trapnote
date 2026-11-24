@@ -2,7 +2,7 @@ English | [日本語](manual.ja.md)
 
 # TrapNote User Manual
 
-This manual describes how to use the public edition of TrapNote v0.4.0 (the edition started from the normal desktop icon).
+This manual describes how to use the public edition of TrapNote v0.4.1 (the edition started from the normal desktop icon).
 If you are new to TrapNote, read chapters 1–4 in order; they take you from opening your videos to exporting a CSV. Read chapter 5 onward when you need it.
 
 ## Contents
@@ -53,7 +53,7 @@ Good to know:
 
 | Item | Details |
 |---|---|
-| OS | Windows (installer available). On macOS, install from the command line |
+| OS | Windows (installer available). macOS on Apple silicon and Linux: install from the command line. Intel Macs are not supported, because current versions of PyTorch are not distributed for them |
 | Browser | Edge or Chrome |
 | Disk | About 10 GB (Python environment and AI models) |
 | Network | Only during installation and the first time the AI is used |
@@ -71,9 +71,9 @@ Good to know:
 
 The first time you use "Auto ID" or "Detect only", TrapNote downloads the AI models (about 300 MB in total). This also needs an internet connection.
 
-### 2.3 Installing on macOS
+### 2.3 Installing on macOS and Linux
 
-With conda (Miniforge or similar) installed, run the following in Terminal:
+On macOS, an Apple silicon Mac (M1 or later) is required. With conda installed ([Miniforge](https://github.com/conda-forge/miniforge) is enough), run the following in a terminal:
 
 ```
 git clone https://github.com/YoshihiroNakashima/trapnote.git
@@ -84,11 +84,16 @@ pip install --no-deps megadetector==10.0.28
 python app.py
 ```
 
-From the second time on, start TrapNote with `conda activate trapnote` followed by `python app.py`.
+From the second time on, start TrapNote with `conda activate trapnote` followed by `python app.py` in the `trapnote` folder.
+
+- On macOS, the screen opens in its own window if Chrome or Edge is installed; otherwise, and on Linux, it opens in the default browser.
+- If no window for choosing a folder appears (for example, on a computer without a desktop), paste the path of the folder into the box next to "Open project" and press Enter.
+- To start another edition ([chapter 15](#15-the-three-editions)), add `--edition lite` or `--edition research` to `python app.py`.
+- The "Auto ID" window shows whether a GPU will be used: "CUDA ✓" for an NVIDIA GPU, "Apple MPS ✓" for the GPU of an Apple silicon Mac, and "CUDA ✗" when TrapNote will run on the CPU.
 
 ### 2.4 Starting and quitting
 
-- **Start**: double-click the "TrapNote" icon on the desktop. The screen opens in its own window.
+- **Start**: on Windows, double-click the "TrapNote" icon on the desktop. The screen opens in its own window. On macOS and Linux, start TrapNote from a terminal ([2.3](#23-installing-on-macos-and-linux)).
 - **Quit**: click "Quit" at the top right of the screen. Closing the window alone leaves the program running in the background (clicking the icon again reopens the screen).
 - To switch the interface language, click "日本語" at the top right (it reads "EN" in the Japanese interface), or use "Language" in "Settings".
 
@@ -96,6 +101,7 @@ From the second time on, start TrapNote with `conda activate trapnote` followed 
 
 - **Update**: run the new `TrapNote-Setup-….exe` and choose the same folder. Only the program is replaced; your settings, models and existing judgements are kept.
 - **Uninstall**: delete the desktop icon and the install folder (`C:\TrapNote`). The `TrapNote` folders inside your video folders (the judgement results) remain unless you delete them yourself.
+- **On macOS and Linux**: to update, run `git pull` in the `trapnote` folder. To uninstall, delete the `trapnote` folder and remove the Python environment with `conda env remove -n trapnote`.
 - **If installation fails**: see [chapter 16](#16-troubleshooting).
 
 ---
@@ -703,11 +709,12 @@ TrapNote comes in three editions that run the same program. They share the same 
 
 | Edition | How to start | Contents |
 |---|---|---|
-| Public | The "TrapNote" icon (`起動.bat`) | Everything in this manual |
-| Lite | The "TrapNote Lite" icon (`起動（Lite）.bat`) | Detection (MegaDetector) and verification by eye. No species AI, agreement or retraining |
-| Research | `起動（研究用）.bat` | The public edition plus random sampling from large video collections, accuracy measurement with evaluation batches and more. The procedures are in the [technical notes](technical-notes.md) (in Japanese) |
+| Public | The "TrapNote" icon, or `python app.py` | Everything in this manual |
+| Lite | The "TrapNote Lite" icon, or `python app.py --edition lite` | Detection (MegaDetector) and verification by eye. No species AI, agreement or retraining |
+| Research | `python app.py --edition research` | The public edition plus random sampling from large video collections, accuracy measurement with evaluation batches and more. The procedures are in the [technical notes](technical-notes.md) (in Japanese) |
 
 The Lite icon is created when you tick "Also create an icon for TrapNote Lite (detection and manual verification only)" during installation.
+The commands are run in the install folder with TrapNote's Python environment (on Windows, usually `miniforge3\envs\trapnote\python.exe` in the install folder; on macOS and Linux, after `conda activate trapnote`). The files `起動.bat`, `起動（Lite）.bat` and `起動（研究用）.bat` in the install folder do the same on a Japanese-language Windows.
 If you start one edition while another is running, the running one is stopped and the new one starts, provided no job is running. If a job is running, it is not stopped and TrapNote tells you so.
 
 ---
@@ -718,6 +725,7 @@ If you start one edition while another is running, the running one is stopped an
 |---|---|
 | Running the installer shows "Windows protected your PC" | Click "More info" and then "Run anyway" (the installer is not signed) |
 | Installation fails part way | See `install.log` in the install folder. If an existing Python environment seems to be the cause, tick "Do not reuse an existing Python environment (trapnote); create it in a private Miniforge" in the installer and try again |
+| On a Mac, `conda env create` stops with "No matching distribution found for torch" | The Mac has an Intel processor. TrapNote needs an Apple silicon Mac (M1 or later), because current versions of PyTorch are not distributed for Intel Macs |
 | The list is empty | Click "Filters on n ✕" next to the count to clear the filters. Also check that a different folder is not selected in the folder tree |
 | Added videos do not appear in the list | Click "Rescan" |
 | The "Auto ID" window says "torch / megadetector / speciesnet are not installed" | The parts that run the AI are missing. Run the installer again |

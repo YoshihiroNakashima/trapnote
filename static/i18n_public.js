@@ -25,7 +25,7 @@ Object.assign(I18N.ja, {
   vx_convert_help: '変換は H.264 の MP4（GPU の NVENC があればそれで、なければ CPU で遅い）。AVI などは 1/5〜1/10 の大きさになる。すでに H.264 の MP4 である動画は、どれを選んでも元のまま写す',
   vx_list: '一覧の CSV', vx_list_note: '書き出し先に video_list.csv が必ず付く（書き出したファイル、元のフォルダとファイル名、調査回、地点、日時、種、個体数、確認の状態）',
   // ---- データの書き出しの窓（確認事項 148 回目: 形式ごとのカード。Camtrap DP 形式は、必須の項目が足りなければ書き出さない） ----
-  ex_run_csv: 'CSV を書き出す', ex_range_help: '範囲は、下のどの形式にも共通です。', ex_pick: '書き出す形式を選んでください',
+  ex_run_csv: 'CSV を書き出す', ex_range_help: '範囲は、下の形式に共通です。ただし、判定の索引と再現用のスクリプトは、範囲によらず、プロジェクトの全体が対象です。', ex_pick: '書き出す形式を選んでください',
   ex_csv_help: '判定の一覧を 1 つの CSV に書きます（1 行 = 1 対象 × 1 種）。Excel や R で開けます。ふだんは、これで足ります。',
   ex_badge_csv: 'CSV', ex_name_csv: 'CSV（表）', ex_use_csv: '判定の一覧。Excel や R で開く',
   ex_badge_dp: 'DP', ex_name_dp: 'Camtrap DP 形式', ex_use_dp: 'データの公開・共有のための標準の形式',
@@ -177,7 +177,7 @@ Object.assign(I18N.en, {
   vx_convert_no: 'Do not convert (keep as is)', vx_convert_unplayable: 'Only videos the browser cannot play (AVI etc.)', vx_convert_all: 'All videos',
   vx_convert_help: 'Converts to H.264 MP4 (NVENC on the GPU when available, otherwise slow on the CPU). AVI files shrink to 1/5–1/10. Videos that are already H.264 MP4 are copied as they are, whichever you choose',
   vx_list: 'List CSV', vx_list_note: 'video_list.csv is always written to the export folder (exported file, source folder and file name, survey round, station, date and time, species, count, verification status)',
-  ex_run_csv: 'Export CSV', ex_range_help: 'The range applies to every format below.', ex_pick: 'Choose a format to export',
+  ex_run_csv: 'Export CSV', ex_range_help: 'The range applies to the formats below, except the judgement index and the reproducibility script, which always cover the whole project.', ex_pick: 'Choose a format to export',
   ex_csv_help: 'Writes the judgements into one CSV (one row per item × species), readable in Excel or R. This is normally enough.',
   ex_badge_csv: 'CSV', ex_name_csv: 'CSV (table)', ex_use_csv: 'List of judgements for Excel or R',
   ex_badge_dp: 'DP', ex_name_dp: 'Camtrap DP format', ex_use_dp: 'Standard format for publishing and sharing data',

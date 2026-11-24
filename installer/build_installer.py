@@ -70,6 +70,11 @@ def make_icon(path: str) -> None:
 
 
 def main() -> int:
+    for stream in (sys.stdout, sys.stderr):     # 日本語の Windows でなくても（出力をファイルやパイプに回したときの文字コードが cp1252 など）、日本語の表示で止まらないように
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
     ap = argparse.ArgumentParser()
     ap.add_argument("--src", default=os.path.dirname(HERE))
     ap.add_argument("--out", default=None)

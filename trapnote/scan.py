@@ -31,7 +31,7 @@ def walk_media(root: str, skip_names, progress=None, cancel=None) -> list[tuple[
         if rel_dir == norm(dirpath):
             rel_dir = ""
         with os.scandir(dirpath) as it:
-            for e in it:
+            for e in sorted(it, key=lambda e: e.name):       # 名前順（OS が返す順は、Windows では名前順だが、macOS と Linux では決まっていない）
                 if not e.is_file(follow_symlinks=False):
                     continue
                 fn = e.name
@@ -73,11 +73,16 @@ def register(project, found, progress=None) -> dict:
     # 保存用の変換で置き換えたあとに残した元のファイル（AVI）は、もう対象にしない
     converted = {rel_key(r[0]) for r in db.q("SELECT orig_rel_path FROM items WHERE orig_rel_path IS NOT NULL")}
     seen = set()
-    new_rows, changed, back = [], [], []
+    new_rows, changed, back, same_name = [], [], [], []
     now = now_iso()
     for rp, fn, k, folder, size, mtime in found:
         rk = rel_key(rp)
         if rk in converted:
+            continue
+        if rk in seen:
+            # 大文字と小文字だけが違う名前（IMG_0001.AVI と img_0001.avi、ST01 と st01）。名前の大文字と小文字を区別する置き場（Linux など）でだけ起きる。
+            # 対象は小文字にした名前（rel_key）で見分けるので、名前順で先の 1 つだけを登録する（前は、登録が UNIQUE の違反で丸ごと失敗して、1 件も入らなかった）
+            same_name.append(rp)
             continue
         seen.add(rk)
         ex = existing.get(rk)
@@ -103,7 +108,10 @@ def register(project, found, progress=None) -> dict:
         if gone:
             c.executemany("UPDATE items SET missing=1 WHERE id=?", [(i,) for i in gone])
     db.set_meta("last_scan", now)
-    return dict(found=len(found), added=len(new_rows), back=len(back), changed=len(changed), gone=len(gone))
+    if same_name:
+        log.warning("大文字と小文字だけが違う名前のファイルが %d 件あります。名前順で先のものだけを登録しました（登録しなかったもの: %s%s）",
+                    len(same_name), "、".join(same_name[:5]), " ほか" if len(same_name) > 5 else "")
+    return dict(found=len(found), added=len(new_rows), back=len(back), changed=len(changed), gone=len(gone), same_name=len(same_name))
 
 
 def apply_pattern(project) -> int:

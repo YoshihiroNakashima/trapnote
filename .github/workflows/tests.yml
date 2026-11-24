@@ -1,6 +1,5 @@
-# Runs the automated tests (pytest) on every push to main and on pull requests.
-# The tests use stand-in models and small generated files, so they need neither a GPU
-# nor the MegaDetector and SpeciesNet models. Only the packages below are installed.
+# 試験（pytest）と、偽のモデルでの通しの確認を、Windows、macOS、Linux で流す。main に上げるたびに動く（数分）。
+# torch やモデルは入れない（試験は、偽のモデルで動く）。本物のモデルでの確認は install.yml
 name: tests
 
 on:
@@ -14,25 +13,42 @@ permissions:
 
 jobs:
   pytest:
-    name: pytest (Windows, Python 3.11)
-    runs-on: windows-latest
-    timeout-minutes: 20
+    name: pytest (${{ matrix.os }}, Python 3.11)
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
       - name: Install the packages that the tests need
         run: python -m pip install aiohttp pillow numpy opencv-python-headless imageio-ffmpeg send2trash pytest
-      # Some tests compare TrapNote's own reading of video headers with ffprobe. They are skipped without it.
+
+      # ffprobe を使う試験があるので、FFmpeg を入れる（アプリ自体は、imageio-ffmpeg の ffmpeg だけでも動く）
       - name: Install FFmpeg (ffmpeg and ffprobe)
-        run: choco install ffmpeg --no-progress -y
-      # Two tests are left out here. They check that a new thread starts at normal disk priority,
-      # but GitHub's Windows runners start jobs at low disk priority, so the check cannot hold on them.
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            choco install ffmpeg --no-progress -y
+          elif [ "$RUNNER_OS" = "macOS" ]; then
+            brew install ffmpeg
+          else
+            sudo apt-get update
+            sudo apt-get install -y ffmpeg
+          fi
+
       - name: Run the tests
         env:
-          TRAPNOTE_DATA_DIR: ${{ runner.temp }}\trapnote-data
-        run: >
-          python -m pytest tests -q -rs
-          --deselect tests/test_background_priority.py::test_background_thread_lowers_io_priority
-          --deselect tests/test_background_priority.py::test_copy_many_lowers_only_while_viewing
+          TRAPNOTE_DATA_DIR: ${{ runner.temp }}/trapnote-data
+        run: python -m pytest tests -q -rs
+
+      - name: Run the whole workflow with stand-in models
+        run: python tests/e2e/run_e2e.py --work "$RUNNER_TEMP/e2e" --fake
