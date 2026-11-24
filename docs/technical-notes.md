@@ -596,6 +596,11 @@ YOLO の書き出しは `tests/test_yolo_export.py`（OpenCV で作る小さな 
   同じ入力に対する自動判定の結果（ファイルごとの第 1 候補の種と、枠の数）が 6 つの環境で一致した。Intel の Mac では、`torch>=2.6` が配られていないので、環境を作れない（確かめた）。
 - ここで確かめられないこと: NVIDIA の GPU での動作、Apple の GPU（MPS）での動作（GitHub の Mac では MPS が使えない。実機の Mac では、既定の「自動」で MPS が選ばれる）、
   Windows 10・11 の机上の PC での新規のインストール、画面（ブラウザ）の操作。MPS にない演算で止まらないように、`trapnote/__init__.py` で `PYTORCH_ENABLE_MPS_FALLBACK=1` を既定にしてある。
+- NVIDIA の GPU がある Windows の PC では、インストーラが、torch と torchvision を CUDA 12.8 用の置き場から入れ直す（PyPI の新しい torch は、Windows では CPU 版のため）。
+  GitHub の計算機ではこの分岐を通らないので、install.yml の Windows のジョブの 1 つで、同じ命令を流してから通しの確認をしている（その版の組み合わせで動くことの確認。GPU での計算は確かめられない）。
+- 気づいたが直していないこと: macOS では、Finder で作ったフォルダの名前のうち、濁点のある仮名やアクセント付きの文字が、分解された形（NFD）で保存されることがある。
+  TrapNote は名前を正規化しないので、地点や調査回の名前が、その形のまま data.sqlite と CSV に入る（見た目は同じだが、ほかの表の名前と一致しない）。Mac の実機では確かめていない。
+  直すなら、パターンから取り出す名前を NFC にそろえ、すでにあるプロジェクトの名前（items、catalog、学習の記録、設定）も移行する。
 
 ## ライセンス
 

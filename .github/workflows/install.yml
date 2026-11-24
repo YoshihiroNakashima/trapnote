@@ -23,13 +23,17 @@ env:
 
 jobs:
   windows:
-    name: installer (${{ matrix.os }})
+    name: installer (${{ matrix.os }}${{ matrix.torch == 'cu128' && ', PyTorch as on a PC with an NVIDIA GPU' || '' }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 150
     strategy:
       fail-fast: false
       matrix:
         os: [windows-latest, windows-2022]
+        torch: [default]
+        include:
+          - os: windows-latest
+            torch: cu128
     steps:
       - uses: actions/checkout@v4
 
@@ -80,6 +84,20 @@ jobs:
           Write-Host "desktop icon: $lnk"
           Get-PSDrive C | Format-Table Name, Used, Free
 
+      # NVIDIA の GPU がある PC では、インストーラが、torch と torchvision を CUDA 12.8 用の置き場から入れ直す（TrapNoteSetup.cs の 4/5。
+      # PyPI の新しい torch は、Windows では CPU 版なので、GPU のある PC では、いつもこの分岐を通る）。GitHub の計算機には GPU がなく、
+      # その分岐を通らないので、同じ命令をここで流して、その組み合わせ（torch と torchvision の版が、ほかのパッケージより古くなる）で、
+      # 最後まで動くかを確かめる。GPU での計算そのものは、ここでは確かめられない
+      - name: Reinstall PyTorch as the installer does on a PC with an NVIDIA GPU
+        if: matrix.torch == 'cu128'
+        shell: pwsh
+        run: |
+          $py = 'C:\TrapNote\miniforge3\envs\trapnote\python.exe'
+          & $py -m pip install --upgrade --force-reinstall --no-deps --index-url https://download.pytorch.org/whl/cu128 torch torchvision
+          if ($LASTEXITCODE -ne 0) { throw "pip could not install the CUDA build of PyTorch" }
+          & $py -c "import torch, torchvision; print('torch', torch.__version__, '| torchvision', torchvision.__version__, '| built for CUDA', torch.version.cuda, '| CUDA available:', torch.cuda.is_available())"
+          if ($LASTEXITCODE -ne 0) { throw "PyTorch does not load after the reinstall" }
+
       - name: Run TrapNote from start to finish with the real models (CPU)
         shell: pwsh
         run: |
@@ -97,7 +115,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: logs-${{ matrix.os }}
+          name: logs-${{ matrix.os }}-${{ matrix.torch }}
           if-no-files-found: ignore
           path: |
             C:\TrapNote\install.log
